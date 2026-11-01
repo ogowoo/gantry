@@ -179,7 +179,10 @@ class ApiProvider:
         self.json_mode = str(cfg.get("json_mode", "auto")).lower()
         # 协议类型：openai（默认，/chat/completions）或 anthropic（/v1/messages）
         self.api = str(cfg.get("api", "openai")).lower()
-        self.max_tokens = int(cfg.get("max_tokens", 8192) or 8192)
+        # 0 = **不发 max_tokens**（让服务端用自己的默认值；有的网关不认这个字段）。
+        # 注意不能用 `or 8192`：那样 0 会被当成"没配"，永远发 8192。
+        raw_max = cfg.get("max_tokens", 8192)
+        self.max_tokens = int(raw_max) if raw_max not in (None, "") else 8192
         # 代理：显式 proxy 优先；否则 use_system_proxy（默认开）时用系统代理。
         # 关掉可强制直连（代理本身故障时用）。
         self.proxy = str(cfg.get("proxy") or "").strip() or None
@@ -302,7 +305,7 @@ class ApiProvider:
                        response_schema: dict[str, Any] | None = None) -> str:
         self.require_ready()
         if self.api == "anthropic":
-            body = self._anthropic_body(model, messages, self.max_tokens, stream=False)
+            body = self._anthropic_body(model, messages, self.max_tokens or 8192, stream=False)
             try:
                 async with self._client() as client:
                     resp = await client.post("/v1/messages", json=body)
@@ -314,6 +317,11 @@ class ApiProvider:
             except Exception as exc:
                 raise ProviderError(f"响应格式异常: {exc}") from exc
         payload: dict[str, Any] = {"model": model, "messages": messages, "stream": False}
+        # max_tokens 以前只给 anthropic 用，OpenAI 协议这边**从没发出去**过：
+        # 思考型模型（Qwen3.5 等）会把服务端默认预算全花在 reasoning 上，
+        # content 直接为空（本地 Ollama 实测：默认预算下只回 reasoning）。
+        if self.max_tokens:
+            payload["max_tokens"] = int(self.max_tokens)
         payload.update(self._json_hint(response_schema))
         # 先按配置（可能含自动探测到的系统代理）请求；传输层失败且代理是**自动探测**
         # 来的，再直连重试一次——避免"系统代理存在但连不上"把可用服务判死。
@@ -334,9 +342,22 @@ class ApiProvider:
                 continue
             self._check_status(resp)
             try:
-                return resp.json()["choices"][0]["message"].get("content") or ""
+                message = resp.json()["choices"][0]["message"]
             except Exception as exc:
                 raise ProviderError(f"响应格式异常: {exc}") from exc
+            content = str(message.get("content") or "")
+            if content:
+                return content
+            # 只拿到思考过程：把"为什么空 + 怎么改"直接写进错误，别再让上层猜
+            think = str(message.get("reasoning") or message.get("reasoning_content") or "")
+            if think:
+                raise ProviderError(
+                    f"{self.name}/{model} 只返回了思考过程（reasoning），正文为空。"
+                    f"多半是 max_tokens 太小（当前 {self.max_tokens}）被思考吃光了，"
+                    f"或这是思考型模型。处理：把 config.json 里 "
+                    f"providers.{self.name}.max_tokens 调大（例如 4096），"
+                    f"或换一个非思考模型。")
+            raise ProviderError(f"{self.name}/{model} 返回空正文（响应里既没有 content 也没有 reasoning）")
         raise ProviderUnavailable(self.net_error_text(last_exc)) from last_exc
 
     async def stream(self, model: str, messages: list[dict[str, str]],
@@ -349,7 +370,7 @@ class ApiProvider:
         """
         self.require_ready()
         if self.api == "anthropic":
-            body = self._anthropic_body(model, messages, self.max_tokens, stream=True)
+            body = self._anthropic_body(model, messages, self.max_tokens or 8192, stream=True)
             try:
                 async with self._client() as client:
                     async with client.stream("POST", "/v1/messages", json=body) as resp:

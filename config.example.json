@@ -137,6 +137,17 @@
       ],
       "json_mode": "json_schema",
       "description": "OpenAI 官方（支持 json_schema 约束输出）"
+    },
+    "ollama": {
+      "base_url": "http://127.0.0.1:11434/v1",
+      "api_key": "ollama",
+      "models": [
+        "qwen3:8b"
+      ],
+      "description": "本地 Ollama（OpenAI 兼容层；思考型模型请把 max_tokens 调大）",
+      "json_mode": "json_object",
+      "max_tokens": 4096,
+      "timeout_seconds": 600
     }
   },
   "markers": {

@@ -109,6 +109,26 @@ $env:DEEPSEEK_API_KEY="sk-..."   # 或 MOONSHOT_API_KEY / OPENAI_API_KEY / XAI_A
 
 未設定 Key 的模型在 `/v1/models` 裡會標註「（未設定 API Key）」。
 
+> **本地 Ollama**（不連網、不花錢）：Ollama 自帶 OpenAI 相容層，直接指過去即可。
+
+```json
+"providers": {
+  "ollama": {
+    "base_url": "http://127.0.0.1:11434/v1",
+    "api_key": "ollama",
+    "models": ["qwen3:8b"],
+    "description": "本地 Ollama",
+    "json_mode": "json_object",
+    "max_tokens": 4096,
+    "timeout_seconds": 600
+  }
+}
+```
+
+模型 ID 形如 `ollama/qwen3:8b`。**思考型模型**會先吐一大段 reasoning，`max_tokens` 太小
+就只會有思考沒有正文（服務會明確提示調大）。4B 級思考模型做單輪對話可以，
+Agent 工具循環不可靠——請換 8B 以上的指令模型。
+
 > 想把 **DeepSeek 網頁版**也當模型用（免費/備用）：見[三種接法與已落地的外掛](docs/PROVIDER-deepseek-web.md)——起一個反向代理 + 啟用 `deepseek-web` 外掛即可，模型 ID 形如 `dsweb/deepseek-reasoner`。自訂任意 OpenAI 相容供應商（含自建閘道）：
 
 ```json
