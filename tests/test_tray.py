@@ -259,7 +259,8 @@ class HangDumpTests(unittest.TestCase):
 
     def test_start_has_hang_dump(self):
         self.assertIn("GANTRY_FAULTHANDLER", START_SRC)
-        self.assertIn("dump_traceback_later", START_SRC)
+        self.assertIn("dump_traceback(file=handle, all_threads=True)", START_SRC,
+                      "要真打线程栈，而不是只建个空文件")
         self.assertIn("hang.txt", START_SRC)
         self.assertIn("_install_hang_dump()", START_SRC)
 
@@ -281,15 +282,17 @@ class HangDumpTests(unittest.TestCase):
             start._install_hang_dump()
             f = tmp / "data" / "logs" / "hang.txt"
             self.assertTrue(f.is_file(), "开了开关就该有 hang.txt")
-            self.assertIn("开始监控", f.read_text(encoding="utf-8"))
+            body = f.read_text(encoding="utf-8")
+            self.assertIn("监控开始", body)
+            self.assertIn("每 60s", body)
         finally:
-            globals_handle = getattr(start, "_hang_handle", None)
-            if globals_handle is not None:
+            stop = getattr(start, "_hang_stop", None)
+            if stop is not None:
+                stop.set()                           # 让守护线程退出
+            handle = getattr(start, "_hang_handle", None)
+            if handle is not None:
                 try:
-                    import faulthandler
-
-                    faulthandler.cancel_dump_traceback_later()
-                    globals_handle.close()
+                    handle.close()
                 except Exception:                    # noqa: BLE001
                     pass
             start.BASE = old_base
