@@ -8,7 +8,7 @@
 
 > **Works without Copilot**: the browser starts on demand — service startup never touches the browser, and the WebUI plus provider models (DeepSeek/Kimi/OpenAI, etc.) are usable immediately; the browser is only launched when Copilot is actually needed, and a status with a "Retry browser" button is shown at the top of the UI. **Note**: in lazy mode, the first Copilot task after a restart must wait for the browser to launch and for SSO (can take several minutes on enterprise tenants); that waiting time does not count toward the task timeout. Provider models are unaffected.
 
-> **Version**: the `main` branch is currently **11.0.0-preview.40** (the multi-window parallel preview line has been merged in).
+> **Version**: the `main` branch is currently **11.0.0-preview.41** (the multi-window parallel preview line has been merged in).
 > The old stable line is archived at tag `v10.2.1-archive` / branch `archive/10.2.1-stable`.
 > For versioning rules, release process, and multi-machine collaboration conventions, see [docs/VERSIONING.md](docs/VERSIONING.md);
 > for changes in each release, see [CHANGELOG.md](CHANGELOG.md).
@@ -108,6 +108,29 @@ $env:DEEPSEEK_API_KEY="sk-..."   # or MOONSHOT_API_KEY / OPENAI_API_KEY / XAI_AP
 ```
 
 Models without a configured key are marked "(API Key not configured)" in `/v1/models`.
+
+> **Local Ollama** (no network, no cost): Ollama ships an OpenAI-compatible endpoint — point at it.
+
+```json
+"providers": {
+  "ollama": {
+    "base_url": "http://127.0.0.1:11434/v1",
+    "api_key": "ollama",              // not checked locally, but clients require one
+    "models": ["qwen3:8b"],           // names from `ollama list`
+    "description": "Local Ollama",
+    "json_mode": "json_object",
+    "max_tokens": 4096,               // reasoning models need headroom, else empty content
+    "timeout_seconds": 600
+  }
+}
+```
+
+Model ids look like `ollama/qwen3:8b`. **Thinking models** (Qwen3.5, DeepSeek-R1…) emit a long
+`reasoning` block first; with a small `max_tokens` you get reasoning but no answer — the service
+now reports exactly that and tells you to raise `max_tokens`. Measured: a 4B thinking model is fine
+for **single-turn chat** (20–60 s per turn) but unreliable for the **agent tool loop** (it invents
+arguments, empty tool names, even fake final answers) — use an 8B+ instruct model for agent work.
+
 
 > Want to use the **DeepSeek web app** as a model too (free/fallback): see [three integration approaches and the shipped plugin](docs/PROVIDER-deepseek-web.md) — just run a reverse proxy and enable the `deepseek-web` plugin; model IDs look like `dsweb/deepseek-reasoner`. To define any custom OpenAI-compatible provider (including a self-hosted gateway):
 

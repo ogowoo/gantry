@@ -109,6 +109,30 @@ $env:DEEPSEEK_API_KEY="sk-..."   # 或 MOONSHOT_API_KEY / OPENAI_API_KEY / XAI_A
 
 未配置 Key 的模型在 `/v1/models` 里会标注"（未配置 API Key）"。
 
+> **本地 Ollama**（不联网、不花钱）：Ollama 自带 OpenAI 兼容层，直接指过去即可。
+
+```json
+"providers": {
+  "ollama": {
+    "base_url": "http://127.0.0.1:11434/v1",
+    "api_key": "ollama",              // 本地不校验，但客户端要求非空
+    "models": ["qwen3:8b"],           // 写 `ollama list` 里的名字
+    "description": "本地 Ollama",
+    "json_mode": "json_object",
+    "max_tokens": 4096,               // 思考型模型要给足，否则正文为空
+    "timeout_seconds": 600
+  }
+}
+```
+
+模型 ID 形如 `ollama/qwen3:8b`。**思考型模型**（Qwen3.5 / DeepSeek-R1 等）会先吐
+一大段 reasoning：`max_tokens` 太小就会"只有思考、没有正文"，服务会明确报
+"只返回了思考过程（reasoning），正文为空"并提示调大 `max_tokens`。
+实测：4B 级思考模型做**单轮对话**没问题（20–60 秒/轮），但 **Agent 工具循环不靠谱**
+（会自己编参数、空工具名、直接编造 final 结果）——要做 Agent 任务请换 8B 以上的
+指令模型（如 `qwen3:8b`、`llama3.1:8b`）。
+
+
 > 想把 **DeepSeek 网页版**也当模型用（免费/备用）：见 [三种接法与已落地的插件](docs/PROVIDER-deepseek-web.md)——起一个反代 + 启用 `deepseek-web` 插件即可，模型 ID 形如 `dsweb/deepseek-reasoner`。自定义任意 OpenAI 兼容提供商（含自建网关）：
 
 ```json

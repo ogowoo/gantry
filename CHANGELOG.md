@@ -14,6 +14,48 @@
 ### Fixed
 - 
 
+## [11.0.0-preview.41] - 2026-11-01
+
+### Added
+
+- **本地 Ollama 作为提供商接好了**（用户："本地有 ollama，帮忙看看配置一下做下测试"）。
+  `config.json` 新增：
+
+  ```json
+  "providers": {
+    "ollama": {
+      "base_url": "http://127.0.0.1:11434/v1",
+      "api_key": "ollama",
+      "models": ["fredrezones55/Qwen3.5-Uncensored-HauhauCS-Aggressive:4b"],
+      "json_mode": "json_object",
+      "max_tokens": 4096,
+      "timeout_seconds": 600
+    }
+  }
+  ```
+  模型 ID 是 `ollama/<模型名>`；`config.example.json` 与三语 README 都补了 Ollama 段。
+
+### Fixed
+
+- **OpenAI 协议从来没发过 `max_tokens`**（只有 anthropic 分支用）：思考型模型（Qwen3.5 等）
+  会把服务端默认预算全烧在 reasoning 上，`content` 直接为空。本地 Ollama 实测：
+  默认预算下只回 reasoning；**配 `max_tokens: 4096` 后正常出正文**。
+  现在 OpenAI 请求体按配置带 `max_tokens`，显式写 `0` 表示**不发**该字段
+  （有些网关不认它）；`max_tokens` 缺省 8192。
+- **只拿到 reasoning 时报错可行动**：以前 `content` 为空就直接返回空字符串，agent 侧只看到
+  "模型不返回动作"。现在报"只返回了思考过程（reasoning），正文为空……把
+  providers.<名字>.max_tokens 调大（当前 N）"，`reasoning` / `reasoning_content` 两种字段名都认。
+
+### 实测
+
+- `GET /v1/models` 出现 `ollama/fredrezones55/Qwen3.5-…:4b`（`available: true`）；
+  `python scripts/provider_selftest.py --provider ollama` → 经代理/直连都 HTTP 200（0.4–0.6s）。
+- `POST /v1/chat/completions`（经本服务）→ 25 秒，`1+1 等于 2。`，正文正常。
+- **Agent 工具循环这个 4B 思考模型撑不住**（如实记录）：8 步连续失败——自己编
+  `recursive`/`max_depth`/`extensions` 参数、两次空工具名、甚至直接编造 final 结果不调用工具。
+  单轮 20–60 秒。建议 Agent 任务换 8B 以上的指令模型（`qwen3:8b` / `llama3.1:8b`）。
+- 单测 **1308**（skipped=1）OK（新增 `tests/test_provider_max_tokens.py` 7 条）；不变量 25 条全绿。
+
 ## [11.0.0-preview.40] - 2026-11-01
 
 ### Fixed
