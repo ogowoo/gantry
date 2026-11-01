@@ -250,6 +250,55 @@ class CrashLogTests(unittest.TestCase):
                           f"{lang} 的失败提示要指向 crash.log")
 
 
+class HangDumpTests(unittest.TestCase):
+    """卡死 ≠ 崩溃：crash.log 只在异常时写，卡住要靠 faulthandler 吐栈。
+
+    2026-11-02 重启后进程停在 uvicorn 的 "Waiting for application startup"，后台模式
+    没有 stderr、crash.log 也是空的，只能干瞪眼——所以加了这个**按需开启**的诊断。
+    """
+
+    def test_start_has_hang_dump(self):
+        self.assertIn("GANTRY_FAULTHANDLER", START_SRC)
+        self.assertIn("dump_traceback_later", START_SRC)
+        self.assertIn("hang.txt", START_SRC)
+        self.assertIn("_install_hang_dump()", START_SRC)
+
+    def test_opt_in_only(self):
+        """默认**不**开（不然每个进程都多根监控线程/定时器）。"""
+        import os
+        import tempfile
+
+        import start
+
+        old_base, old_env = start.BASE, os.environ.pop("GANTRY_FAULTHANDLER", None)
+        tmp = Path(tempfile.mkdtemp(prefix="gantry_hang_"))
+        start.BASE = tmp
+        try:
+            start._install_hang_dump()               # 没设环境变量 → 什么都不做
+            self.assertFalse((tmp / "data" / "logs" / "hang.txt").exists())
+
+            os.environ["GANTRY_FAULTHANDLER"] = "1"
+            start._install_hang_dump()
+            f = tmp / "data" / "logs" / "hang.txt"
+            self.assertTrue(f.is_file(), "开了开关就该有 hang.txt")
+            self.assertIn("开始监控", f.read_text(encoding="utf-8"))
+        finally:
+            globals_handle = getattr(start, "_hang_handle", None)
+            if globals_handle is not None:
+                try:
+                    import faulthandler
+
+                    faulthandler.cancel_dump_traceback_later()
+                    globals_handle.close()
+                except Exception:                    # noqa: BLE001
+                    pass
+            start.BASE = old_base
+            if old_env is None:
+                os.environ.pop("GANTRY_FAULTHANDLER", None)
+            else:
+                os.environ["GANTRY_FAULTHANDLER"] = old_env
+
+
 class LogTests(unittest.TestCase):
     def test_setup_logging_writes_file_and_is_idempotent(self):
         from gantry import logcfg

@@ -129,6 +129,11 @@ $env:DEEPSEEK_API_KEY="sk-..."   # 或 MOONSHOT_API_KEY / OPENAI_API_KEY / XAI_A
 就只會有思考沒有正文（服務會明確提示調大）。4B 級思考模型做單輪對話可以，
 Agent 工具循環不可靠——請換 8B 以上的指令模型。
 
+> **FastFlowLM（NPU 本地推理，DeepSeek-R1 8B）**：`flm serve deepseek-r1-0528:8b` 起服務
+> （預設埠 52625，`flm list` 看模型），再當一般 OpenAI 相容提供商即可，模型 ID 形如
+> `fflm/deepseek-r1-0528:8b`。實測：單輪對話 27 秒；一次"列目錄 + 回報"的 Agent 任務
+> **1 步**完成。
+
 > 想把 **DeepSeek 網頁版**也當模型用（免費/備用）：見[三種接法與已落地的外掛](docs/PROVIDER-deepseek-web.md)——起一個反向代理 + 啟用 `deepseek-web` 外掛即可，模型 ID 形如 `dsweb/deepseek-reasoner`。自訂任意 OpenAI 相容供應商（含自建閘道）：
 
 ```json

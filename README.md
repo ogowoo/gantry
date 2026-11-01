@@ -8,7 +8,7 @@
 
 > **Works without Copilot**: the browser starts on demand — service startup never touches the browser, and the WebUI plus provider models (DeepSeek/Kimi/OpenAI, etc.) are usable immediately; the browser is only launched when Copilot is actually needed, and a status with a "Retry browser" button is shown at the top of the UI. **Note**: in lazy mode, the first Copilot task after a restart must wait for the browser to launch and for SSO (can take several minutes on enterprise tenants); that waiting time does not count toward the task timeout. Provider models are unaffected.
 
-> **Version**: the `main` branch is currently **11.0.0-preview.41** (the multi-window parallel preview line has been merged in).
+> **Version**: the `main` branch is currently **11.0.0-preview.42** (the multi-window parallel preview line has been merged in).
 > The old stable line is archived at tag `v10.2.1-archive` / branch `archive/10.2.1-stable`.
 > For versioning rules, release process, and multi-machine collaboration conventions, see [docs/VERSIONING.md](docs/VERSIONING.md);
 > for changes in each release, see [CHANGELOG.md](CHANGELOG.md).
@@ -130,6 +130,29 @@ Model ids look like `ollama/qwen3:8b`. **Thinking models** (Qwen3.5, DeepSeek-R1
 now reports exactly that and tells you to raise `max_tokens`. Measured: a 4B thinking model is fine
 for **single-turn chat** (20–60 s per turn) but unreliable for the **agent tool loop** (it invents
 arguments, empty tool names, even fake final answers) — use an 8B+ instruct model for agent work.
+
+> **FastFlowLM (NPU local inference, DeepSeek-R1 8B)**: run `flm serve deepseek-r1-0528:8b`
+> (default port 52625, `flm list` for available models), then treat it as any OpenAI-compatible
+> provider:
+
+```json
+"providers": {
+  "fflm": {
+    "base_url": "http://127.0.0.1:52625/v1",
+    "api_key": "flm",
+    "models": ["deepseek-r1-0528:8b", "deepseek-r1:8b"],
+    "description": "FastFlowLM (NPU)",
+    "json_mode": "json_object",
+    "max_tokens": 4096,
+    "timeout_seconds": 600
+  }
+}
+```
+
+Model ids look like `fflm/deepseek-r1-0528:8b`. Measured (~10 tok/s on NPU): 27 s for a single
+chat turn; a "list the directory and report" agent task finished in **1 step** with correct tool
+arguments. R1 is a reasoning model but **does return content**; first load takes ~15 s, then the
+prefix cache kicks in.
 
 
 > Want to use the **DeepSeek web app** as a model too (free/fallback): see [three integration approaches and the shipped plugin](docs/PROVIDER-deepseek-web.md) — just run a reverse proxy and enable the `deepseek-web` plugin; model IDs look like `dsweb/deepseek-reasoner`. To define any custom OpenAI-compatible provider (including a self-hosted gateway):

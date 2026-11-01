@@ -132,6 +132,27 @@ $env:DEEPSEEK_API_KEY="sk-..."   # 或 MOONSHOT_API_KEY / OPENAI_API_KEY / XAI_A
 （会自己编参数、空工具名、直接编造 final 结果）——要做 Agent 任务请换 8B 以上的
 指令模型（如 `qwen3:8b`、`llama3.1:8b`）。
 
+> **FastFlowLM（NPU 本地推理，DeepSeek-R1 8B）**：装好后 `flm serve deepseek-r1-0528:8b`
+> 起服务（默认端口 52625，`flm list` 看可用模型），再把它当普通 OpenAI 兼容提供商即可：
+
+```json
+"providers": {
+  "fflm": {
+    "base_url": "http://127.0.0.1:52625/v1",
+    "api_key": "flm",
+    "models": ["deepseek-r1-0528:8b", "deepseek-r1:8b"],
+    "description": "FastFlowLM（NPU）",
+    "json_mode": "json_object",
+    "max_tokens": 4096,
+    "timeout_seconds": 600
+  }
+}
+```
+
+模型 ID 形如 `fflm/deepseek-r1-0528:8b`。实测（NPU，约 10 tok/s）：普通对话 27 秒；
+一次"列目录 + 汇报"的 Agent 任务 **1 步**完成（工具参数没乱编）。R1 是思考型，但**会正常
+返回正文**；首次加载模型约 15 秒，之后靠 `flm_prefix_cache` 复用。
+
 
 > 想把 **DeepSeek 网页版**也当模型用（免费/备用）：见 [三种接法与已落地的插件](docs/PROVIDER-deepseek-web.md)——起一个反代 + 启用 `deepseek-web` 插件即可，模型 ID 形如 `dsweb/deepseek-reasoner`。自定义任意 OpenAI 兼容提供商（含自建网关）：
 

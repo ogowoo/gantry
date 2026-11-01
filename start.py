@@ -223,6 +223,30 @@ def print_menu(lang: str | None = None) -> int:
     return 0
 
 
+def _install_hang_dump() -> None:
+    """`GANTRY_FAULTHANDLER=1` 时，每 60 秒把所有线程的调用栈写进 data/logs/hang.txt。
+
+    为什么需要：**卡住不等于崩溃**。2026-11-02 重启后进程停在 uvicorn 的
+    "Waiting for application startup"，crash.log 里什么都没有（excepthook 只在异常时触发）。
+    有了这个开关，直接能看到卡在哪个函数——后台模式没有终端，否则只能靠猜。
+    """
+    if (os.environ.get("GANTRY_FAULTHANDLER") or "") != "1":
+        return
+    try:
+        import faulthandler
+
+        path = BASE / "data" / "logs" / "hang.txt"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        handle = path.open("a", buffering=1, encoding="utf-8")
+        handle.write(f"\n===== 开始监控 {time.strftime('%Y-%m-%d %H:%M:%S')} "
+                     f"(pid={os.getpid()}) =====\n")
+        # 每 60s 打一次；写入文件（后台模式的 stderr 是 DEVNULL）
+        faulthandler.dump_traceback_later(60, repeat=True, file=handle)
+        globals()["_hang_handle"] = handle          # 保引用，别被 GC 关掉
+    except Exception:                                # noqa: BLE001
+        pass
+
+
 def _install_crash_log() -> Path:
     """兜底：异常时把 traceback 写进 data/logs/crash.log。
 
@@ -277,6 +301,7 @@ def _utf8_stdio() -> None:
 def main(argv: list[str]) -> int:
     _utf8_stdio()
     _install_crash_log()
+    _install_hang_dump()
     from gantry.logcfg import setup_logging
 
     tray_child = ("--tray-child" in argv) or (os.environ.get("GANTRY_TRAY_CHILD") == "1")

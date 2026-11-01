@@ -14,6 +14,36 @@
 ### Fixed
 - 
 
+## [11.0.0-preview.42] - 2026-11-02
+
+### Added
+
+- **接入 FastFlowLM（NPU 本地推理，DeepSeek-R1 8B）**（用户："再加一个
+  http://127.0.0.1:52625/v1 FastFlowLM 的，里面有 deepseek 8B 的，试下"）。
+  `config.json` / `config.example.json` 新增 `providers.fflm`：`base_url` 指向 52625 的
+  OpenAI 兼容层，`models: ["deepseek-r1-0528:8b", "deepseek-r1:8b"]`，`json_mode: json_object`
+  （实测支持），`max_tokens: 4096`、`timeout_seconds: 600`（R1 会先思考）。三语 README 补说明。
+  注意：**服务不会自己起来**，需要 `flm serve deepseek-r1-0528:8b`（默认端口 52625）；
+  本次已用它起在后台（日志 `%TEMP%\fflm-out.log`）。
+
+### Fixed
+
+- **进程"卡死"没有任何痕迹**：`GANTRY_FAULTHANDLER=1` 时每 60 秒把所有线程栈写进
+  `data/logs/hang.txt`。2026-11-02 重启后进程停在 uvicorn 的 "Waiting for application startup"，
+  后台模式没有 stderr、`crash.log` 也是空的（excepthook 只在异常时触发），只能干瞪眼。
+
+### 实测
+
+- FastFlowLM 两个 8B 都能用（NPU，约 10 tok/s）：`deepseek-r1-0528:8b` 单轮 **25.5s**、
+  `deepseek-r1:8b` 首轮 94s（含 15s 加载）；两者都**同时返回 reasoning 和 content**
+  （R1 是思考型但不吞正文），`response_format: json_object` 也支持（25s 返回合法 JSON）。
+- 经 Gantry 跑：`/v1/chat/completions` → 27s，`1+1 等于 2。`；
+  **Agent 任务**（列出工作区文件并汇报）→ **70s、1 步完成**，`list_directory` 参数正确、
+  用的是真实列表（总条目 10 对得上；把"6 目录 / 4 文件"数成了 7/3，小模型的算术抖动）。
+  对比 Ollama 那个 4B：8 步连挂、还编造文件名——**8B 在 NPU 上明显可用**。
+- `GET /v1/models` 出现 `fflm/deepseek-r1-0528:8b`、`fflm/deepseek-r1:8b`（available）。
+- 单测 **1310**（skipped=1）OK（test_tray 26 条，+2 条卡死监控）；不变量 25 条全绿。
+
 ## [11.0.0-preview.41] - 2026-11-01
 
 ### Added
