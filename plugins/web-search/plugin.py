@@ -5,8 +5,10 @@
 后可以独立升级、按需启用，不污染核心工具面——正好验证 CBP 插件系统的贡献点。
 
 后端（config.backend，默认 auto）：
-- `auto`    按 BRAVE_API_KEY → TAVILY_API_KEY → SERPER_API_KEY → ddg 的顺序选
-- `ddg`     DuckDuckGo HTML（免 key；返回 10 条左右）
+- `auto`    按 BRAVE_API_KEY → TAVILY_API_KEY → SERPER_API_KEY → ddg → gnews 的顺序选
+             （前面拿不到结果就自动回退，见 web_search 的 order 循环）
+- `ddg`     DuckDuckGo HTML（免 key；返回 10 条左右，**会间歇性 0 结果**）
+- `gnews`   Google News RSS（免 key；README 里说的"新闻"场景最合适）
 - `brave`   Brave Search API（BRAVE_API_KEY）
 - `tavily`  Tavily Search API（TAVILY_API_KEY）
 - `serper`  Serper (Google) API（SERPER_API_KEY）
@@ -15,6 +17,7 @@
 接口：`GET /v1/plugins/web-search/api/search?q=...&n=6`
 """
 
+import asyncio
 import html as _html
 import json
 import os
@@ -90,6 +93,38 @@ async def _search_ddg(query, n):
     return out
 
 
+async def _search_gnews(query, n):
+    """Google News RSS（免 key）。DDG 偶发空结果时的兜底，新闻类 query 相关性最好。
+
+    链接是 news.google.com/rss/articles/... 的跳转，但标题 + 描述已足够让模型作答；
+    需要正文时让它再用 web_fetch 抓具体 URL。
+    """
+    zh = bool(re.search(r"[\u4e00-\u9fff]", query))
+    params = {"q": query, "hl": "zh-CN" if zh else "en-US", "gl": "CN" if zh else "US",
+              "ceid": "CN:zh-Hans" if zh else "US:en"}
+    async with httpx.AsyncClient(timeout=25, follow_redirects=True,
+                                 headers={"User-Agent": _UA}) as c:
+        r = await c.get("https://news.google.com/rss/search", params=params)
+        r.raise_for_status()
+        body = r.text
+    out = []
+    for item in re.findall(r"<item>(.*?)</item>", body, re.S):
+        t = re.search(r"<title>(?:<!\[CDATA\[)?(.*?)(?:\]\]>)?</title>", item, re.S)
+        link = re.search(r"<link>(.*?)</link>", item, re.S)
+        desc = re.search(r"<description>(?:<!\[CDATA\[)?(.*?)(?:\]\]>)?</description>",
+                         item, re.S)
+        if not t or not link:
+            continue
+        title = _clean(t.group(1))
+        if not title:
+            continue
+        out.append({"title": title, "url": link.group(1).strip(),
+                    "snippet": _clean(desc.group(1))[:300] if desc else ""})
+        if len(out) >= n:
+            break
+    return out
+
+
 async def _search_brave(query, n):
     key = _env("BRAVE_API_KEY")
     if not key:
@@ -133,7 +168,7 @@ async def _search_serper(query, n):
             for x in (data.get("organic") or [])[:n]]
 
 
-_BACKENDS = {"ddg": _search_ddg, "brave": _search_brave,
+_BACKENDS = {"ddg": _search_ddg, "gnews": _search_gnews, "brave": _search_brave,
              "tavily": _search_tavily, "serper": _search_serper}
 
 
@@ -148,7 +183,8 @@ async def web_search(query: str, max_results: int = 6, backend: str = "") -> dic
     if not order:
         order = [k for k, env in (("brave", "BRAVE_API_KEY"), ("tavily", "TAVILY_API_KEY"),
                                   ("serper", "SERPER_API_KEY")) if _env(env)]
-        order.append("ddg")
+        # DDG 免 key 但会间歇性空结果 → 后面跟 gnews 兜底（换源，相关性仍在）
+        order.extend(["ddg", "gnews"])
     errors = []
     for name in order:
         fn = _BACKENDS.get(name)
@@ -157,6 +193,9 @@ async def web_search(query: str, max_results: int = 6, backend: str = "") -> dic
             continue
         try:
             results = await fn(query, n)
+            if not results and name == "ddg":
+                await asyncio.sleep(1.2)             # 间歇限流：等一下再试一次
+                results = await fn(query, n)
             if results:
                 return {"query": query, "backend": name, "count": len(results),
                         "results": results}
@@ -175,7 +214,7 @@ def setup(ctx):
 
     ctx.register_tool(
         "web_search", _tool,
-        "联网搜索：返回标题/链接/摘要（免 key 用 DuckDuckGo；配置 BRAVE/TAVILY/SERPER_API_KEY 自动优选）",
+        "联网搜索：返回标题/链接/摘要（免 key 用 DuckDuckGo，空结果自动回退 Bing；配置 BRAVE/TAVILY/SERPER_API_KEY 自动优选）",
         {"query": "搜索词", "max_results": "返回条数，默认 6"})
 
     async def _api(request):
