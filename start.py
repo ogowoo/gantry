@@ -227,22 +227,42 @@ def _install_hang_dump() -> None:
     """`GANTRY_FAULTHANDLER=1` 时，每 60 秒把所有线程的调用栈写进 data/logs/hang.txt。
 
     为什么需要：**卡住不等于崩溃**。2026-11-02 重启后进程停在 uvicorn 的
-    "Waiting for application startup"，crash.log 里什么都没有（excepthook 只在异常时触发）。
-    有了这个开关，直接能看到卡在哪个函数——后台模式没有终端，否则只能靠猜。
+    "Waiting for application startup"，crash.log 里什么都没有（excepthook 只在异常时触发），
+    后台模式又没有 stderr —— 只能干瞪眼。
+
+    实现取舍：
+      · **覆盖写**（w）：每次进程启动是一份新文件，不会混着上次会话的栈；
+      · 自己起守护线程而不是 `dump_traceback_later`：后者只会 append，
+        开关被重启继承后会无限增长（实测每小时约 600KB）；
+      · 超过 2MB 就从头截断：只看最近一次卡住的栈，旧的不留。
     """
     if (os.environ.get("GANTRY_FAULTHANDLER") or "") != "1":
         return
     try:
         import faulthandler
+        import threading
 
         path = BASE / "data" / "logs" / "hang.txt"
         path.parent.mkdir(parents=True, exist_ok=True)
-        handle = path.open("a", buffering=1, encoding="utf-8")
-        handle.write(f"\n===== 开始监控 {time.strftime('%Y-%m-%d %H:%M:%S')} "
-                     f"(pid={os.getpid()}) =====\n")
-        # 每 60s 打一次；写入文件（后台模式的 stderr 是 DEVNULL）
-        faulthandler.dump_traceback_later(60, repeat=True, file=handle)
-        globals()["_hang_handle"] = handle          # 保引用，别被 GC 关掉
+        handle = path.open("w", buffering=1, encoding="utf-8")
+        handle.write(f"===== 监控开始 {time.strftime('%Y-%m-%d %H:%M:%S')} "
+                     f"(pid={os.getpid()}) 每 60s 打一次线程栈 =====\n")
+        stop = threading.Event()
+
+        def _loop() -> None:
+            while not stop.wait(60):
+                try:
+                    if path.stat().st_size > 2 * 1024 * 1024:
+                        handle.seek(0)
+                        handle.truncate()
+                        handle.write(f"===== 截断于 {time.strftime('%H:%M:%S')} =====\n")
+                    faulthandler.dump_traceback(file=handle, all_threads=True)
+                except Exception:                    # noqa: BLE001
+                    return
+
+        threading.Thread(target=_loop, name="gantry-hang-dump", daemon=True).start()
+        globals()["_hang_handle"] = handle           # 保引用，别被 GC 关掉
+        globals()["_hang_stop"] = stop
     except Exception:                                # noqa: BLE001
         pass
 

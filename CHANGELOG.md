@@ -14,6 +14,23 @@
 ### Fixed
 - 
 
+## [11.0.0-preview.43] - 2026-11-02
+
+### Fixed
+
+- **`hang.txt` 会无限增长**（我自己上一个版本带进来的）：`GANTRY_FAULTHANDLER=1` 用
+  `faulthandler.dump_traceback_later` + **append**，而重启会**继承环境变量**，于是每个进程
+  每 60 秒往同一个文件追加一份全线程栈（实测每小时约 600KB，且混着好几天前的会话）。
+  - 改为**每次启动覆盖写**（`w`），一份文件只对应这一次进程；
+  - 自己起守护线程每 60 秒 `dump_traceback(file=handle, all_threads=True)`；
+  - 文件超过 2MB 就从头截断——只保留最近一次卡住的栈。
+
+### 实测
+
+- 开关默认关闭：干净重启后 `data/logs/hang.txt` **不会**生成（已验证）；
+  需要排障时 `GANTRY_FAULTHANDLER=1 python start.py` 才会开。
+- 单测 **1310**（skipped=1）OK；不变量 25 条全绿。
+
 ## [11.0.0-preview.42] - 2026-11-02
 
 ### Added
