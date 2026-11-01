@@ -164,6 +164,7 @@ TEXT = {
         "visible": "可见窗口",
         "restarting": "正在重启服务…",
         "restarted": "服务已重启",
+        "restart_timeout": "60 秒内没起来，看 data/logs/crash.log",
         "failed": "操作失败",
         "no_service": "服务未响应：{err}",
         "language": "语言",
@@ -185,6 +186,7 @@ TEXT = {
         "visible": "可見視窗",
         "restarting": "正在重新啟動服務…",
         "restarted": "服務已重新啟動",
+        "restart_timeout": "60 秒內沒起來，看 data/logs/crash.log",
         "failed": "操作失敗",
         "no_service": "服務無回應：{err}",
         "language": "語言",
@@ -206,6 +208,7 @@ TEXT = {
         "visible": "visible window",
         "restarting": "Restarting the service…",
         "restarted": "Service restarted",
+        "restart_timeout": "not up within 60s — see data/logs/crash.log",
         "failed": "Action failed",
         "no_service": "Service not responding: {err}",
         "language": "Language",
@@ -616,15 +619,31 @@ class Tray:
         os.startfile(str(self.root))                    # noqa: S606
 
     def _a_restart(self) -> None:
+        """重启：POST 之后**等 /health 回来**再报成功。
+
+        以前固定 sleep 1.5s 就弹"服务已重启"——2026-11-01 那次重启后进程其实没起来，
+        托盘却说成功了（用户只能自己发现页面打不开）。现在等不到就明确报失败。
+        """
         log.info("托盘：重启服务")
         self.balloon(self.title, self.text["restarting"])
         try:
             http_json(self.base_url() + "/v1/restart", {}, timeout=20)
         except Exception as exc:                        # noqa: BLE001
-            self.balloon(self.text["failed"], str(exc)[:160], error=True)
-            return
-        time.sleep(1.5)
-        self.balloon(self.title, self.text["restarted"])
+            # 重启时连接被主动断开是正常的，继续等 /health
+            log.info("重启请求返回异常（可能是连接先断）：%s", exc)
+        deadline = time.time() + 60
+        while time.time() < deadline:
+            time.sleep(1.0)
+            try:
+                h = http_json(self.base_url() + "/health", timeout=2.0)
+                if h.get("status") == "ok":
+                    self.balloon(self.title, self.text["restarted"])
+                    log.info("托盘：服务已恢复（%s）", h.get("version") or "")
+                    return
+            except Exception:                           # noqa: BLE001
+                continue
+        self.balloon(self.text["failed"], self.text["restart_timeout"], error=True)
+        log.warning("托盘：重启后 60s 内 /health 未恢复（看 data/logs/crash.log）")
 
     def _a_lang_zh(self) -> None:
         self.set_language("zh")

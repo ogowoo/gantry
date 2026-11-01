@@ -14,27 +14,52 @@
 ### Fixed
 - 
 
-## [11.0.0-preview.39] - 2026-10-30
-
-### Added
-- 
-
-### Changed
-- 
+## [11.0.0-preview.40] - 2026-11-01
 
 ### Fixed
--
+
+- **「重启服务」之后服务再也没起来，而且没有任何日志**（2026-11-01 21:36 实测）：
+  点了重启，uvicorn 优雅停机、生命周期 `exec` 重启都跑了，然后……什么都没有。日志最后一行
+  是"正在重启服务"，新进程连"日志已就绪"都没打，只能靠猜。
+  - `start.py` 的 UTF-8 设置改成 `_utf8_stdio()`：**逐流判空 + 兜异常**
+    （`pythonw` / `DETACHED_PROCESS` 下 `sys.stdout` / `sys.stderr` 可能不可用，
+    直接 `.reconfigure()` 会在"日志还没配好"的时刻抛异常，进程静默死掉）。
+  - 新增**崩溃日志** `data/logs/crash.log`：`sys.excepthook` + `main()` 启动期兜底，
+    把 traceback 写文件——后台模式没有 stderr，不留痕就等于没发生。
+  - 托盘「重启服务」不再"睡 1.5 秒就说已重启"：现在**等 `/health` 真的 ok**（最多 60 秒），
+    等不到就弹"60 秒内没起来，看 data/logs/crash.log"并在日志里警告。
+
+### Added
+
+- `scripts/smoke_restart_action.py`：直接调用 `Tray._a_restart()` 走**菜单点下去**的同一条
+  代码路径（打桩 balloon/http），断言"先 POST /v1/restart → 再轮询 /health → 才报成功"。
+- `tests/test_tray.py` 增 4 条：崩溃日志真的写出来（含 traceback）、托盘重启必须等 /health、
+  三语言都有超时提示且指向 crash.log、start.py 装了 excepthook。
+
+### 实测
+
+- 托盘重启动作端到端：耗时 4.6 秒、3 次 HTTP（restart → health → …）、气泡
+  "正在重启服务…" → "服务已重启"，`data/logs/crash.log` 未产生。
+- 后台启动：`pythonw3.13.exe start.py`（无控制台）跑 preview.39/40，`/health` 200。
+- 单测 **1301**（skipped=1）OK；不变量 25 条全绿。
+## [11.0.0-preview.39] - 2026-10-30
+
+### Fixed
+
+- **「重启服务」会弹出控制台窗口**：`lifecycle.exec_restart()` 的 `Popen` 加
+  `creationflags=8`（`DETACHED_PROCESS`），重启出来的进程不再附着/新建控制台。
+- **重启后可能不再是托盘模式**：重启改为显式传 `GANTRY_TRAY_CHILD=1`
+  + `stdin/stdout/stderr=DEVNULL` + `close_fds=True`（原来靠环境继承，从别处启动时会丢）。
+- **托盘状态不刷新**：新增状态刷新线程（每 8 秒 `NIM_MODIFY` 更新 tooltip），
+  不用等下次点开菜单才看到"运行中 / 未响应"和版本号。
 
 ## [11.0.0-preview.38] - 2026-10-30
 
-### Added
-- 
-
-### Changed
-- 
-
 ### Fixed
--
+
+- **Windows 控制台中文日志乱码**：`start.py` 在 `main()` 开头把 stdout/stderr 强制成 UTF-8
+  （代码页不是 65001 时，`日志已就绪…`、`托盘已就绪…` 这类中文会打成乱码）。
+  注：这行后来补了判空（见 preview.40），否则 pythonw 下 `sys.stdout` 不存在时会直接崩。
 
 ## [11.0.0-preview.37] - 2026-10-29
 
