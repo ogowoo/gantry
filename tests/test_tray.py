@@ -198,6 +198,58 @@ class DetachTests(unittest.TestCase):
         self.assertIn("start_browser", r.stdout)
 
 
+class CrashLogTests(unittest.TestCase):
+    """后台模式没有 stderr：任何启动期崩溃都必须留痕（2026-11-01 重启后服务凭空消失）。"""
+
+    def test_start_installs_crash_log(self):
+        self.assertIn("crash.log", START_SRC)
+        self.assertIn("sys.excepthook", START_SRC)
+        self.assertIn("_install_crash_log()", START_SRC)
+
+    def test_crash_log_actually_written(self):
+        import sys
+        import tempfile
+
+        import start
+
+        tmp = Path(tempfile.mkdtemp(prefix="gantry_crash_"))
+        old_base = start.BASE
+        start.BASE = tmp
+        try:
+            path = start._install_crash_log()
+            try:
+                raise RuntimeError("boom-for-test")
+            except RuntimeError:
+                sys.excepthook(*sys.exc_info())
+            self.assertTrue(path.is_file(), "崩溃日志没写出来")
+            text = path.read_text(encoding="utf-8")
+            self.assertIn("boom-for-test", text)
+            self.assertIn("Traceback", text)
+        finally:
+            start.BASE = old_base
+            sys.excepthook = sys.__excepthook__
+
+    def test_tray_restart_waits_for_health(self):
+        """托盘报"已重启"之前必须真的等到 /health=ok，而不是睡一会儿就宣布成功。"""
+        import inspect
+
+        from gantry import tray as tray_mod
+
+        src = inspect.getsource(tray_mod.Tray._a_restart)
+        self.assertIn("/health", src)
+        self.assertIn("status", src)
+        self.assertIn("restart_timeout", src, "超时要有明确的失败提示")
+        self.assertNotIn("time.sleep(1.5)", src, "不许用固定 sleep 假装等到了")
+
+    def test_restart_timeout_text_in_all_langs(self):
+        from gantry.tray import TEXT
+
+        for lang in ("zh", "tw", "en"):
+            self.assertIn("restart_timeout", TEXT[lang], f"{lang} 缺 restart_timeout")
+            self.assertIn("crash.log", TEXT[lang]["restart_timeout"],
+                          f"{lang} 的失败提示要指向 crash.log")
+
+
 class LogTests(unittest.TestCase):
     def test_setup_logging_writes_file_and_is_idempotent(self):
         from gantry import logcfg

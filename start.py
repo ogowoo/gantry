@@ -166,6 +166,7 @@ def health_ok(port: int) -> bool:
 
 def detach(args: list[str]) -> int:
     """把服务丢到后台（无控制台），等它就绪后返回。终端随后可以关掉。"""
+    _utf8_stdio()
     from gantry.logcfg import log_file
 
     port = _port()
@@ -222,8 +223,60 @@ def print_menu(lang: str | None = None) -> int:
     return 0
 
 
+def _install_crash_log() -> Path:
+    """兜底：异常时把 traceback 写进 data/logs/crash.log。
+
+    为什么需要：后台模式（pythonw + DETACHED_PROCESS）**没有 stderr**，
+    而日志要等 `setup_logging` 才可用 —— 启动早期或 import 期崩掉时一行痕迹都没有，
+    只能看到"服务起不来"。2026-11-01 点「重启服务」后服务再没起来，日志里
+    连"日志已就绪"都没有，就是这种情况；当时只能靠猜。
+    """
+    path = BASE / "data" / "logs" / "crash.log"
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+    except Exception:                        # noqa: BLE001
+        return path
+
+    def _write(kind: str, exc_type, exc, tb) -> None:
+        import traceback
+
+        try:
+            with path.open("a", encoding="utf-8") as f:
+                f.write(f"\n===== {kind} {time.strftime('%Y-%m-%d %H:%M:%S')} =====\n")
+                f.write("".join(traceback.format_exception(exc_type, exc, tb)))
+        except Exception:                    # noqa: BLE001
+            pass
+
+    def hook(exc_type, exc, tb):
+        _write("uncaught", exc_type, exc, tb)
+        # 交给默认实现（stderr 存在时会打出来；不存在时也不会再炸）
+        try:
+            sys.__excepthook__(exc_type, exc, tb)
+        except Exception:                    # noqa: BLE001
+            pass
+
+    sys.excepthook = hook
+    return path
+
+
+def _utf8_stdio() -> None:
+    """把 stdout/stderr 切成 UTF-8（Windows 控制台默认代码页会把中文打成乱码）。
+
+    ⚠ 必须**逐流判空**：`pythonw.exe` / DETACHED_PROCESS 下 `sys.stdout` 可能是 None，
+    直接 `.reconfigure()` 会 AttributeError —— 而且这时 stderr 也是 None、日志还没配好，
+    进程会**无声无息地死掉**（2026-11-01「重启服务」后服务再也没起来就是这个）。
+    """
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            if stream is not None and hasattr(stream, "reconfigure"):
+                stream.reconfigure(encoding="utf-8")
+        except Exception:                    # noqa: BLE001 - 编码设置失败不该拖垮启动
+            pass
+
+
 def main(argv: list[str]) -> int:
-    sys.stdout.reconfigure(encoding="utf-8");sys.stderr.reconfigure(encoding="utf-8")
+    _utf8_stdio()
+    _install_crash_log()
     from gantry.logcfg import setup_logging
 
     tray_child = ("--tray-child" in argv) or (os.environ.get("GANTRY_TRAY_CHILD") == "1")
