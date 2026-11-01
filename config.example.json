@@ -148,6 +148,18 @@
       "json_mode": "json_object",
       "max_tokens": 4096,
       "timeout_seconds": 600
+    },
+    "fflm": {
+      "base_url": "http://127.0.0.1:52625/v1",
+      "api_key": "flm",
+      "models": [
+        "deepseek-r1-0528:8b",
+        "deepseek-r1:8b"
+      ],
+      "description": "FastFlowLM（NPU 本地推理，DeepSeek-R1 8B）",
+      "json_mode": "json_object",
+      "max_tokens": 4096,
+      "timeout_seconds": 600
     }
   },
   "markers": {
