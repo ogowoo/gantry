@@ -14,6 +14,36 @@
 ### Fixed
 - 
 
+## [11.0.0-preview.44] - 2026-11-02
+
+### Fixed
+
+- **"8B 连搜新闻都做不到"其实是 web_search 工具在返回 0 结果**（用户带着截图反馈）。
+  实测（同一台机器、同一个 query）：
+  - `html.duckduckgo.com` **间歇性返回 0 结果**（反爬，有时直接 202）：同一句
+    "small language model news" 前一次 3 条、后一次 0 条；
+  - `lite.duckduckgo.com` 一律 **HTTP 202 空页**（解析不到任何结果块）；
+  - Bing（HTML 与 `format=rss` 都试了）**相关性不可用**：`small language model news`
+    → 《Small》期刊、Smallpdf；`今天 AI 新闻` → FedEx 物流 —— 所以**没有**拿它当兜底；
+  - **Google News RSS 正常**：100 条、相关性对得上（"Small language models in medicine - Nature"）。
+  修法（`plugins/web-search/plugin.py`）：
+  - DDG 空结果**重试一次**（限流是间歇的，隔 1.2 秒往往就有）；
+  - 仍为空则**回退 `gnews`**（Google News RSS，免 key，中英文 query 按语言选 hl/gl/ceid）；
+  - `auto` 后端顺序变成：BRAVE/TAVILY/SERPER（有 key）→ ddg → gnews；
+  - `web_search` 返回的 `errors` 里保留每次尝试的原因，模型能据此换策略而不是瞎猜。
+
+### 实测
+
+- 服务里 `GET /v1/plugins/web-search/api/search` 三个 query（含"今天 AI 新闻"）**全部有结果**
+  （`backend=gnews, count=3`）。
+- 用用户原话重新问 8B（`fflm/deepseek-r1-0528:8b`，Agent 模式）：209 秒、**2 步**，
+  两次 `web_search` 都成功，最终答案是**真实新闻标题+来源**（CNN / Washington Post / Engadget），
+  不再是"截至2024年7月"的凭记忆编造。
+- 另外确认：**普通对话模式本来就没有工具**（`/v1/chat/completions` 不加载工具），
+  所以那个模式永远不会联网——这不是模型的问题，要看新闻得用 Agent 模式（或 Copilot 网页模型）。
+- 单测 **1317**（skipped=1，新增 `tests/test_web_search_plugin.py` 7 条：DDG 解析、gnews 解析、
+  回退顺序、ddg 重试成功、全空时带 errors）；不变量 25 条全绿。
+
 ## [11.0.0-preview.43] - 2026-11-02
 
 ### Fixed
