@@ -52,6 +52,10 @@
 - **会话持久化**：SQLite（WAL）保存步骤时间线、文件变更哈希、对话消息；服务重启后可从检查点继续。
 - **Web 管理台**：`/ui` 提供任务发起（按钮＋弹窗）、实时进度（执行状态/当前回答/发送内容/继续对话 四选项卡）、全宽步骤时间线（可导出 JSON）、暂停/恢复/取消、会话归档与远程 Copilot 会话删除（带同 Session 标记防误删与对账终验）。详见[操作手册](#1-webui-怎么用)。
 
+> **还有：Teams 应答机器人 + 本地知识库**——Teams 网页版里有人 @我 就用知识库/模型自动回。
+> 知识库就是 `data/kb/*.md`（`python scripts/kb.py index` 建索引，中文可搜）；
+> 详见 [docs/TEAMS-BOT.md](docs/TEAMS-BOT.md)，插件在 `plugins/teams-bot/`，默认 `dry_run`。
+
 ## 快速开始
 
 ```bash
