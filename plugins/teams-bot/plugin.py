@@ -272,12 +272,14 @@ class Bot:
                         "source": source, "sent": False, "text": answer[:400]}
                 if send_ok:
                     try:
-                        if await teams.open_chat(c.get("peerName") or c["id"]):
-                            await teams.send_message(answer)
+                        res = await teams.reply_to(
+                            c.get("peerName") or c["id"], answer, send=True,
+                            snippet=str(c.get("lastText") or "")[:40])
+                        if res.get("sent"):
                             item["sent"] = True
                             out["replied"] += 1
                         else:
-                            item["error"] = "打不开会话（写侧未打通）"
+                            item["error"] = (res.get("error") or "发送未完成")[:160]
                     except Exception as exc:     # noqa: BLE001
                         item["error"] = str(exc)[:160]
                 out["would"].append(item)
@@ -334,6 +336,12 @@ def setup(ctx):
         _reload_backends()
     except Exception as exc:                     # noqa: BLE001
         ctx.log(f"热重载 teams 后端失败（继续用已加载的）: {exc}")
+        try:
+            from gantry import bridge as _b
+
+            _b.log(f"teams-bot 热重载后端失败: {exc}")
+        except Exception:                        # noqa: BLE001
+            pass
     from gantry import teams
     from gantry.teams_logic import pick_hits
 
@@ -441,6 +449,62 @@ def setup(ctx):
         """抓 authz 的所有令牌并逐个试 chatsvcagg（只读）。"""
         return await teams.api_tokens_all()
 
+    async def _api_search_rows(request=None):
+        """dump 搜索建议行（只读）。"""
+        name = ""
+        try:
+            q = getattr(request, "query_params", {}) or {}
+            name = str(q.get("name") or "")
+        except Exception:                        # noqa: BLE001
+            pass
+        return await teams.api_search_rows(name)
+
+    async def _api_compose(request):
+        """写侧演练：打开会话并输入文本；?send=1 才真的点发送（默认不点）。"""
+        try:
+            body = await request.json()
+        except Exception:                        # noqa: BLE001
+            body = {}
+        peer = str(body.get("peer") or "")
+        text = str(body.get("text") or "")
+        snippet = str(body.get("snippet") or "")
+        send = bool(body.get("send"))
+        if not peer or not text:
+            return {"error": "需要 peer 和 text"}
+        return await teams.reply_to(peer, text, send=send, snippet=snippet)
+
+    async def _api_search_typing(request=None):
+        """逐字敲搜索框打开会话（真实按键，触发 autosuggest）。"""
+        name = ""
+        try:
+            q = getattr(request, "query_params", {}) or {}
+            name = str(q.get("name") or "")
+        except Exception:                        # noqa: BLE001
+            pass
+        if not name:
+            return {"error": "需要 ?name=会话名"}
+        return await teams.api_search_typing(name)
+
+    async def _api_item_attrs(request=None):
+        """dump 会话项属性（只读）。"""
+        idx = 0
+        try:
+            q = getattr(request, "query_params", {}) or {}
+            idx = int(q.get("idx") or 0)
+        except Exception:                        # noqa: BLE001
+            idx = 0
+        return await teams.api_item_attrs(idx=idx)
+
+    async def _api_click_test(request=None):
+        """对会话项试多种点击方式（只读式，仅切换会话）。"""
+        idx = 0
+        try:
+            q = getattr(request, "query_params", {}) or {}
+            idx = int(q.get("idx") or 0)
+        except Exception:                        # noqa: BLE001
+            idx = 0
+        return await teams.api_click_test(idx=idx)
+
     async def _api_open_url(request=None):
         """尝试用深链打开会话（只读，不发消息）。"""
         cid = ""
@@ -465,7 +529,29 @@ def setup(ctx):
             pass
         if not name:
             return {"error": "需要 ?name=会话名"}
-        return await teams.api_open_by_search(name)
+        confirm = 60.0
+        try:
+            q = getattr(request, "query_params", {}) or {}
+            confirm = float(q.get("wait") or 60)
+        except Exception:                        # noqa: BLE001
+            pass
+        res = await teams.api_open_by_search(name)      # 兼容旧签名
+        # 自己再轮询一段时间：切换可能是"慢生效"的（实测出现过几秒后才切过去）
+        if res.get("opened"):
+            return res
+        deadline = time.time() + max(10.0, confirm)
+        while time.time() < deadline:
+            await asyncio.sleep(3)
+            try:
+                head = await teams.header_title(teams.teams_page)
+            except Exception:                    # noqa: BLE001
+                head = ""
+            if head and head != res.get("before"):
+                res["after"] = head[:60]
+                res["opened"] = True
+                res["matched"] = name.lower()[:8] in head.lower()
+                return res
+        return res
 
     async def _api_idb_watch(request=None):
         """会话监看视图（IndexedDB，只读）：成员数 + 最后一条消息。"""
@@ -587,6 +673,11 @@ def setup(ctx):
     ctx.register_api("GET", "api/open-search", _api_open_search)
     ctx.register_api("GET", "api/search-probe", _api_search_probe)
     ctx.register_api("GET", "api/open-url", _api_open_url)
+    ctx.register_api("GET", "api/item-attrs", _api_item_attrs)
+    ctx.register_api("GET", "api/search-typing", _api_search_typing)
+    ctx.register_api("POST", "api/compose", _api_compose)
+    ctx.register_api("GET", "api/search-rows", _api_search_rows)
+    ctx.register_api("GET", "api/click-test", _api_click_test)
     ctx.register_api("GET", "api/tokens-all", _api_tokens_all)
     ctx.register_api("GET", "api/try-headers", _api_try_headers)
     ctx.register_api("GET", "api/captured", _api_captured)

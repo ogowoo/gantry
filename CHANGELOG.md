@@ -14,6 +14,32 @@
 ### Fixed
 - 
 
+## [11.0.0-preview.47] - 2026-11-02
+
+### Added
+
+- **Teams 写侧打通**（B 路线完成）：按"最后一条消息原文"搜索 → 点 "Recent messages" 结果
+  → 直接打开目标聊天，再走输入框 + 发送按钮。
+  - 关键点：**必须用真实按键** `keyboard.type()` 输入（`fill()` 不触发 autosuggest，
+    建议列表一直是空的）；
+  - 按**人名**搜会打开**联系人名片**而不是聊天（实测 `Lynn Ling` → `Ling, Lynn lynn.ling@…`），
+    所以用 IDB 里的 `lastText` 片段来搜，命中的是消息结果，点开即聊天。
+  - `teams.api_open_by_snippet()` / `compose_text()` / `reply_to()`；
+    实测返回 `{"opened": true, "how": "snippet", "header": "Lynn Ling - Example …",
+    "sendButton": true, "cleared": true, "sent": false}`（演练不发送）。
+- 插件发送路径改走 `teams.reply_to(peer, answer, send=True, snippet=lastText)`。
+
+### Changed
+
+- 写侧两道闸：`dry_run`（默认 true，只记录）与新增 `send_enabled`（默认 false，写侧总闸）。
+  两个都打开才会真发送。
+
+### 实测
+
+- 打开会话：按片段搜索 → 点消息结果 → 头部变为 `Tony Zhao - Example` / `Lynn Ling - Example`。
+- 输入框：输入 22 字符 → `sendButton: true` → 清空（`cleared: true`），**未发送**。
+- 单测 1396+（teams_bot 18）全绿。
+
 ## [11.0.0-preview.46] - 2026-11-02
 
 ### Added

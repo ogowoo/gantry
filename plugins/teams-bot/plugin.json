@@ -49,7 +49,12 @@
         "GET api/idb-watch",
         "GET api/open-search",
         "GET api/search-probe",
-        "GET api/open-url"
+        "GET api/open-url",
+        "GET api/item-attrs",
+        "GET api/click-test",
+        "GET api/search-typing",
+        "POST api/compose",
+        "GET api/search-rows"
       ]
     },
     "config": {

@@ -721,6 +721,135 @@ _PATHS = (
 )
 
 
+async def api_search_typing(name: str, page=None, wait: float = 5.0,
+                            confirm: float = 45.0) -> dict[str, Any]:
+    """逐字敲入搜索框（真实按键）→ 建议列表 → ↓/Enter → 校验头部标题。"""
+    page = page or await teams_open()
+    before = await header_title(page)
+    out: dict[str, Any] = {"target": name, "before": (before or "")[:50]}
+    inp = page.locator('input[data-tid="AUTOSUGGEST_INPUT"]').first
+    if not await inp.count():
+        return {**out, "error": "找不到搜索框"}
+    try:
+        await inp.click()
+        await asyncio.sleep(0.5)
+        await page.keyboard.press("Control+a")
+        await page.keyboard.press("Backspace")
+        await page.keyboard.type(name, delay=110)   # 真实按键，触发 autosuggest
+        await asyncio.sleep(wait)
+    except Exception as exc:                     # noqa: BLE001
+        return {**out, "error": f"输入失败: {str(exc)[:120]}"}
+    out["suggestion"] = await page.evaluate(r"""() => {
+      const sels = ['[data-tid="ms-searchux-popup"]', '[role="listbox"]',
+                    '[data-tid*="suggest" i]', '[data-tid*="SearchResult" i]'];
+      for (const sel of sels) {
+        const el = document.querySelector(sel);
+        if (el && el.innerText) {
+          return {sel, text: (el.innerText || '').replace(new RegExp('\\s+', 'g'), ' ')
+                  .slice(0, 300)};
+        }
+      }
+      return {sel: '', text: ''};
+    }""")
+    opened = False
+    for how in ("enter", "down+enter", "down+down+enter"):
+        try:
+            downs = how.count("down")
+            for _ in range(downs):
+                await page.keyboard.press("ArrowDown")
+                await asyncio.sleep(0.5)
+            await page.keyboard.press("Enter")
+            await asyncio.sleep(2.5)
+        except Exception:                        # noqa: BLE001
+            pass
+        deadline = time.monotonic() + max(10.0, confirm)
+        while time.monotonic() < deadline:
+            head = await header_title(page)
+            if head and head != before:
+                out["after"] = head[:50]
+                out["opened"] = True
+                out["matched"] = name.lower()[:8] in head.lower()
+                out["how"] = how
+                return out
+            await asyncio.sleep(1.5)
+    out.setdefault("after", (await header_title(page) or "")[:50])
+    out["opened"] = opened
+    return out
+
+
+async def api_item_attrs(page=None, idx: int = 0) -> dict[str, Any]:
+    """dump 第 idx 个会话项的属性与子元素特征（找可用于定位的 id）。"""
+    page = page or await teams_open()
+    return await page.evaluate("""({idx}) => {
+      const items = [...document.querySelectorAll('[data-tid="chat-pane-item"]')];
+      const el = items[idx];
+      if (!el) return {count: items.length, error: 'no such item'};
+      const attrs = {};
+      for (const a of el.attributes) attrs[a.name] = String(a.value).slice(0, 80);
+      const kids = [...el.querySelectorAll('*')].slice(0, 12).map(k => ({
+        tag: k.tagName, tid: k.getAttribute('data-tid') || '',
+        title: (k.getAttribute('title') || '').slice(0, 40),
+        text: (k.innerText || '').slice(0, 40).replace(new RegExp('\\s+','g'),' ')
+      }));
+      return {count: items.length, attrs, kids,
+              text: (el.innerText || '').slice(0, 120).replace(new RegExp('\\s+','g'),' ')};
+    }""", {"idx": idx})
+
+
+async def api_click_test(idx: int = 0, page=None, target: str = "") -> dict[str, Any]:
+    """对第 idx 个会话项依次尝试多种点击方式，报告哪种能切换会话。"""
+    page = page or await teams_open()
+    before = await header_title(page)
+    out: dict[str, Any] = {"before": (before or "")[:40], "tries": []}
+    loc = page.locator('[data-tid="chat-pane-item"]').nth(int(idx))
+    if not await loc.count():
+        return {**out, "error": "找不到会话项"}
+    try:
+        await loc.scroll_into_view_if_needed(timeout=5000)
+    except Exception:                            # noqa: BLE001
+        pass
+    box = await loc.bounding_box() or {}
+
+    async def _changed() -> tuple[bool, str]:
+        for _ in range(10):
+            await asyncio.sleep(1.2)
+            head = await header_title(page)
+            if head and head != before:
+                return True, head[:40]
+        return False, (await header_title(page) or "")[:40]
+
+    attempts: list[tuple[str, Any]] = []
+    if box:
+        cx, cy = box["x"] + box["width"] * 0.62, box["y"] + box["height"] * 0.5
+        attempts.append(("mouse.click(62%)", lambda: page.mouse.click(cx, cy)))
+        attempts.append(("mouse.down/up", lambda: _down_up(page, cx, cy)))
+    attempts.append(("locator.click(force)", lambda: loc.click(
+        force=True, timeout=8000, position={"x": 120, "y": 18})))
+    for name, fn in attempts:
+        rec: dict[str, Any] = {"how": name}
+        try:
+            await fn()
+            ok, head = await _changed()
+            rec["changed"] = ok
+            rec["head"] = head
+        except Exception as exc:                 # noqa: BLE001
+            rec["error"] = str(exc)[:100]
+        out["tries"].append(rec)
+        if rec.get("changed"):
+            out["winner"] = name
+            break
+    return out
+
+
+async def _down_up(page, x: float, y: float) -> None:
+    """按下/抬起分离（带小延迟），有些 React 列表只认这种序列。"""
+    await page.mouse.move(x, y)
+    await asyncio.sleep(0.2)
+    await page.mouse.down()
+    await asyncio.sleep(0.12)
+    await page.mouse.up()
+
+
 async def api_open_by_url(conv_id: str, page=None) -> dict[str, Any]:
     """依次尝试几种深链形式打开会话，报告头部标题是否变化。"""
     page = page or await teams_open()
@@ -775,7 +904,8 @@ async def api_search_probe(page=None) -> dict[str, Any]:
     }""")
 
 
-async def api_open_by_search(name: str, page=None, wait: float = 3.5) -> dict[str, Any]:
+async def api_open_by_search(name: str, page=None, wait: float = 3.5,
+                             confirm: float = 60.0) -> dict[str, Any]:
     """用搜索框打开会话；返回是否成功与当前头部标题（只读，不发消息）。"""
     page = page or await teams_open()
     before = await header_title(page)
@@ -831,7 +961,7 @@ async def api_open_by_search(name: str, page=None, wait: float = 3.5) -> dict[st
             await asyncio.sleep(2.5)
         except Exception:                        # noqa: BLE001
             pass
-        deadline = time.monotonic() + 20
+        deadline = time.monotonic() + max(10.0, confirm)
         while time.monotonic() < deadline:
             after = await header_title(page)
             if after and after != before:
@@ -2500,6 +2630,15 @@ async def open_chat(title_or_index: str | int, scroll_pages: int = 8) -> bool:
     else:
         needle = str(title_or_index).strip()
         target_text = needle
+        # 首选：逐字搜索（实测唯一可靠的切换方式）
+        try:
+            res = await api_search_typing(needle)
+            if res.get("opened") and res.get("matched", True):
+                await _settle(page, "message", rounds=2, delay=0.8)
+                return True
+            _b.log(f"open_chat 搜索未切到「{needle}」：{res.get('after')}")
+        except Exception as exc:                 # noqa: BLE001
+            _b.log(f"open_chat 搜索失败：{str(exc)[:120]}")
         for page_i in range(max(1, scroll_pages)):
             for sel in _SEL["chat_item"]:
                 try:
@@ -2825,6 +2964,199 @@ async def dom_summary(page) -> dict[str, Any]:
         }""")
     except Exception as exc:                     # noqa: BLE001
         return {"error": str(exc)[:200]}
+
+
+async def api_open_by_snippet(snippet: str, expect: str = "", page=None,
+                               wait: float = 5.0, confirm: float = 30.0) -> dict[str, Any]:
+    """用消息片段搜索并点开"最近消息"结果（比按人名搜可靠：人名会开名片）。"""
+    page = page or await teams_open()
+    before = await header_title(page)
+    out: dict[str, Any] = {"snippet": (snippet or "")[:40], "before": (before or "")[:40]}
+    text = (snippet or "").strip()
+    if not text:
+        return {**out, "error": "缺少片段"}
+    inp = page.locator('input[data-tid="AUTOSUGGEST_INPUT"]').first
+    if not await inp.count():
+        return {**out, "error": "找不到搜索框"}
+    try:
+        await inp.click()
+        await asyncio.sleep(0.4)
+        await page.keyboard.press("Control+a")
+        await page.keyboard.press("Backspace")
+        await page.keyboard.type(text[:40], delay=90)
+        await asyncio.sleep(wait)
+    except Exception as exc:                     # noqa: BLE001
+        return {**out, "error": f"输入失败: {str(exc)[:120]}"}
+    rows = await page.evaluate(r"""() => {
+      const pop = document.querySelector('[data-tid="ms-searchux-popup"]');
+      if (!pop) return [];
+      const out = [];
+      for (const el of pop.querySelectorAll('div,a,li')) {
+        const t = (el.innerText || '').replace(new RegExp('\s+', 'g'), ' ').trim();
+        if (!t || t.length < 12) continue;
+        const r = el.getBoundingClientRect();
+        if (r.width < 120 || r.height < 16) continue;
+        out.push({text: t.slice(0, 120), x: Math.round(r.x + r.width * 0.5),
+                  y: Math.round(r.y + r.height * 0.5)});
+      }
+      return out.slice(0, 25);
+    }""")
+    out["rows"] = len(rows)
+    # 选"消息"行：包含片段且带 "See more" / ":" 这类消息特征，且不是名片（名片含部门信息）
+    pick = None
+    for r_ in rows:
+        t = r_["text"]
+        if text[:8] not in t:
+            continue
+        if "See more" in t or ":" in t:
+            pick = r_
+            break
+    if pick is None:
+        for r_ in rows:
+            if text[:8] in r_["text"]:
+                pick = r_
+                break
+    if pick is None:
+        return {**out, "opened": False, "error": "建议列表里没有匹配的消息行"}
+    out["picked"] = pick["text"][:80]
+    try:
+        await page.mouse.click(pick["x"], pick["y"])
+        await asyncio.sleep(2.5)
+    except Exception as exc:                     # noqa: BLE001
+        return {**out, "opened": False, "error": f"点击失败: {str(exc)[:120]}"}
+    deadline = time.monotonic() + max(8.0, confirm)
+    while time.monotonic() < deadline:
+        head = await header_title(page)
+        if head and head != before:
+            out["after"] = head[:50]
+            out["opened"] = True
+            out["matched"] = bool(expect) and expect.lower()[:8] in head.lower()
+            return out
+        await asyncio.sleep(1.5)
+    out["after"] = (await header_title(page) or "")[:50]
+    out["opened"] = False
+    return out
+
+
+async def api_search_rows(name: str, page=None, wait: float = 5.0) -> dict[str, Any]:
+    """输入名字后 dump 建议列表的行（文本/角色/是否含 @），不按回车。"""
+    page = page or await teams_open()
+    inp = page.locator('input[data-tid="AUTOSUGGEST_INPUT"]').first
+    if not await inp.count():
+        return {"error": "找不到搜索框"}
+    try:
+        await inp.click()
+        await asyncio.sleep(0.4)
+        await page.keyboard.press("Control+a")
+        await page.keyboard.press("Backspace")
+        await page.keyboard.type(name, delay=110)
+        await asyncio.sleep(wait)
+    except Exception as exc:                     # noqa: BLE001
+        return {"error": f"输入失败: {str(exc)[:120]}"}
+    rows = await page.evaluate(r"""() => {
+      const pop = document.querySelector('[data-tid="ms-searchux-popup"]');
+      if (!pop) return [];
+      const out = [];
+      const cand = [...pop.querySelectorAll('[role="option"],[role="row"],[role="button"],li,a,div')];
+      const seen = new Set();
+      for (const el of cand) {
+        const t = (el.innerText || '').replace(new RegExp('\s+', 'g'), ' ').trim();
+        if (!t || t.length > 160) continue;
+        if (seen.has(t)) continue;
+        const r = el.getBoundingClientRect();
+        if (r.width < 40 || r.height < 12) continue;
+        seen.add(t);
+        out.push({text: t.slice(0, 120), role: el.getAttribute('role') || '',
+                  tag: el.tagName, tid: el.getAttribute('data-tid') || '',
+                  x: Math.round(r.x + r.width / 2), y: Math.round(r.y + r.height / 2)});
+        if (out.length >= 20) break;
+      }
+      return out;
+    }""")
+    return {"target": name, "rows": rows}
+
+
+async def compose_text(text: str, page=None, send: bool = False) -> dict[str, Any]:
+    """在当前会话输入框里输入文本；send=True 时点发送按钮，否则只输入并清空。
+
+    发送必须显式 `send=True`（插件侧还有 dry_run/send_enabled 两道闸）。
+    """
+    body = (text or "").strip()
+    page = page or await teams_open()
+    out: dict[str, Any] = {"len": len(body), "sent": False}
+    if not body:
+        return {**out, "error": "内容为空"}
+    box = None
+    for sel in _SEL["composer"]:
+        try:
+            loc = page.locator(sel).first
+            if await loc.count() and await loc.is_visible():
+                box = loc
+                break
+        except Exception:                        # noqa: BLE001
+            continue
+    if box is None:
+        return {**out, "error": "找不到输入框"}
+    try:
+        await box.click()
+        await page.keyboard.type(body, delay=8)
+        await asyncio.sleep(0.6)
+    except Exception as exc:                     # noqa: BLE001
+        return {**out, "error": f"输入失败: {str(exc)[:120]}"}
+    # 发送按钮是否可用
+    btn = None
+    for sel in _SEL["send"]:
+        try:
+            cand = page.locator(sel).first
+            if await cand.count() and await cand.is_visible():
+                btn = cand
+                break
+        except Exception:                        # noqa: BLE001
+            continue
+    out["sendButton"] = bool(btn)
+    if send and btn is not None:
+        try:
+            await btn.click()
+            await asyncio.sleep(1.5)
+            out["sent"] = True
+            return out
+        except Exception as exc:                 # noqa: BLE001
+            out["error"] = f"点发送失败: {str(exc)[:120]}"
+    # 不发送：清空输入框（避免留下草稿）
+    try:
+        await box.click()
+        await page.keyboard.press("Control+a")
+        await page.keyboard.press("Backspace")
+        out["cleared"] = True
+    except Exception:                            # noqa: BLE001
+        pass
+    return out
+
+
+async def reply_to(peer: str, text: str, send: bool = False,
+                   snippet: str = "") -> dict[str, Any]:
+    """打开 peer 的会话并准备回复（send=False 只输入并清空，绝不发送）。
+
+    `snippet` = 该会话最后一条消息的片段：优先用它搜索（命中的是聊天），
+    没有再用人名搜（人名可能命中联系人名片）。
+    """
+    page = await teams_open()
+    opened = False
+    how = ""
+    if snippet:
+        res = await api_open_by_snippet(snippet, expect=peer, page=page)
+        opened = bool(res.get("opened"))
+        how = "snippet"
+        if not opened:
+            _b.log(f"reply_to 按消息片段打开失败：{res.get('error')} / {res.get('after')}")
+    if not opened:
+        opened = await open_chat(peer)
+        how = how or "name"
+    if not opened:
+        return {"opened": False, "error": f"打不开会话: {peer}"}
+    head = await header_title(page)
+    res = await compose_text(text, page=page, send=send)
+    return {"opened": True, "how": how, "header": head[:50], **res}
 
 
 async def probe(dump_dir: Path | None = None, max_html: int = 200_000) -> dict[str, Any]:
