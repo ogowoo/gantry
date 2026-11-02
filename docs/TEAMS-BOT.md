@@ -124,11 +124,34 @@ curl http://127.0.0.1:8765/v1/plugins/teams-bot/api/probe
   正文 / 发送者 / `clientmessageid` / `composetime`，**轮询最后一条**就够做应答机器人。
 - 新消息检测：比较每个会话的 `lastMessageTimeUtc` + `lastId`，变化且含 @、且不是自己发的才处理。
 
-### 写侧现状（未打通）
+### 写侧：按"最后一条消息"搜索打开会话（已打通）
 
-**发送**需要先切到目标会话，而切会话的三条路都试过且失败：
-点会话项（点到头像/资料卡）、搜索框（`AUTOSUGGEST_INPUT` 填了不弹建议）、深链
-（`/v2/#/chat/<id>` 等四种形式都不切换）。
+点会话项、深链、按人名搜索都不行（人名会开**联系人名片**，不是聊天）。最终可行的是：
 
-因此插件默认 `send_enabled: false`：只把"本来会回什么"写进 `status.last_cycle.would[]`。
-等写侧打通（或改成"只回当前打开的会话"）后再打开。
+1. 从 IndexedDB 拿到目标会话的 **`lastText`**（最后一条消息原文）；
+2. 在搜索框里**逐字敲入**它的一段（必须用真实按键 `keyboard.type`，`fill()` 不触发建议）；
+3. 建议列表里点 **"Recent messages"** 那一行 → 直接打开该聊天；
+4. 输入框 `[data-tid="ckeditor"]` 输入 → 点发送按钮 `[data-tid="sendMessageCommands-send"]`。
+
+实测（2026-11-02）：
+
+```
+{"opened": true, "how": "snippet", "header": "Lynn Ling - DSV …",
+ "sendButton": true, "cleared": true, "sent": false}
+```
+
+发送有两道闸，默认都关：
+
+| 配置 | 默认 | 作用 |
+| --- | --- | --- |
+| `dry_run` | `true` | 只把"本来会回什么"写进 `status.last_cycle.would[]` |
+| `send_enabled` | `false` | 写侧总闸；即使 `dry_run=false`，不开它也不会点发送 |
+
+两个都打开（`{"dry_run": false, "send_enabled": true}`）才会真的回消息。演练（不发送）用：
+
+```powershell
+curl -X POST http://127.0.0.1:8765/v1/plugins/teams-bot/api/compose `
+  -H 'Content-Type: application/json' `
+  -d '{"peer":"Lynn Ling","snippet":"我在BPM下载下来的","text":"测试内容","send":false}'
+# send=false 时只输入并清空输入框，不会发出去
+```

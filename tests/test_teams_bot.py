@@ -90,6 +90,15 @@ class FakeTeams:
         self.conversations = conversations or []
         self.sent: list[str] = []
         self.opened: list[str] = []
+        self.replied: list[tuple] = []
+
+    async def reply_to(self, peer, text, send=False, snippet=""):
+        """写侧入口：记录调用；send=True 时模拟发送成功。"""
+        self.replied.append((peer, text, send, snippet))
+        if not send:
+            return {"opened": True, "sent": False, "sendButton": True}
+        self.sent.append(text)
+        return {"opened": True, "sent": True, "how": "snippet"}
 
     async def api_idb_watch(self, page=None, limit=400):
         c = list(self.conversations)
@@ -106,7 +115,7 @@ class FakeTeams:
 
 class BotTestCase(unittest.TestCase):
     def setUp(self):
-        names = ("api_idb_watch", "open_chat", "send_message")
+        names = ("api_idb_watch", "open_chat", "send_message", "reply_to")
         self._orig = {n: getattr(teams_mod, n) for n in names}
         self.fake = FakeTeams()
         for n in names:
@@ -250,7 +259,11 @@ class SendGatingTests(BotTestCase):
         out = self.run_cycle(dry_run=False, send_enabled=True)
         self.assertEqual(len(self.fake.sent), 1)
         self.assertEqual(out["replied"], 1)
-        self.assertTrue(self.fake.opened, "发之前应该先打开会话")
+        # 写侧要求：带上会话名 + 最后一条消息片段（用于按消息搜索定位会话）
+        peer, text, send, snippet = self.fake.replied[0]
+        self.assertEqual(peer, "Lynn Ling - DSV")
+        self.assertTrue(send)
+        self.assertIn("Gantry", snippet)
 
 
 class OverrideTests(BotTestCase):
