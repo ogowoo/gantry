@@ -1,0 +1,76 @@
+{
+  "name": "teams-bot",
+  "version": "0.1.0",
+  "description": "Teams 网页版自动应答：1:1 或群里 @我 时用本地知识库/Gantry 模型回复",
+  "gantry": {
+    "entry": "plugin.py",
+    "permissions": [
+      "tools",
+      "api",
+      "ui",
+      "storage"
+    ],
+    "contributes": {
+      "tools": [
+        "teams_status",
+        "teams_reply",
+        "teams_probe",
+        "kb_search",
+        "kb_reindex"
+      ],
+      "api": [
+        "GET api/status",
+        "POST api/run",
+        "POST api/reply",
+        "GET api/probe",
+        "POST api/reindex",
+        "POST api/settings",
+        "GET api/probe-api",
+        "GET api/hook-capture",
+        "GET api/gtm",
+        "GET api/cookie-probe",
+        "GET api/sw-capture",
+        "GET api/tokens-all",
+        "GET api/try-headers",
+        "GET api/captured",
+        "GET api/scroll-capture",
+        "GET api/replay-authz",
+        "GET api/authz-types",
+        "GET api/mimic",
+        "GET api/page-mimic",
+        "GET api/sw-capture2",
+        "GET api/typing-capture",
+        "GET api/decode-tokens",
+        "GET api/hosts-probe",
+        "GET api/idb",
+        "GET api/idb-enum",
+        "GET api/idb-convs",
+        "GET api/idb-record",
+        "GET api/idb-watch",
+        "GET api/open-search",
+        "GET api/search-probe",
+        "GET api/open-url"
+      ]
+    },
+    "config": {
+      "enabled": false,
+      "dry_run": true,
+      "interval_seconds": 20,
+      "chats": [],
+      "mention_tokens": [
+        "@Gantry"
+      ],
+      "my_name": "",
+      "kb_first": true,
+      "kb_min_score": 0.35,
+      "kb_max_chars": 1200,
+      "reply_when_unknown": true,
+      "fallback_agent": true,
+      "agent_mode": false,
+      "model": "copilot-auto",
+      "max_replies_per_cycle": 2,
+      "seen_limit": 300,
+      "only_direct": true
+    }
+  }
+}

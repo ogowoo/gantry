@@ -14,6 +14,91 @@
 ### Fixed
 - 
 
+## [11.0.0-preview.46] - 2026-11-02
+
+### Added
+
+- **Teams 机器人改用 IndexedDB 读会话**（B 路线第一步，可用了）：
+  `gantry/teams.py` 新增 `api_idb_watch()` —— 从 `Teams:conversation-manager` 的
+  `conversations` 表读会话，配合 `Teams:profiles` 把私聊标注成人名。
+  实测：**351 个会话、248 个私聊**，`Lynn Ling - DSV` / `Tony Zhao - DSV` 等都能正确命名。
+  - 私聊判定用 **id 形态**（`19:<guid>_<guid>@unq.gbl.spaces`），不能用成员数：
+    实测 `memberProperties` 是**单个**成员对象（键固定 `relationshipState`/`role`），
+    按它的键数判断会把 289 条误判成私聊。
+  - 私聊 id 里的两个 GUID 有一个是 **Skype 租户**（从库名 `skypexspaces-<guid>` 取），
+    另一个才是对方 → `profiles` 换人名。
+- `gantry/teams_logic.py`：新增 `is_direct_id()` / `peer_guid()`（可离线测）。
+- 插件读侧改为 `source: idb`：扫最近 50 个会话里的私聊，按 `lastId`/`lastMessageTimeUtc`
+  去重，只处理"含 @ 且不是自己发的"消息，答案仍走"知识库优先 → 模型 → 兜底"。
+
+### Changed
+
+- 插件新增 `send_enabled`（默认 **false**）：写侧（切到目标会话再发）还没打通，
+  当前只把"本来会回什么"写进 `status.last_cycle.would[]`。
+- 排障接口积累（全部**只读**）：`api/probe-api`、`api/hook-capture`、`api/gtm`、
+  `api/idb-watch`、`api/idb-enum`、`api/open-search`、`api/open-url`、`api/cookies-probe` 等。
+
+### Fixed
+
+- `_cfg` 优先级修正：**运行时覆盖 > 插件配置 > 默认值**（之前 config 压过 overrides，
+  导致 `api/settings` 改了不生效，`run` 一直 `skipped=disabled`）。
+- `max_replies_per_cycle` 在 dry_run 下不生效（用"已发送数"计数，dry_run 永远是 0）→ 改为
+  "已处理数"。
+
+### 未完成（写侧）
+
+- 切到指定会话三条路都失败：点会话项（命中头像/资料卡）、搜索框（`AUTOSUGGEST_INPUT`
+  填了不弹建议）、深链（4 种 URL 形式都不切换）。
+- chatsvc/IC3 直连不可行：令牌能铸（`authz` 200 + skypeToken），但 `chatsvcagg` 五种头风格
+  全 401；service worker 的请求 CDP 也抓不到（`new_cdp_session(worker)` 不支持，
+  `Target.sendMessageToTarget` 已废弃）。
+
+### 实测
+
+- 单测 **1400+**（含 `tests/test_kb.py` 21、`tests/test_teams_logic.py` 40、
+  `tests/test_teams_bot.py` 18）；不变量待跑。
+- 真机：`api/idb-watch` 返回 50 个最近会话（27 个私聊），扫描周期 0 错误。
+
+## [11.0.0-preview.45] - 2026-11-02
+
+### Added
+
+- **Teams 网页版应答机器人 + 本地知识库**（用户："最近做了个插件用来做 Teams web 版的机器人……
+  失败了，估计得你来重新设计；有人单对单聊天并 @我 时用 Gantry 的 API 回复，并优先使用本地知识库"）。
+  - `gantry/kb.py`：`data/kb/**/*.md` → SQLite **FTS5 trigram** 索引（中文整句可搜，
+    默认 unicode61 不切中文），按 `#`/`##` 标题切块、带出处；增量重建（mtime+size）；
+    打分改成 **0.75×查询词覆盖率 + 0.25×bm25 名次**（旧算法所有命中都接近 1.0，阈值失效）。
+  - `gantry/teams.py`：Teams 网页自动化（`teams_open` / `list_chats` / `open_chat` /
+    `recent_messages` / `send_message` / `probe`），复用桥接浏览器的 SSO；选择器多级兜底。
+  - `gantry/teams_logic.py`：纯逻辑（@ 识别含全角、问题抽取、去重键、KB 答案拼装、
+    `should_answer` 带"为什么没回"的原因）。
+  - `plugins/teams-bot/`：轮询循环 + 工具（`teams_status`/`teams_reply`/`teams_probe`/
+    `kb_search`/`kb_reindex`）+ 接口（status/run/reply/probe/reindex/settings）+ 面板；
+    **默认 `enabled=false` + `dry_run=true`**，先在 `status.last_cycle.would[]` 里看"本来会回什么"。
+  - `scripts/kb.py`：`sample` / `index` / `search` / `stats`；样例文件与说明自动写入 `data/kb/`。
+  - `docs/TEAMS-BOT.md` + `plugins/teams-bot/README.md`（含校准流程与已知边界）。
+
+### Fixed
+
+- **Teams 就绪判定**：`/v2` 的 app shell 早就渲染、但聊天区可能还停在
+  "We're setting things up for you…"，旧判定把这种状态当 ready → 抓不到会话/输入框。
+  现在必须等到**会话项或输入框真的出现**，并在初始化期间打日志说明在等什么。
+- **选择器按真机校准**（2026-11-02 实测，teams.cloud.microsoft/v2 已登录）：
+  会话项 `chat-pane-item`、消息 `chat-pane-message`、作者 `message-author-name`（同级元素，
+  按文档顺序配对）、输入框 `ckeditor`、发送按钮 `sendMessageCommands-send`（优先点按钮，
+  比 Enter 稳）。`probe()` 增加 DOM 统计（data-tid/role/列表容器/iframe），
+  不再 dump 整页 HTML（会被截断）。
+
+### 实测
+
+- Teams 网页在自动化浏览器里**已登录可用**（标题 `(3) Chat | …`）：会话 10 个、消息 6 条、
+  输入框与发送按钮都能定位；`/v1/plugins/teams-bot/api/status` 返回知识库 2 篇 / 4 块 / FTS=true。
+- 知识库：`python scripts/kb.py search "VPN 连不上"` → 命中《VPN 连不上怎么办 › 排查步骤》
+  得分 1.000，症状段 0.755；无关 query（"火星怎么去"）返回空。
+- 单测 **1375**（skipped=1；新增 `tests/test_kb.py` 21 条、`tests/test_teams_logic.py` 23 条、
+  `tests/test_teams_bot.py` 14 条）；不变量待跑。
+
+
 ## [11.0.0-preview.44] - 2026-11-02
 
 ### Fixed

@@ -1,0 +1,268 @@
+# -*- coding: utf-8 -*-
+"""Teams 自动化模块的"纯逻辑"测试（不碰浏览器）。
+
+选择器/点击这类东西只能在真机校准（`gantry.teams.probe()`），但**去重键、@识别、
+问题抽取、回答拼装**这些逻辑可以完全离线测——它们才是最容易出错、也最容易悄悄回归的部分。
+"""
+import sys
+import unittest
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from gantry import teams  # noqa: E402
+from gantry.teams_logic import (  # noqa: E402
+    build_kb_answer, classify_chat, extract_question, has_mention, inherit_authors,
+    is_direct_id, is_new, normalise_text, peer_guid, pick_hits, should_answer,
+)
+
+
+class MentionTests(unittest.TestCase):
+    def test_plain_at_mention(self):
+        self.assertTrue(has_mention("@Gantry 打印机连不上", ["@Gantry"]))
+        self.assertTrue(has_mention("请问 @gantry 这个怎么弄", ["@Gantry"]))  # 大小写不敏感
+        self.assertTrue(has_mention("＠Gantry 全角也能认", ["@Gantry"]))      # 全角 @
+
+    def test_no_mention(self):
+        self.assertFalse(has_mention("打印机连不上", ["@Gantry"]))
+        self.assertFalse(has_mention("邮件里说 @all 也算但不在白名单", ["@Gantry"]))
+
+    def test_multiple_tokens(self):
+        self.assertTrue(has_mention("@IT小助手 帮我看下", ["@Gantry", "@IT小助手"]))
+
+    def test_empty_tokens_never_match(self):
+        self.assertFalse(has_mention("@Gantry 你好", []))
+        self.assertFalse(has_mention("@Gantry 你好", [""]))
+
+
+class ExtractTests(unittest.TestCase):
+    def test_strips_mention_and_punctuation(self):
+        q = extract_question("@Gantry 打印机脱机怎么处理？", ["@Gantry"])
+        self.assertEqual(q, "打印机脱机怎么处理？")
+
+    def test_keeps_body_when_mention_in_middle(self):
+        q = extract_question("请问 @Gantry VPN 连不上怎么办", ["@Gantry"])
+        self.assertIn("VPN 连不上怎么办", q)
+        self.assertNotIn("@Gantry", q)
+
+    def test_multi_line(self):
+        q = extract_question("@Gantry\n第一行\n第二行", ["@Gantry"])
+        self.assertIn("第一行", q)
+        self.assertIn("第二行", q)
+
+    def test_empty_after_strip(self):
+        self.assertEqual(extract_question("@Gantry   ", ["@Gantry"]), "")
+
+    def test_normalise(self):
+        self.assertEqual(normalise_text("  a\n\n\n b  "), "a\n\nb")
+
+
+class DedupeTests(unittest.TestCase):
+    def test_key_stable(self):
+        k1 = teams._msg_key("张三", "你好", 3)
+        k2 = teams._msg_key("张三", "你好", 3)
+        self.assertEqual(k1, k2)
+
+    def test_key_differs(self):
+        self.assertNotEqual(teams._msg_key("张三", "你好", 3),
+                            teams._msg_key("张三", "你好", 4))
+        self.assertNotEqual(teams._msg_key("张三", "你好", 3),
+                            teams._msg_key("李四", "你好", 3))
+
+    def test_is_new(self):
+        seen = {"a"}
+        self.assertFalse(is_new("a", seen))
+        self.assertTrue(is_new("b", seen))
+
+
+class KbAnswerTests(unittest.TestCase):
+    def setUp(self):
+        self.hits = [{
+            "title": "VPN 连不上", "heading": "排查步骤", "tags": "vpn 网络",
+            "path": "vpn.md", "score": 0.62,
+            "text": "1. 确认家里宽带能打开门户网站。\n2. 公司 VPN 网关地址是 vpn.example.com。",
+        }]
+
+    def test_answer_has_source_and_body(self):
+        ans = build_kb_answer("VPN 连不上", self.hits, max_chars=800)
+        self.assertIn("《VPN 连不上》", ans)
+        self.assertIn("排查步骤", ans)
+        self.assertIn("vpn.example.com", ans)
+        self.assertIn("知识库", ans)
+
+    def test_multiple_hits(self):
+        hits = self.hits + [dict(self.hits[0], title="WiFi 掉线", heading="处理",
+                                 text="换 5GHz 频段。")]
+        ans = build_kb_answer("网络", hits, max_chars=2000)
+        self.assertIn("WiFi 掉线", ans)
+        self.assertIn("VPN 连不上", ans)
+
+    def test_truncates(self):
+        big = [dict(self.hits[0], text="x" * 5000)]
+        ans = build_kb_answer("x", big, max_chars=600)
+        self.assertLessEqual(len(ans), 1400, "长文要截断，否则 Teams 里刷屏")
+
+    def test_empty_hits(self):
+        self.assertEqual(build_kb_answer("q", [], 800), "")
+
+
+class ShouldAnswerTests(unittest.TestCase):
+    """一条消息要不要回：四个理由必须都能区分（排障时看日志就知道为什么没回）。"""
+
+    TOKENS = ["@Gantry"]
+
+    def test_yes(self):
+        ok, why = should_answer("@Gantry 打印机脱机了", self.TOKENS, [], "k1", mine=False)
+        self.assertTrue(ok)
+        self.assertIn("打印机脱机", why)
+
+    def test_no_mention(self):
+        ok, why = should_answer("打印机脱机了", self.TOKENS, [], "k1", mine=False)
+        self.assertFalse(ok)
+        self.assertEqual(why, "没有 @")
+
+    def test_mine(self):
+        ok, why = should_answer("@Gantry 你好", self.TOKENS, [], "k1", mine=True)
+        self.assertFalse(ok)
+        self.assertEqual(why, "自己发的")
+
+    def test_already_seen(self):
+        ok, why = should_answer("@Gantry 你好", self.TOKENS, ["k1"], "k1", mine=False)
+        self.assertFalse(ok)
+        self.assertEqual(why, "已回复过")
+
+    def test_only_mention(self):
+        ok, why = should_answer("@Gantry", self.TOKENS, [], "k1", mine=False)
+        self.assertFalse(ok)
+        self.assertEqual(why, "去掉 @ 后为空")
+
+
+class PickHitsTests(unittest.TestCase):
+    def test_threshold_and_order(self):
+        hits = [{"title": "a", "score": 0.2}, {"title": "b", "score": 0.9},
+                {"title": "c", "score": 0.5}]
+        got = pick_hits(hits, 0.35)
+        self.assertEqual([h["title"] for h in got], ["b", "c"])
+
+    def test_all_below(self):
+        self.assertEqual(pick_hits([{"title": "a", "score": 0.1}], 0.35), [])
+
+
+class MeNameTests(unittest.TestCase):
+    """me-control 的 aria-label 常带前缀，必须清洗后再比对，否则"自己发的"永远判不出来。"""
+
+    def test_strip_account_prefix(self):
+        from gantry.teams import _clean_me
+
+        self.assertEqual(_clean_me("Account manager for Justin Jia"), "Justin Jia")
+        self.assertEqual(_clean_me("Account manager of Justin Jia"), "Justin Jia")
+        self.assertEqual(_clean_me("Account manager"), "")
+        self.assertEqual(_clean_me("Settings and more"), "")
+        self.assertEqual(_clean_me("  Justin   Jia  "), "Justin Jia")
+        self.assertEqual(_clean_me("个人资料 Justin Jia"), "Justin Jia")
+
+    def test_strip_profile_picture_prefix(self):
+        """实测：me-control-avatar 的 aria-label 是 "Profile picture of Walt Liang - DSV"。"""
+        from gantry.teams import _clean_me
+
+        self.assertEqual(_clean_me("Profile picture of Walt Liang - DSV"),
+                         "Walt Liang - DSV")
+        self.assertEqual(_clean_me("Profile photo of Lynn Ling - DSV"),
+                         "Lynn Ling - DSV")
+        self.assertEqual(_clean_me("头像 Walt Liang - DSV"), "Walt Liang - DSV")
+        self.assertEqual(_clean_me("Profile picture"), "")
+
+    def test_plain_name_kept(self):
+        from gantry.teams import _clean_me
+
+        self.assertEqual(_clean_me("Justin Jia - DSV"), "Justin Jia - DSV")
+
+    def test_empty(self):
+        from gantry.teams import _clean_me
+
+        self.assertEqual(_clean_me(""), "")
+        self.assertEqual(_clean_me(None or ""), "")
+
+
+class InheritAuthorsTests(unittest.TestCase):
+    """真实场景（2026-11-02，SDWAN 群聊最后 6 条）：只有连续发言的第一条带名字。
+
+    用户确认：6 条里**只有 4 条**是 Justin 的（"I think we can mark it as completed"
+    到 "I think that's all for today"）。也就是说前 2 条是别人发的、且没有作者节点，
+    必须保持"未知"而不是继承成 Justin。
+    """
+
+    def test_run_inherits_only_after_first_name(self):
+        raw = ["", "", "Justin Jia - DSV", "", "", ""]
+        got = inherit_authors(raw)
+        self.assertEqual(got, ["", "", "Justin Jia - DSV", "Justin Jia - DSV",
+                               "Justin Jia - DSV", "Justin Jia - DSV"])
+
+    def test_leading_unknown_stays_unknown(self):
+        got = inherit_authors(["", "Piotr Wierzbicki - DSV", ""])
+        self.assertEqual(got, ["", "Piotr Wierzbicki - DSV", "Piotr Wierzbicki - DSV"])
+
+    def test_switch_between_people(self):
+        raw = ["A", "", "B", "", ""]
+        self.assertEqual(inherit_authors(raw), ["A", "A", "B", "B", "B"])
+
+    def test_empty_input(self):
+        self.assertEqual(inherit_authors([]), [])
+        self.assertEqual(inherit_authors(["", ""]), ["", ""])
+
+
+class ChatKindTests(unittest.TestCase):
+    def test_direct_is_two(self):
+        self.assertEqual(classify_chat(2), "direct")
+
+    def test_group(self):
+        self.assertEqual(classify_chat(3), "group")
+        self.assertEqual(classify_chat(19), "group")
+
+    def test_unknown(self):
+        self.assertEqual(classify_chat(None), "unknown")
+        self.assertEqual(classify_chat(0), "unknown")
+        self.assertEqual(classify_chat("x"), "unknown")
+        self.assertEqual(classify_chat("2"), "direct")
+
+
+TENANT = "5c899237-c5e3-44bf-8b5f-8f7e24b3e5d1"
+PEER = "fd41f5b9-3975-446f-b1c4-8126101f98ec"
+
+
+class DirectIdTests(unittest.TestCase):
+    """私聊 = `19:<guid>_<guid>@unq.gbl.spaces`；群聊 = `19:<opaque>@thread.v2|tacv2`。
+
+    实测教训：`memberProperties` 是**单个**成员对象（键固定 relationshipState/role），
+    按它的键数判断会把所有会话都算成 2 人（351 条里 289 条被误判成私聊）。
+    """
+
+    def test_direct_two_guids(self):
+        self.assertTrue(is_direct_id(f"19:{TENANT}_{PEER}@unq.gbl.spaces"))
+        self.assertTrue(is_direct_id(f"19:{PEER}_{TENANT}@unq.gbl.spaces"))
+
+    def test_group_threads(self):
+        self.assertFalse(is_direct_id("19:d5449eaae3cf4c1cab56706f08519a3f@thread.v2"))
+        self.assertFalse(is_direct_id(
+            "19:pK-n3Doud2MNk6feV68OiVvL6vfySjtlepDKKc0WNao1@thread.tacv2"))
+        self.assertFalse(is_direct_id("19:meeting_NzAx@thread.v2"))
+
+    def test_other_forms(self):
+        self.assertFalse(is_direct_id(""))
+        self.assertFalse(is_direct_id("8:orgid:" + PEER))
+        self.assertFalse(is_direct_id("48:notes"))
+
+    def test_peer_guid(self):
+        self.assertEqual(peer_guid(f"19:{TENANT}_{PEER}@unq.gbl.spaces", TENANT), PEER)
+        self.assertEqual(peer_guid(f"19:{PEER}_{TENANT}@unq.gbl.spaces", TENANT), PEER)
+
+    def test_peer_guid_without_tenant_still_returns_something(self):
+        got = peer_guid(f"19:{TENANT}_{PEER}@unq.gbl.spaces")
+        self.assertIn(got, (TENANT, PEER))
+
+    def test_peer_guid_group_empty(self):
+        self.assertEqual(peer_guid("19:abc@thread.v2", TENANT), "")
+
+
+if __name__ == "__main__":
+    unittest.main()

@@ -8,7 +8,7 @@
 
 > **Works without Copilot**: the browser starts on demand — service startup never touches the browser, and the WebUI plus provider models (DeepSeek/Kimi/OpenAI, etc.) are usable immediately; the browser is only launched when Copilot is actually needed, and a status with a "Retry browser" button is shown at the top of the UI. **Note**: in lazy mode, the first Copilot task after a restart must wait for the browser to launch and for SSO (can take several minutes on enterprise tenants); that waiting time does not count toward the task timeout. Provider models are unaffected.
 
-> **Version**: the `main` branch is currently **11.0.0-preview.44** (the multi-window parallel preview line has been merged in).
+> **Version**: the `main` branch is currently **11.0.0-preview.46** (the multi-window parallel preview line has been merged in).
 > The old stable line is archived at tag `v10.2.1-archive` / branch `archive/10.2.1-stable`.
 > For versioning rules, release process, and multi-machine collaboration conventions, see [docs/VERSIONING.md](docs/VERSIONING.md);
 > for changes in each release, see [CHANGELOG.md](CHANGELOG.md).
@@ -51,6 +51,10 @@ Client ──HTTP──> FastAPI (app.py) ──Playwright──> Edge persisten
   - Forced validation loop after code changes: completion may only be claimed when both `validate_python` and `run_unittest` pass.
 - **Session persistence**: SQLite (WAL) stores the step timeline, file-change hashes, and conversation messages; after a service restart, work can continue from a checkpoint.
 - **Web console**: `/ui` provides task launch (button + dialog), live progress (four tabs: execution status / current answer / sent content / continue conversation), a full-width step timeline (JSON exportable), pause/resume/cancel, session archiving, and remote Copilot session deletion (with same-session markers to prevent accidental deletion plus a reconciliation final check). See the [Operations Manual](#1-webui-怎么用).
+
+> **Also: a Teams answer bot + local knowledge base** — in Teams web, when someone @-mentions
+> you it replies from `data/kb/*.md` (index with `python scripts/kb.py index`) or a model.
+> See [docs/TEAMS-BOT.md](docs/TEAMS-BOT.md); plugin lives in `plugins/teams-bot/`, dry-run by default.
 
 ## Quick Start
 
