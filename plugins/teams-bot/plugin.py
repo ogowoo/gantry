@@ -193,7 +193,8 @@ class Bot:
     # ── 一个轮询周期 ──
     async def cycle(self) -> dict[str, Any]:
         from gantry import teams
-        from gantry.teams_logic import is_direct_id, normalise_text
+        from gantry.teams_logic import (extract_question, has_mention, is_direct_id,
+                                        mention_names, normalise_text, strip_mentions)
 
         async with self._lock:
             if not bool(_cfg(self.ctx, "enabled")):
@@ -248,14 +249,22 @@ class Bot:
                 if my_name and who.strip().lower() == my_name.strip().lower():
                     out["skipped"].append({"id": c["id"][:24], "why": "自己发的"})
                     continue
-                from gantry.teams_logic import extract_question, has_mention
-
-                if not has_mention(text, tokens):
+                # Teams 的 @ 经常不在正文里（正文纯文本 + properties.mentions），
+                # 只查 lastText 里的 "@" 会把真实 @ 全漏掉。
+                mentions = mention_names(c.get("lastMentions"))
+                mentioned = has_mention(text, tokens)
+                if not mentioned and mentions:
+                    if my_name:
+                        mentioned = any(n.strip().lower() == my_name.strip().lower()
+                                        for n in mentions)
+                    else:
+                        mentioned = True
+                if not mentioned:
                     continue
                 key = f"{c.get('id')}|{c.get('lastId') or c.get('lastAt')}"
                 if key in seen:
                     continue
-                q = extract_question(text, tokens)
+                q = strip_mentions(extract_question(text, tokens), mentions)
                 if not q:
                     continue
                 out["candidates"] += 1
