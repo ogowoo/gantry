@@ -1124,6 +1124,17 @@ async def api_idb_watch(page=None, limit: int = 400) -> dict[str, Any]:
               try { arr = JSON.parse(raw); } catch (e) { arr = []; }
             }
             return Array.isArray(arr) ? arr.slice(0, 8) : [];
+          })(),
+          // 未读：Teams 用 properties.consumptionhorizon 记录已读水位
+          // （形如 "<msgId>;<...>;<clientmessageid>"）。水位里没有最后一条
+          // 消息的 id → 未读。没有水位时按已读处理，避免首次全量误回。
+          unread: (() => {
+            const ch = String((v.properties || {}).consumptionhorizon || '').trim();
+            if (!ch) return false;
+            const ids = new Set(ch.split(';').map(s => s.trim()).filter(Boolean));
+            const lastId = String(lm.id || '');
+            const lastClient = String(lm.clientmessageid || '');
+            return !((lastId && ids.has(lastId)) || (lastClient && ids.has(lastClient)));
           })()
         });
       }
@@ -1183,7 +1194,8 @@ async def api_idb_record(page=None, skip: int = 0) -> dict[str, Any]:
           ? val.slice(0, 100) : (Array.isArray(val) ? 'array(' + val.length + ')'
           : (val && typeof val === 'object' ? 'object' : val));
       }
-      try { out.lastMessage = JSON.stringify(v.lastMessage || {}).slice(0, 400); } catch (e) { }
+      try { out.lastMessage = JSON.stringify(v.lastMessage || {}).slice(0, 2000); } catch (e) { }
+      try { out.properties = JSON.stringify(v.properties || {}).slice(0, 1200); } catch (e) { }
       try {
         const msgs = v.messages;
         if (Array.isArray(msgs)) out.messagesHead = JSON.stringify(msgs.slice(-2)).slice(0, 800);
