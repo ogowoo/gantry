@@ -17,7 +17,13 @@ Teams 网页版里"有人 @ 我"就回，**知识库优先**。默认装好但�
    ```
 
    `status.last_cycle.would[]` 是"本来会回什么"（含来源 `kb:标题` / `model` / `unknown`）。
-4. 确认无误后再 `{"dry_run": false}`。
+4. 确认无误后再打开写侧总闸：
+
+   ```powershell
+   curl -X POST http://127.0.0.1:8765/v1/plugins/teams-bot/api/settings -H "Content-Type: application/json" -d '{\"dry_run\":false,\"send_enabled\":true}'
+   ```
+
+   `dry_run=false` 且 `send_enabled=true` 两个都满足才会真的点发送。
 
 ## 工具（agent 也能用）
 
@@ -35,6 +41,8 @@ Teams 网页版里"有人 @ 我"就回，**知识库优先**。默认装好但�
 | --- | --- | --- |
 | `enabled` | `false` | 总开关 |
 | `dry_run` | `true` | 只记录不发送 |
+| `send_enabled` | `false` | 写侧总闸；`dry_run=false` 且它为 `true` 才真发 |
+| `source` | `idb` | 读会话方式：`idb`（推荐）/ `dom` |
 | `interval_seconds` | `20` | 轮询间隔 |
 | `chats` | `[]` | 只盯这些会话（标题片段）；空=扫描**未读**会话 |
 | `mention_tokens` | `["@Gantry"]` | 什么算"@我" |

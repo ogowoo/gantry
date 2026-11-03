@@ -60,6 +60,8 @@
     "config": {
       "enabled": false,
       "dry_run": true,
+      "send_enabled": false,
+      "source": "idb",
       "interval_seconds": 20,
       "chats": [],
       "mention_tokens": [
