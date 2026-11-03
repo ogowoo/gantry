@@ -644,8 +644,9 @@ def setup(ctx):
         except Exception:                        # noqa: BLE001
             body = {}
         overrides = dict(ctx.state.get("overrides") or {})
-        for k in ("enabled", "dry_run", "chats", "mention_tokens", "my_name", "model",
-                  "interval_seconds", "kb_min_score", "fallback_agent", "agent_mode"):
+        for k in ("enabled", "dry_run", "send_enabled", "source", "chats",
+                  "mention_tokens", "my_name", "model", "interval_seconds",
+                  "kb_min_score", "fallback_agent", "agent_mode", "only_direct"):
             if k in body:
                 overrides[k] = body[k]
         ctx.save_state(overrides=overrides)

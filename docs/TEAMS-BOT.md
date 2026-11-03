@@ -78,7 +78,7 @@ curl -X POST http://127.0.0.1:8765/v1/plugins/teams-bot/api/run  # 手动跑一�
 ```
 
 `dry_run` 下 `would[]` 里能看到**它准备回什么**（含来源 `kb:标题` / `model` / `unknown`），
-确认没问题再：`{"dry_run": false}`。
+确认没问题再同时打开两个闸：`{"dry_run": false, "send_enabled": true}`。
 
 ## 校准（Teams 改版时必做）
 
