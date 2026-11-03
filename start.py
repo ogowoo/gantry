@@ -132,17 +132,62 @@ def start_tray(port: int, lang: str | None = None):
 
 
 # ── 后台派生（"相当于 pythonw"）──────────────────────────────────────────────
+def _venv_python() -> Path | None:
+    """项目自带的虚拟环境解释器（优先 `.venv`）。"""
+    for rel in (Path(".venv") / "Scripts" / "python.exe",
+                Path("venv") / "Scripts" / "python.exe"):
+        cand = BASE / rel
+        if cand.is_file():
+            return cand
+    return None
+
+
+def _has_uvicorn(python_exe: str | Path | None = None) -> bool:
+    """解释器能不能 import uvicorn。
+
+    用 DEVNULL 而不是管道：受限环境里 piped stdio 可能直接 EPERM。
+    """
+    exe = str(python_exe or sys.executable)
+    try:
+        r = subprocess.run([exe, "-c", "import uvicorn"],
+                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                           timeout=30)
+        return r.returncode == 0
+    except Exception:                          # noqa: BLE001
+        return False
+
+
+def _preferred_python() -> str:
+    """当前解释器缺依赖时自动改用项目 `.venv`，让 `python start.py` 也能跑。"""
+    if _has_uvicorn(sys.executable):
+        return sys.executable
+    venv = _venv_python()
+    if venv and _has_uvicorn(venv):
+        return str(venv)
+    return sys.executable
+
+
 def _pythonw() -> str | None:
     """同目录下的 pythonw.exe（无控制台窗口）。找不到就退回当前解释器。"""
-    exe = Path(sys.executable)
+    exe = Path(_preferred_python())
     cand = exe.with_name("pythonw.exe")
     return str(cand) if cand.is_file() else None
 
 
 def build_detach_command(args: list[str]) -> list[str]:
     """派生后台子进程的命令行（抽出来便于测试）。"""
-    exe = _pythonw() or sys.executable
+    exe = _pythonw() or _preferred_python()
     return [exe, str(BASE / "start.py"), "--tray-child", *args]
+
+
+def _crash_tail(limit: int = 12) -> str:
+    """crash.log 的最后几行——后台模式没有 stderr，这是唯一线索。"""
+    path = BASE / "data" / "logs" / "crash.log"
+    try:
+        lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+    except Exception:                          # noqa: BLE001
+        return ""
+    return "\n".join(lines[-limit:]).strip()
 
 
 def _wait_ready(port: int, seconds: float = 30.0) -> bool:
@@ -173,6 +218,18 @@ def detach(args: list[str]) -> int:
     if health_ok(port):
         print(f"服务已在运行：http://127.0.0.1:{port}/ui/（托盘图标在系统托盘里）")
         return 0
+    # 缺依赖预检：否则子进程刚起就死，只能看到"30 秒未就绪"这种误导信息
+    child_py = _pythonw() or _preferred_python()
+    if not _has_uvicorn(child_py):
+        venv = _venv_python()
+        print("启动失败：当前 Python 缺依赖（无法 import uvicorn）。", file=sys.stderr)
+        if venv:
+            print(f"  项目里有虚拟环境，请用它启动：{venv} start.py", file=sys.stderr)
+        else:
+            print("  先安装依赖：python -m pip install -r requirements.txt", file=sys.stderr)
+        return 2
+    if Path(child_py).resolve() != Path(sys.executable).resolve():
+        print(f"提示：当前 Python 缺依赖，已自动改用 {child_py}")
     flags = 0
     if os.name == "nt":
         flags = (getattr(subprocess, "DETACHED_PROCESS", 0)
@@ -192,6 +249,10 @@ def detach(args: list[str]) -> int:
         print(f"服务就绪：http://127.0.0.1:{port}/ui/")
     else:
         print("服务 30 秒内未就绪——看日志：", file=sys.stderr)
+        tail = _crash_tail()
+        if tail:
+            print("crash.log 最后几行：", file=sys.stderr)
+            print(tail, file=sys.stderr)
     print(f"日志文件：{log_file(BASE)}")
     print("托盘图标在右下角系统托盘：右键可「打开控制台 / 启动自动化浏览器 / 重启 / 停止」。")
     return 0
@@ -368,10 +429,12 @@ if __name__ == "__main__":
     if detached_child or force_fg or no_detach or "--print-menu" in argv \
             or "--tray-selftest" in argv or "--help" in argv or "-h" in argv:
         sys.exit(main(argv))
-    # 默认：先试派生后台；失败则退回前台（至少能用）
+    # 默认：先试派生后台；缺依赖（2）不再无谓退回前台
     if os.name == "nt":
         code = detach(argv)
         if code == 0:
             sys.exit(0)
+        if code == 2:
+            sys.exit(2)
         print("后台启动失败，改为前台运行…", file=sys.stderr)
     sys.exit(main(argv + ["--foreground"]))
