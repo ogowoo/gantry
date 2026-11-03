@@ -186,6 +186,21 @@ class DirectTests(BotTestCase):
         self.assertEqual(out["would"], [])
         self.assertTrue(any(s.get("why") == "已读" for s in out["skipped"]))
 
+    def test_read_but_new_lastid_still_processed(self):
+        """会话开着被自动标已读，但 lastId 变了 = 新消息，仍要回。"""
+        self.kb.hits = [{"title": "T", "heading": "", "score": 0.9, "path": "t.md",
+                         "text": "答案"}]
+        self.fake.conversations = [conv(dm(), "@Gantry 旧消息", last_id="old", unread=False)]
+        ctx = FakeCtx(enabled=True, dry_run=True, mention_tokens=["@Gantry"])
+        bot = plugin.Bot(ctx)
+        loop = asyncio.new_event_loop()
+        first = loop.run_until_complete(bot.cycle())     # 首次基线：已读跳过
+        self.assertEqual(first["would"], [])
+        self.fake.conversations = [conv(dm(), "@Gantry 新消息", last_id="new", unread=False)]
+        second = loop.run_until_complete(bot.cycle())    # lastId 变了 → 要回
+        self.assertEqual(len(second["would"]), 1)
+        self.assertEqual(second["would"][0]["question"], "新消息")
+
     def test_dedupe_same_last_id(self):
         self.kb.hits = [{"title": "T", "heading": "", "score": 0.9, "path": "t.md",
                          "text": "答案"}]

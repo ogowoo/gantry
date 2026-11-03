@@ -3153,6 +3153,23 @@ async def compose_text(text: str, page=None, send: bool = False) -> dict[str, An
     return out
 
 
+async def _leave_chat(page) -> None:
+    """发完回到聊天列表。
+
+    会话一直开着时，新消息一到就会被 Teams 自动标成已读；`only_unread`
+    会把它当成历史消息跳过（实测：用户 @ 了账号，但机器人刚在这个会话里回过，
+    下一条消息 unread=False）。回到列表后新消息才会保持未读。
+    """
+    try:
+        await page.keyboard.press("Escape")
+        await asyncio.sleep(0.3)
+        # Teams 网页内置快捷键：Ctrl+2 = 聊天列表
+        await page.keyboard.press("Control+2")
+        await asyncio.sleep(1.2)
+    except Exception:                           # noqa: BLE001
+        pass
+
+
 async def reply_to(peer: str, text: str, send: bool = False,
                    snippet: str = "") -> dict[str, Any]:
     """打开 peer 的会话并准备回复（send=False 只输入并清空，绝不发送）。
@@ -3181,6 +3198,8 @@ async def reply_to(peer: str, text: str, send: bool = False,
         return {"opened": False, "how": how, "header": head[:50],
                 "error": f"打开的是「{head[:40]}」，不是「{peer}」"}
     res = await compose_text(text, page=page, send=send)
+    if send and res.get("sent"):
+        await _leave_chat(page)
     return {"opened": True, "how": how, "header": (head or "")[:50], **res}
 
 

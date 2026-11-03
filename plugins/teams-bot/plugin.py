@@ -230,6 +230,7 @@ class Bot:
             dry = bool(_cfg(self.ctx, "dry_run"))
             send_ok = (not dry) and bool(_cfg(self.ctx, "send_enabled"))
             seen = self.seen()
+            last_ids = dict(self.ctx.state.get("last_ids") or {})
             out: dict[str, Any] = {"at": time.strftime("%H:%M:%S"), "source":
                                    str(_cfg(self.ctx, "source") or "idb"),
                                    "scanned": 0, "candidates": 0, "replied": 0,
@@ -267,14 +268,22 @@ class Bot:
                 convs.append(c)
             out["scanned"] = len(convs)
             for c in convs:
+                cid = str(c.get("id") or "")
+                lid = str(c.get("lastId") or c.get("lastAt") or "")
+                prev = last_ids.get(cid)
+                # 最后一条消息 id 变了 = 有新消息（即使会话开着、被自动标成已读）
+                new_msg = bool(lid) and prev is not None and lid != prev
+                if lid:
+                    last_ids[cid] = lid
                 text = normalise_text(str(c.get("lastText") or ""))
                 who = str(c.get("lastFrom") or "")
                 if not text:
                     continue
                 # 只处理未读：历史消息（已读水位覆盖）直接跳过，避免首次启用
                 # 把几十个旧会话的"最后一条"全回一遍。
-                if bool(_cfg(self.ctx, "only_unread")) and not c.get("unread"):
-                    out["skipped"].append({"id": c["id"][:24], "why": "已读"})
+                # 例外：lastId 变了的新消息——即使会话开着被自动标已读，也要回。
+                if bool(_cfg(self.ctx, "only_unread")) and not c.get("unread") and not new_msg:
+                    out["skipped"].append({"id": cid[:24], "why": "已读"})
                     continue
                 if my_name and who.strip().lower() == my_name.strip().lower():
                     out["skipped"].append({"id": c["id"][:24], "why": "自己发的"})
@@ -330,6 +339,7 @@ class Bot:
                                     + (1 if item["sent"] else 0))
                 self.ctx.log(f"Teams[{source}] {item['chat']}: {q[:40]}")
             self._last_cycle = out
+            self.ctx.save_state(last_ids=last_ids)
             self.ctx.state["cycles"] = int(self.ctx.state.get("cycles") or 0) + 1
             self.ctx.state["last_cycle_at"] = time.strftime("%Y-%m-%d %H:%M:%S")
             if out["errors"]:
