@@ -1112,7 +1112,11 @@ async def api_idb_watch(page=None, limit: int = 400) -> dict[str, Any]:
           lastAt: lm.composetime || '',
           lastTime: v.lastMessageTimeUtc || 0,
           lastId: String(lm.clientmessageid || ''),
-          lastType: lm.messagetype || ''
+          lastType: lm.messagetype || '',
+          // @ 在 Teams 里不一定以 "@名字" 出现在 content 里（常见是纯文本 +
+          // properties.mentions 元数据，或者 <at> 标签被上面剥掉）。
+          // 原样带出来给插件判断，别只靠 lastText 里有没有 '@'。
+          lastMentions: ((lm.properties || {}).mentions || []).slice(0, 8)
         });
       }
       out.sort((a, b) => (b.lastTime || 0) - (a.lastTime || 0));
@@ -3002,20 +3006,13 @@ async def api_open_by_snippet(snippet: str, expect: str = "", page=None,
       return out.slice(0, 25);
     }""")
     out["rows"] = len(rows)
-    # 选"消息"行：包含片段且带 "See more" / ":" 这类消息特征，且不是名片（名片含部门信息）
-    pick = None
-    for r_ in rows:
-        t = r_["text"]
-        if text[:8] not in t:
-            continue
-        if "See more" in t or ":" in t:
-            pick = r_
-            break
-    if pick is None:
-        for r_ in rows:
-            if text[:8] in r_["text"]:
-                pick = r_
-                break
+    # 选"消息"行：优先带 expect（会话标题/人名）的那一行——同一段最后消息可能
+    # 同时出现在群和私聊里，只按片段选第一行会点错群（实测打开成 "AI GROUP Chat"）。
+    cands = [r_ for r_ in rows if text[:8] in r_["text"]]
+    if expect:
+        pref = expect.lower()[:8]
+        cands.sort(key=lambda r_: 0 if pref in r_["text"].lower() else 1)
+    pick = cands[0] if cands else None
     if pick is None:
         return {**out, "opened": False, "error": "建议列表里没有匹配的消息行"}
     out["picked"] = pick["text"][:80]
@@ -3029,8 +3026,11 @@ async def api_open_by_snippet(snippet: str, expect: str = "", page=None,
         head = await header_title(page)
         if head and head != before:
             out["after"] = head[:50]
-            out["opened"] = True
-            out["matched"] = bool(expect) and expect.lower()[:8] in head.lower()
+            matched = (not expect) or expect.lower()[:8] in head.lower()
+            out["matched"] = matched
+            out["opened"] = matched
+            if not matched:
+                out["error"] = f"打开的是「{head[:40]}」，不是「{expect}」"
             return out
         await asyncio.sleep(1.5)
     out["after"] = (await header_title(page) or "")[:50]
@@ -3155,8 +3155,13 @@ async def reply_to(peer: str, text: str, send: bool = False,
     if not opened:
         return {"opened": False, "error": f"打不开会话: {peer}"}
     head = await header_title(page)
+    # 最后一道校验：打开的会话标题必须包含 peer。否则宁可报错，也不能把回复
+    # 发进别的群（实测同一个消息片段会命中多个会话，曾打开成 "AI GROUP Chat"）。
+    if peer and head and peer.lower()[:8] not in head.lower():
+        return {"opened": False, "how": how, "header": head[:50],
+                "error": f"打开的是「{head[:40]}」，不是「{peer}」"}
     res = await compose_text(text, page=page, send=send)
-    return {"opened": True, "how": how, "header": head[:50], **res}
+    return {"opened": True, "how": how, "header": (head or "")[:50], **res}
 
 
 async def probe(dump_dir: Path | None = None, max_html: int = 200_000) -> dict[str, Any]:

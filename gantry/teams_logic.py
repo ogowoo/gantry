@@ -49,6 +49,47 @@ def has_mention(text: str, tokens: Iterable[str]) -> bool:
     return False
 
 
+def mention_names(mentions: Iterable[Any]) -> list[str]:
+    """从 `lastMessage.properties.mentions` 里取被 @ 的显示名。
+
+    Teams 的 @ 不一定以 `@名字` 出现在正文里：常见是正文纯文本 +
+    `properties.mentions` 元数据（`mentionText` / `mentioned.user.displayName`）。
+    只靠正文找 `@` 会漏掉真实 @。
+    """
+    out: list[str] = []
+    for m in mentions or []:
+        if isinstance(m, str):
+            out.append(m.strip())
+            continue
+        if not isinstance(m, dict):
+            continue
+        picked = ""
+        for key in ("mentionText", "displayName", "displayname", "name"):
+            v = m.get(key)
+            if isinstance(v, str) and v.strip():
+                picked = v.strip()
+                break
+        if not picked:
+            mentioned = m.get("mentioned")
+            if isinstance(mentioned, dict):
+                user = mentioned.get("user") or {}
+                if isinstance(user, dict):
+                    v = user.get("displayName")
+                    if isinstance(v, str) and v.strip():
+                        picked = v.strip()
+        if picked:
+            out.append(picked)
+    return list(dict.fromkeys(out))
+
+
+def strip_mentions(text: str, names: Iterable[str]) -> str:
+    """把被 @ 的显示名从正文里去掉（正文里的 @ 已被 Teams 拆成纯文本）。"""
+    body = normalise_text(text)
+    for name in sorted({str(n or "").strip() for n in (names or [])}, key=len, reverse=True):
+        if name:
+            body = body.replace(name, " ")
+    return normalise_text(body)
+
 def extract_question(text: str, tokens: Iterable[str]) -> str:
     """把 @ 标记剥掉，剩下的就是问题本体（可能为空 → 调用方忽略这条）。"""
     body = normalise_text(text)

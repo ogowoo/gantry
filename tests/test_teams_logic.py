@@ -13,7 +13,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from gantry import teams  # noqa: E402
 from gantry.teams_logic import (  # noqa: E402
     build_kb_answer, classify_chat, extract_question, has_mention, inherit_authors,
-    is_direct_id, is_new, normalise_text, peer_guid, pick_hits, should_answer,
+    is_direct_id, is_new, mention_names, normalise_text, peer_guid, pick_hits,
+    should_answer, strip_mentions,
 )
 
 
@@ -33,6 +34,31 @@ class MentionTests(unittest.TestCase):
     def test_empty_tokens_never_match(self):
         self.assertFalse(has_mention("@Gantry 你好", []))
         self.assertFalse(has_mention("@Gantry 你好", [""]))
+
+
+class MentionMetadataTests(unittest.TestCase):
+    """Teams 的 @ 经常只在 `properties.mentions` 里，正文没有 "@名字"。"""
+
+    def test_mention_text(self):
+        self.assertEqual(mention_names([{"mentionText": "Alex Chen - Example"}]),
+                         ["Alex Chen - Example"])
+
+    def test_graph_shape(self):
+        self.assertEqual(
+            mention_names([{"mentioned": {"user": {"displayName": "Alex Chen - Example"}}}]),
+            ["Alex Chen - Example"])
+
+    def test_plain_display_name(self):
+        self.assertEqual(mention_names([{"displayName": "Gantry"}]), ["Gantry"])
+
+    def test_text_without_at_still_detected_via_metadata(self):
+        text = "Alex Chen - Example 1＋1 大于2吗？"
+        self.assertFalse(has_mention(text, ["@Gantry"]))
+        self.assertTrue(mention_names([{"mentionText": "Alex Chen - Example"}]))
+
+    def test_strip_mention_name(self):
+        q = strip_mentions("Alex Chen - Example 1＋1 大于2吗？", ["Alex Chen - Example"])
+        self.assertEqual(q, "1＋1 大于2吗？")
 
 
 class ExtractTests(unittest.TestCase):
