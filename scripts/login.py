@@ -4,9 +4,55 @@ import shutil
 import socket
 import sys
 from pathlib import Path
-from playwright.async_api import async_playwright
 
 BASE = Path(__file__).resolve().parent.parent  # 脚本在 scripts/ 内，项目根目录再上一层
+
+# Windows 控制台默认代码页会把中文打成乱码/直接 UnicodeEncodeError（cp1252）。
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        if _stream is not None and hasattr(_stream, "reconfigure"):
+            _stream.reconfigure(encoding="utf-8")
+    except Exception:                        # noqa: BLE001
+        pass
+
+
+def _venv_python():
+    """项目自带的虚拟环境解释器（优先 `.venv`）。"""
+    for rel in (Path(".venv") / "Scripts" / "python.exe",
+                Path("venv") / "Scripts" / "python.exe"):
+        cand = BASE / rel
+        if cand.is_file():
+            return cand
+    return None
+
+
+def _has_playwright(python_exe) -> bool:
+    import subprocess
+
+    try:
+        r = subprocess.run([str(python_exe), "-c", "import playwright"],
+                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                           timeout=30)
+        return r.returncode == 0
+    except Exception:                        # noqa: BLE001
+        return False
+
+
+# 直接用系统 python 跑脚本时，playwright 往往没装在系统解释器里——
+# 自动切到项目 .venv，别让人对着 ModuleNotFoundError 猜。
+if not _has_playwright(sys.executable):
+    _venv = _venv_python()
+    if _venv and _has_playwright(_venv):
+        print(f"提示：当前 Python 缺 playwright，已自动改用 {_venv}")
+        import os
+
+        os.execv(str(_venv), [str(_venv), str(Path(__file__).resolve()), *sys.argv[1:]])
+    print("当前 Python 缺依赖（playwright）。请用 .venv\\Scripts\\python scripts\\login.py，"
+          "或先 pip install -r requirements.txt", file=sys.stderr)
+    sys.exit(1)
+
+from playwright.async_api import async_playwright  # noqa: E402
+
 CFG = json.loads((BASE / "config.json").read_text(encoding="utf-8"))
 PROFILE = BASE / "EdgeProfile"
 PORT = int(CFG.get("server", {}).get("port", 8765))
