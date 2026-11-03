@@ -51,6 +51,15 @@ class MentionMetadataTests(unittest.TestCase):
     def test_plain_display_name(self):
         self.assertEqual(mention_names([{"displayName": "Gantry"}]), ["Gantry"])
 
+    def test_json_string_empty_is_not_a_mention(self):
+        # Teams 有时把 properties.mentions 存成字符串 "[]"；不能当成一个名字
+        self.assertEqual(mention_names("[]"), [])
+        self.assertEqual(mention_names(""), [])
+
+    def test_json_string_list_parsed(self):
+        self.assertEqual(mention_names('[{"mentionText":"Alex Chen - Example"}]'),
+                         ["Alex Chen - Example"])
+
     def test_text_without_at_still_detected_via_metadata(self):
         text = "Alex Chen - Example 1＋1 大于2吗？"
         self.assertFalse(has_mention(text, ["@Gantry"]))
