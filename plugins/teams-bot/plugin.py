@@ -153,7 +153,7 @@ class Bot:
                 return text, f"kb:{good[0].get('title')}"
         if bool(_cfg(self.ctx, "fallback_agent")):
             try:
-                text = await self._agent_answer(question, hits)
+                text = await self._agent_answer(question, good)
                 if text:
                     return text, "model"
             except Exception as exc:             # noqa: BLE001
@@ -164,23 +164,37 @@ class Bot:
         return "", "none"
 
     async def _agent_answer(self, question: str, hits: list[dict[str, Any]]) -> str:
-        """让 Gantry 的模型**只依据资料**答（资料不足就明说）。"""
+        """让 Gantry 的模型回答。
+
+        有知识库命中：严格只依据资料（不编造）；
+        没有命中：用模型的通用 IT 知识回答——用户要的是"知识库没有就用 AI 回"，
+        不能再强制模型说"资料里没有"。
+        """
         from gantry import bridge as b
 
         context = "\n\n".join(
             f"《{h.get('title')}》" + (f" › {h['heading']}" if h.get("heading") else "")
             + "\n" + str(h.get("text") or "")
             for h in (hits or [])[:3])[:4000]
-        prompt = (
-            "你是公司 IT 支持助手，在 Teams 里回答同事的提问。\n"
-            "规则：\n"
-            "1. 只依据下面的《参考资料》回答；资料里没有的，直接说「资料里没有，建议联系 IT 服务台」，"
-            "不要编造步骤、网址或分机号。\n"
-            "2. 回答用中文、口语化、分步骤，控制在 6 行以内。\n"
-            "3. 不要提到「参考资料」这个词，也不要说自己是 AI。\n\n"
-            f"《参考资料》\n{context or '（无匹配资料）'}\n\n"
-            f"同事的问题：{question}"
-        )
+        if context:
+            prompt = (
+                "你是公司 IT 支持助手，在 Teams 里回答同事的提问。\n"
+                "规则：\n"
+                "1. 优先依据下面的《参考资料》回答；资料里没有的部分，用你的一般知识补充，"
+                "但不要编造具体网址、分机号或内部流程。\n"
+                "2. 回答用中文、口语化、分步骤，控制在 6 行以内。\n"
+                "3. 不要提到「参考资料」这个词，也不要说自己是 AI。\n\n"
+                f"《参考资料》\n{context}\n\n"
+                f"同事的问题：{question}"
+            )
+        else:
+            prompt = (
+                "你是公司 IT 支持助手，在 Teams 里回答同事的提问。\n"
+                "知识库里没有匹配的资料，请用你的一般 IT 知识直接回答，给出可操作的步骤；"
+                "涉及公司内部系统/权限/具体分机号等你不确定的信息，提醒对方联系 IT 服务台核实，不要编造。\n"
+                "回答用中文、口语化、分步骤，控制在 6 行以内；不要说自己是在查资料，也不要提 AI。\n\n"
+                f"同事的问题：{question}"
+            )
         req = b.AgentRequest(
             model=str(_cfg(self.ctx, "model") or "copilot-auto"),
             messages=[b.Message(role="user", content=prompt)],
@@ -189,8 +203,17 @@ class Bot:
             workspace=None,
             agent_mode=bool(_cfg(self.ctx, "agent_mode")),
         )
-        result = await b.run_agent(req)
-        return (getattr(result, "content", "") or "").strip()
+        # `run_agent` 不读 agent_mode：它永远跑 Agent 循环，要求模型返回可解析的
+        # JSON 动作。普通对话（agent_mode=false）必须走 plain_completions，
+        # 否则模型正常的一段回答会被判成"未返回完整的 Agent JSON 动作" → 空回复。
+        if bool(_cfg(self.ctx, "agent_mode")):
+            result = await b.run_agent(req)
+            return (getattr(result, "content", "") or "").strip()
+        res = await b.plain_completions(req)
+        try:
+            return (res["choices"][0]["message"]["content"] or "").strip()
+        except Exception:                        # noqa: BLE001
+            return ""
 
     # ── 一个轮询周期 ──
     async def cycle(self) -> dict[str, Any]:
