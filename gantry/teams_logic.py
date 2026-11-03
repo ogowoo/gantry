@@ -55,7 +55,21 @@ def mention_names(mentions: Iterable[Any]) -> list[str]:
     Teams 的 @ 不一定以 `@名字` 出现在正文里：常见是正文纯文本 +
     `properties.mentions` 元数据（`mentionText` / `mentioned.user.displayName`）。
     只靠正文找 `@` 会漏掉真实 @。
+
+    注意：`mentions` 有时是**JSON 字符串**（如 `"[]"` 或 `"[{...}]"`），
+    必须解析，否则 `"[]"` 会被当成一个名字 → 空 mention 也被判成"被 @"。
     """
+    if isinstance(mentions, str):
+        s = mentions.strip()
+        if not s:
+            return []
+        try:
+            import json
+
+            parsed = json.loads(s)
+        except Exception:                    # noqa: BLE001
+            return [s]
+        return mention_names(parsed)
     out: list[str] = []
     for m in mentions or []:
         if isinstance(m, str):

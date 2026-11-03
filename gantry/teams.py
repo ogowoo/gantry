@@ -1116,7 +1116,15 @@ async def api_idb_watch(page=None, limit: int = 400) -> dict[str, Any]:
           // @ 在 Teams 里不一定以 "@名字" 出现在 content 里（常见是纯文本 +
           // properties.mentions 元数据，或者 <at> 标签被上面剥掉）。
           // 原样带出来给插件判断，别只靠 lastText 里有没有 '@'。
-          lastMentions: ((lm.properties || {}).mentions || []).slice(0, 8)
+          // mentions 有时是 JSON 字符串（"[]"），统一解析成数组，避免被当成名字。
+          lastMentions: (() => {
+            const raw = (lm.properties || {}).mentions;
+            let arr = raw;
+            if (typeof raw === 'string') {
+              try { arr = JSON.parse(raw); } catch (e) { arr = []; }
+            }
+            return Array.isArray(arr) ? arr.slice(0, 8) : [];
+          })()
         });
       }
       out.sort((a, b) => (b.lastTime || 0) - (a.lastTime || 0));
