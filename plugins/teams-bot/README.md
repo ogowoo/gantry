@@ -45,6 +45,8 @@ Teams 网页版里"有人 @ 我"就回，**知识库优先**。默认装好但�
 | `source` | `idb` | 读会话方式：`idb`（推荐）/ `dom` |
 | `interval_seconds` | `20` | 轮询间隔 |
 | `chats` | `[]` | 只盯这些会话（标题片段）；空=扫描**未读**会话 |
+| `only_direct` | `true` | 只处理 1:1 私聊（群聊跳过） |
+| `only_unread` | `true` | 只处理未读会话（已读水位覆盖的历史消息不回） |
 | `mention_tokens` | `["@Gantry"]` | 什么算"@我" |
 | `my_name` | `""` | 自己的显示名，用来排除自己发的 |
 | `kb_min_score` | `0.35` | 知识库命中阈值（`scripts/kb.py search` 可看分数） |

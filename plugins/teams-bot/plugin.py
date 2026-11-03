@@ -41,6 +41,7 @@ _DEFAULTS: dict[str, Any] = {
     "source": "idb",              # idb=从 IndexedDB 读会话（推荐）；dom=读当前打开的会话
     "send_enabled": False,        # 写侧还没打通（切会话），默认只记录不发送
     "only_direct": True,          # 只应答 1:1 会话（群聊默认跳过）
+    "only_unread": True,          # 只处理未读会话（过滤历史消息，避免首次全量误回）
     "mention_tokens": ["@Gantry"],
     "my_name": "",
     "kb_first": True,
@@ -121,6 +122,7 @@ class Bot:
             "interval_seconds": float(cfg["interval_seconds"]),
             "chats": cfg["chats"],
             "only_direct": bool(cfg["only_direct"]),
+            "only_unread": bool(cfg["only_unread"]),
             "source": cfg["source"],
             "send_enabled": bool(cfg["send_enabled"]),
             "mention_tokens": cfg["mention_tokens"],
@@ -245,6 +247,11 @@ class Bot:
                 text = normalise_text(str(c.get("lastText") or ""))
                 who = str(c.get("lastFrom") or "")
                 if not text:
+                    continue
+                # 只处理未读：历史消息（已读水位覆盖）直接跳过，避免首次启用
+                # 把几十个旧会话的"最后一条"全回一遍。
+                if bool(_cfg(self.ctx, "only_unread")) and not c.get("unread"):
+                    out["skipped"].append({"id": c["id"][:24], "why": "已读"})
                     continue
                 if my_name and who.strip().lower() == my_name.strip().lower():
                     out["skipped"].append({"id": c["id"][:24], "why": "自己发的"})
@@ -655,7 +662,8 @@ def setup(ctx):
         overrides = dict(ctx.state.get("overrides") or {})
         for k in ("enabled", "dry_run", "send_enabled", "source", "chats",
                   "mention_tokens", "my_name", "model", "interval_seconds",
-                  "kb_min_score", "fallback_agent", "agent_mode", "only_direct"):
+                  "kb_min_score", "fallback_agent", "agent_mode", "only_direct",
+                  "only_unread"):
             if k in body:
                 overrides[k] = body[k]
         ctx.save_state(overrides=overrides)

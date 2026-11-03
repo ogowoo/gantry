@@ -34,10 +34,10 @@ def dm(peer: str = PEER_A) -> str:
 
 
 def conv(cid: str, text: str, frm: str = "Lynn Ling - Example", last_id: str = "m1",
-         peer: str = "Lynn Ling - Example") -> dict:
+         peer: str = "Lynn Ling - Example", unread: bool = True) -> dict:
     return {"id": cid, "isDirect": "@unq.gbl.spaces" in cid, "peerName": peer,
             "lastText": text, "lastFrom": frm, "lastAt": "2026-11-02T09:42:09Z",
-            "lastId": last_id, "lastTime": 1793613729}
+            "lastId": last_id, "lastTime": 1793613729, "unread": unread}
 
 
 class FakeCtx:
@@ -178,6 +178,13 @@ class DirectTests(BotTestCase):
         self.fake.conversations = [conv(dm(), "打印机坏了")]
         out = self.run_cycle(dry_run=True)
         self.assertEqual(out["would"], [])
+
+    def test_read_conversation_ignored(self):
+        """only_unread 默认开启：已读会话的历史消息不能回。"""
+        self.fake.conversations = [conv(dm(), "@Gantry 旧消息", unread=False)]
+        out = self.run_cycle(dry_run=True)
+        self.assertEqual(out["would"], [])
+        self.assertTrue(any(s.get("why") == "已读" for s in out["skipped"]))
 
     def test_dedupe_same_last_id(self):
         self.kb.hits = [{"title": "T", "heading": "", "score": 0.9, "path": "t.md",
