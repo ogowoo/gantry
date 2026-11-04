@@ -94,6 +94,25 @@ def _emb_cfg(ctx) -> dict[str, Any]:
     return base
 
 
+def _ocr_settings(ctx) -> dict[str, Any]:
+    """kb.ocr 配置：磁盘 config.json > 内存 CFG > 默认（工程上以文件为准）。"""
+    import json
+
+    out: dict[str, Any] = {"engine": "rapidocr"}
+    try:
+        from gantry.bridge import CFG as _CFG
+
+        out.update(dict((_CFG.get("kb") or {}).get("ocr") or {}))
+    except Exception:                            # noqa: BLE001
+        pass
+    try:
+        disk = json.loads((_root(ctx) / "config.json").read_text(encoding="utf-8"))
+        out.update(dict((disk.get("kb") or {}).get("ocr") or {}))
+    except Exception:                            # noqa: BLE001
+        pass
+    return out
+
+
 def _sem(ctx):
     """按配置构造/缓存 SemanticIndex；后端不可用/关闭时返回 None。"""
     from gantry.kb_semantic import index_for
@@ -230,10 +249,75 @@ def setup(ctx) -> None:
     ctx.register_tool("kb_embed", kb_embed,
                       "建/更新知识库向量索引（语义检索用）；离线可用 backend=hash",
                       {"force": "true=清掉本模型旧向量后全量重算"})
+    # OCR 引擎：优先读**磁盘上的** config.json（内存 CFG 是启动快照，改文件后 reload 不生效）
+    try:
+        from gantry import kb_ocr
+
+        kb_ocr.configure(_ocr_settings(ctx))
+        ctx.log(f"OCR 引擎: {kb_ocr.config().get('engine')} "
+                f"(rapidocr 可用={kb_ocr.available()})")
+    except Exception as exc:                     # noqa: BLE001
+        ctx.log(f"OCR 配置读取失败（忽略）: {exc}")
+
     ctx.register_tool("kb_reindex", kb_reindex,
                       "重建本地知识库索引（增量，按文件 mtime+size 判断）",
                       {"force": "true=忽略 mtime 全量重建"})
     ctx.register_tool("kb_stats", kb_stats, "知识库规模与索引状态", {})
+
+    async def kb_add(text: str = "", title: str = "", url: str = "",
+                     paths: list | None = None, category: str = "chat") -> dict:
+        """把内容加入知识库（会话里让模型自己整理后入库）。
+
+        - `text`：整理好的 Markdown/文本；
+        - `url`：抓网页正文；
+        - `paths`：工作区/本地文件路径，自动按扩展名提取（docx/pdf/xlsx/pptx/图片OCR）；
+        一次可以只给一种，也可以组合（例如 url + paths）。
+        """
+        from gantry import kb_ingest
+
+        _ensure_index()
+        kb = _kb(ctx)
+        done: list[dict] = []
+        errors: list[dict] = []
+        if str(text or "").strip():
+            try:
+                path = kb_ingest.save_document(
+                    kb.dir, title or "聊天里整理的条目", str(text), title=title,
+                    source="chat", category=category)
+                done.append({"ok": True, "kind": "text", "path": str(path),
+                             "title": title or "聊天里整理的条目"})
+            except Exception as exc:             # noqa: BLE001
+                errors.append({"ok": False, "kind": "text", "error": str(exc)[:200]})
+        if str(url or "").strip():
+            try:
+                res = kb_ingest.ingest_url(kb.dir, str(url))
+                done.append({"ok": True, "kind": "url", **res})
+            except Exception as exc:             # noqa: BLE001
+                errors.append({"ok": False, "kind": "url", "error": str(exc)[:200]})
+        for raw in (paths or []):
+            try:
+                fp = Path(str(raw)).expanduser()
+                if not fp.is_absolute():
+                    fp = _root(ctx) / str(raw)
+                data = fp.read_bytes()
+                res = kb_ingest.ingest_bytes(kb.dir, fp.name, data, title=fp.stem,
+                                             source=str(fp))
+                done.append({"ok": True, "kind": "file", **res})
+            except Exception as exc:             # noqa: BLE001
+                errors.append({"ok": False, "kind": "file", "path": str(raw),
+                               "error": str(exc)[:200]})
+        if not done and not errors:
+            return {"ok": False, "error": "需要 text / url / paths 中至少一项"}
+        out = _after_change(ctx)
+        return {"ok": bool(done), "added": done, "errors": errors,
+                "documents": (out.get("stats") or {}).get("documents")}
+
+    ctx.register_tool(
+        "kb_add", kb_add,
+        "把内容加入本地知识库：整理好的 text / 网页 url / 文件 paths（自动提取 docx/pdf/xlsx/pptx/图片）",
+        {"text": "整理后的正文（Markdown 更好）", "title": "标题（用于文件名与出处）",
+         "url": "网页地址", "paths": "本地或工作区文件路径数组",
+         "category": "分类，默认 chat"})
 
     # ── HTTP 接口（面板/排障用）──
     async def _api_search(request):
@@ -392,7 +476,23 @@ def setup(ctx) -> None:
                 **_after_change(ctx)}
 
     ctx.register_api("GET", "api/semantic", _api_semantic)
+    async def _api_ocr(request):
+        """看/切 OCR 引擎：GET 返回当前配置；POST {"engine": "rapidocr"|"xiaomi"}。"""
+        from gantry import kb_ocr
+
+        try:
+            body = await request.json()
+        except Exception:                        # noqa: BLE001
+            body = {}
+        if isinstance(body, dict) and body.get("engine"):
+            kb_ocr.configure(body)
+        return {"ok": True, **kb_ocr.config(),
+                "rapidocr": kb_ocr.available(),
+                "note": "切换只影响本进程；持久化请改 config.json 的 kb.ocr"}
+
     ctx.register_api("POST", "api/import", _api_import)
+    ctx.register_api("GET", "api/ocr", _api_ocr)
+    ctx.register_api("POST", "api/ocr", _api_ocr)
     ctx.register_api("POST", "api/delete", _api_delete)
     ctx.register_api("GET", "api/inbox", _api_inbox)
     ctx.register_api("POST", "api/inbox/scan", _api_inbox_scan)

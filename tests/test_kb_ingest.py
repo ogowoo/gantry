@@ -334,10 +334,13 @@ class OcrTests(unittest.TestCase):
 
         self.kb_ocr = kb_ocr
         self._orig = kb_ocr._ENGINE
+        self._orig_cfg = kb_ocr.config()
+        kb_ocr.configure({"engine": "rapidocr"})     # 显式走 RapidOCR，避免串台
         kb_ocr.set_engine(None)
 
     def tearDown(self):
         self.kb_ocr.set_engine(self._orig)
+        self.kb_ocr.configure(self._orig_cfg)
 
     def _png(self) -> bytes:
         from PIL import Image
@@ -406,6 +409,119 @@ class OcrTests(unittest.TestCase):
         text = ing.extract_text("guide.pdf", make_pdf())
         self.assertIn("VPN troubleshooting", text)
         self.assertEqual(engine.calls, 0)
+
+
+class XiaomiEngineTests(unittest.TestCase):
+    """engine=xiaomi 走 Xiaomi-OCR-0（用假 processor/model/torch 注入，不加载真模型）。"""
+
+    class _Out:
+        def __getitem__(self, s):
+            return [[9, 9]]
+
+        @property
+        def shape(self):
+            return (1, 1)
+
+    def setUp(self):
+        from gantry import kb_ocr
+
+        self.kb_ocr = kb_ocr
+        self._orig_cfg = kb_ocr.config()
+        self._orig_x = kb_ocr._XIAOMI
+        kb_ocr.set_xiaomi(None)
+        kb_ocr.configure({"engine": "xiaomi"})
+
+    def tearDown(self):
+        self.kb_ocr.configure(self._orig_cfg)
+        self.kb_ocr.set_xiaomi(self._orig_x)
+
+    class _Torch:
+        class inference_mode:
+            def __enter__(self):
+                return None
+
+            def __exit__(self, *a):
+                return False
+
+    class _Tensor(list):
+        @property
+        def shape(self):
+            return (1, len(self))
+
+    class _Proc:
+        def apply_chat_template(self, messages, **kw):
+            return {"input_ids": XiaomiEngineTests._Tensor([1, 2, 3])}
+
+        def batch_decode(self, new, skip_special_tokens=True):
+            return ["# 标题\n\n| 甲 | 乙 |"]
+
+    class _Model:
+        def generate(self, **kw):
+            return XiaomiEngineTests._Out()
+
+    def _png(self):
+        from PIL import Image
+
+        buf = io.BytesIO()
+        Image.new("RGB", (30, 12), "white").save(buf, format="PNG")
+        return buf.getvalue()
+
+    def test_xiaomi_returns_markdown(self):
+        self.kb_ocr.set_xiaomi((self._Proc(), self._Model(), self._Torch))
+        text = self.kb_ocr.ocr_image_bytes(self._png())
+        self.assertIn("标题", text)
+
+    def test_engine_switch(self):
+        self.assertEqual(self.kb_ocr.config()["engine"], "xiaomi")
+        self.kb_ocr.configure({"engine": "rapidocr"})
+        self.assertEqual(self.kb_ocr.config()["engine"], "rapidocr")
+
+    def test_invalid_engine_falls_back(self):
+        self.kb_ocr.configure({"engine": "nonsense"})
+        self.assertEqual(self.kb_ocr.config()["engine"], "rapidocr")
+
+
+class KbAddToolTests(unittest.TestCase):
+    """会话里让模型调用 kb_add 入库。"""
+
+    def setUp(self):
+        tmp = Path(tempfile.mkdtemp(prefix="kb_add_"))
+        self.tmp = tmp
+        kbdir = tmp / "data" / "kb"
+        kbdir.mkdir(parents=True)
+        self.kb = KnowledgeBase(tmp)
+        self._orig_kb = plugin._kb
+        plugin._kb = lambda ctx: self.kb
+        self.ctx = FakeCtx()
+
+    def tearDown(self):
+        plugin._kb = self._orig_kb
+        self.kb.close()
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def run_coro(self, coro):
+        return asyncio.new_event_loop().run_until_complete(coro)
+
+    def test_add_text(self):
+        plugin.setup(self.ctx)
+        res = self.run_coro(self.ctx.tools["kb_add"]("## 打印机\n脱机先重启 spooler",
+                                                    "打印机", "", None))
+        self.assertTrue(res.get("ok"), res)
+        self.assertEqual(res["added"][0]["kind"], "text")
+        self.assertGreaterEqual(res["documents"], 1)
+
+    def test_add_file(self):
+        plugin.setup(self.ctx)
+        f = self.tmp / "vpn.docx"
+        f.write_bytes(make_docx())
+        res = self.run_coro(self.ctx.tools["kb_add"]("", "", "", [str(f)]))
+        self.assertTrue(res.get("ok"), res)
+        self.assertEqual(res["added"][0]["kind"], "file")
+
+    def test_requires_payload(self):
+        plugin.setup(self.ctx)
+        res = self.run_coro(self.ctx.tools["kb_add"]("", "", "", None))
+        self.assertFalse(res.get("ok"))
 
 
 if __name__ == "__main__":

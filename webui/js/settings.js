@@ -5,6 +5,7 @@ import { CODE_EXT } from './codeux.js';
 import { stepFilterInput } from './steps.js';
 import { readAnimPrefs, applyAnimPrefs, setAnimPref, animPrefLabel, ANIM_RANGES } from './animprefs.js';
 import { openKb, closeKb, kbPick, kbRefresh, kbReindex, kbImportUrl, kbImportText, kbInbox, kbSearch, kbDelete } from './kb.js';
+import { kbSaveMsg as kbSaveMsgImpl } from './composer.js';
 function renderSandbox(){
  const mode=SANDBOX_UI[sandboxMode]?sandboxMode:'workspace-write';
  const meta=SANDBOX_UI[mode];
@@ -406,6 +407,7 @@ const ACTIONS={
  exportChatMarkdown:()=>exportChatMarkdown(),
  editMsg:(el)=>editMsg(el),
  delMsg:(el)=>delMsg(el),
+ kbSaveMsg:(el)=>kbSaveMsgImpl(el),
  toggleGlobalSearch:()=>toggleGlobalSearch(),
  shutdownService:()=>shutdownService(),
  restartService:()=>restartService(),

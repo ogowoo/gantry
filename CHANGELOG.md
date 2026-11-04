@@ -14,6 +14,35 @@
 ### Fixed
 - 
 
+## [11.0.0-preview.56] - 2026-11-05
+
+### Added
+
+- **Xiaomi-OCR-0 接入为可选 OCR 引擎**（0.8B VLM，Apache-2.0；OmniDocBench v1.6 96.83、
+  Real5 95.24 第 1、表格 PubTabNet 92.27、公式 UniMER 97.84）。`gantry/kb_ocr.py` 增加
+  `engine=xiaomi`：输出 Markdown（表格 OTSL、公式 LaTeX），适合版面复杂的文档；
+  `engine=rapidocr`（默认）仍是 0.7s/张的快速路径。配置 `config.json`：
+
+  ```json
+  "kb": {"ocr": {"engine": "xiaomi", "xiaomi_model": "SeerRay-Lab/Xiaomi-OCR-0"}}
+  ```
+- **对话式扩充知识库**：
+  - 工具 `kb_add(text?, title?, url?, paths?, category?)`：模型在会话里整理完直接入库；
+  - 每条消息新增「📚 存入知识库」按钮：不经模型，把该条消息原文存入；
+  - 斜杠命令 `/kb [内容]`：填入"先整理再 `kb_add`"的指令，确认后发送。
+
+### Changed
+
+- 环境升级：`torch 2.10→2.14.0`、`torchvision 0.25→0.29.0`、`transformers 5.3→5.17.0`
+  （Xiaomi-OCR-0 官方要求；项目代码本身不 import torch/transformers，升级不影响 Gantry）。
+
+### 实测
+
+- Xiaomi-OCR-0（CPU，bf16）：processor 23.7s + 模型 30.0s 首次加载；312 token 输入 →
+  69 token / **6.4s**（约 10.8 tok/s）。一张"标题+两条正文+表格"的中文截图 → 正确输出
+  `## 电脑蓝屏处理手册` + 编号要点 + 表格 `<fcel>现象<fcel>处理<nl>…`（OTSL）。
+- `tests/test_kb_ingest.py` 32 条（新增 Xiaomi 引擎 3 条、`kb_add` 3 条）；不变量 25 条全绿。
+
 ## [11.0.0-preview.55] - 2026-11-05
 
 ### Fixed

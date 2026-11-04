@@ -28,7 +28,7 @@ import { setFollowupMode, resetView, load, runtime, stopEvents, stopTask, applyR
 import { demoApi, apiToken, cardOf, applyCardCollapsed, toggleCard, onCardHeadClick, applyTopbarCollapsed, toggleTopbar } from './cards.js';
 import { refreshChat, control, activate, openCopilot, removeSession, fmtCountdown, hideRetryUI, dismissRetryOverlay, showServiceBadge, updateRetryCountdown, fillRetrySwap, swapModelResume, rollbackSession, rollbackSelfUpgrade, showDeleteResult, closeDlg, forceDeleteLocal } from './control.js';
 import { enhanceManual, openManual, closeManual, openTask } from './manual.js';
-import { mountTimelineIntoTab, syncComposer, liveTab, expandLive, closeLive, showPromptView, continueAgent, autoGrowFollowup, sendFollowup, awaitFollowupReply, updateChannelUI, refreshQueue, editQueueItem, removeQueueItem, thumbsHtml, renderThumbs, removeAttachment, attachPasteHandler, lastSavedAssistant, renderLiveBubble, updateLiveBubble, exportChatMarkdown, editMsg, delMsg, toggleGlobalSearch, gsInput, runGlobalSearch, jumpToMessage, injectMessage, setTaskMode, runTask, waitSessionReady, toggleMore } from './composer.js';
+import { mountTimelineIntoTab, syncComposer, liveTab, expandLive, closeLive, showPromptView, continueAgent, autoGrowFollowup, sendFollowup, awaitFollowupReply, updateChannelUI, refreshQueue, editQueueItem, removeQueueItem, thumbsHtml, renderThumbs, removeAttachment, attachPasteHandler, lastSavedAssistant, renderLiveBubble, updateLiveBubble, exportChatMarkdown, editMsg, delMsg, kbSaveMsg, toggleGlobalSearch, gsInput, runGlobalSearch, jumpToMessage, injectMessage, setTaskMode, runTask, waitSessionReady, toggleMore } from './composer.js';
 import { themeChoice, resolveTheme, applyTheme, toggleTheme, watchSystemTheme, toggleRail, memInjectCss, memBtn, openMemory, loadMemory, bootBanner, showBoot, shutdownService, restartService, showRestarting, waitServiceBack, showStopped, pollBoot } from './themeboot.js';
 import { renderSandbox, loadSandbox, pickSandbox, openSettings, closeSettings, renderSettings, setSettingsTab, collectSettings, saveSettings } from './settings.js';
 import { applyTitleVersion, loadVersion } from './version.js';
@@ -103,6 +103,7 @@ window.updateLiveBubble = updateLiveBubble;
 window.exportChatMarkdown = exportChatMarkdown;
 window.editMsg = editMsg;
 window.delMsg = delMsg;
+window.kbSaveMsg = kbSaveMsg;
 window.toggleGlobalSearch = toggleGlobalSearch;
 window.gsInput = gsInput;
 window.runGlobalSearch = runGlobalSearch;
