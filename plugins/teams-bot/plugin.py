@@ -83,6 +83,38 @@ def _kb(ctx):
     return kb
 
 
+def _sem(ctx):
+    """按 config.json 的 kb.embedding 构造/缓存向量索引；不可用时返回 None。"""
+    from gantry.kb_semantic import index_for
+
+    if getattr(ctx, "_sem", "missing") == "missing":
+        try:
+            from gantry.bridge import CFG as _CFG
+
+            cfg = ((_CFG.get("kb") or {}).get("embedding") or {})
+            ctx._sem = index_for(_kb(ctx), dict(cfg))
+        except Exception as exc:                 # noqa: BLE001
+            ctx.log(f"向量层初始化失败（退回 FTS）: {exc}")
+            ctx._sem = None
+    return getattr(ctx, "_sem", None)
+
+
+def _search(ctx, question: str, limit: int = 4) -> list:
+    """知识库检索：有向量索引就混合（0.75×余弦 + 0.25×覆盖率），否则纯 FTS。"""
+    sem = _sem(ctx)
+    if sem is not None:
+        try:
+            st = sem.stats()
+            if st["vectorised"] < st["chunks"]:
+                sem.build()
+            hits = sem.hybrid(question, limit)
+            if hits:
+                return hits
+        except Exception as exc:                 # noqa: BLE001
+            ctx.log(f"混合检索失败（退回 FTS）: {exc}")
+    return _kb(ctx).search(question, limit)
+
+
 def _root(ctx) -> Any:
     from pathlib import Path
 
@@ -139,9 +171,8 @@ class Bot:
         """返回 (回复文本, 来源说明) —— 来源给日志/接口看，不进回复正文。"""
         from gantry.teams_logic import build_kb_answer, pick_hits
 
-        kb = _kb(self.ctx)
         try:
-            hits = kb.search(question, 4)
+            hits = _search(self.ctx, question, 4)
         except Exception as exc:                 # noqa: BLE001
             hits = []
             self.ctx.log(f"知识库检索失败（继续走模型）: {exc}")
@@ -435,7 +466,7 @@ def setup(ctx):
             kb.reindex()
         except Exception:                        # noqa: BLE001
             pass
-        hits = kb.search(query, max(1, min(int(limit or 4), 10)))
+        hits = _search(ctx, query, max(1, min(int(limit or 4), 10)))
         return {"query": query, "hits": hits,
                 "filtered": pick_hits(hits, float(_cfg(ctx, "kb_min_score")))}
 
@@ -456,6 +487,20 @@ def setup(ctx):
     # ── HTTP 接口（WebUI 面板/排障用）──
     async def _api_status(request=None):
         return bot.status()
+
+    async def _api_answer(request=None):
+        """只算不发：验证"收到问题会怎么回"（走混合检索 + kb_first）。"""
+        q = ""
+        try:
+            params = getattr(request, "query_params", {}) or {}
+            q = str(params.get("q") or params.get("question") or "")
+        except Exception:                        # noqa: BLE001
+            pass
+        if not q.strip():
+            return {"error": "需要 ?q=问题"}
+        text, source = await bot.answer(q)
+        return {"question": q, "text": text, "source": source,
+                "would_reply": bool(text)}
 
     async def _api_run(request=None):
         return await bot.cycle()
@@ -733,6 +778,7 @@ def setup(ctx):
 
     ctx.register_api("GET", "api/status", _api_status)
     ctx.register_api("POST", "api/run", _api_run)
+    ctx.register_api("GET", "api/answer", _api_answer)
     ctx.register_api("POST", "api/reply", _api_reply)
     ctx.register_api("GET", "api/probe", _api_probe)
     ctx.register_api("POST", "api/reindex", _api_reindex)

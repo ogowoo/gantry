@@ -14,6 +14,24 @@
 ### Fixed
 - 
 
+## [11.0.0-preview.53] - 2026-11-04
+
+### Added
+
+- **teams-bot 回答改用混合检索**：`Bot.answer()` 不再只查 FTS，而是走
+  `gantry.kb_semantic.hybrid`（0.75×余弦 + 0.25×词面覆盖率），配置读 `config.json` 的
+  `kb.embedding`（`backend=local` 时用进程内 Qwen3-Embedding）；向量未建/失败自动退回 FTS。
+  返回的 `via` 字段可看命中来自 `vector` / `fts` / `both`。
+- `GET /v1/plugins/teams-bot/api/answer?q=`：**只算不发**，用于调知识库与阈值
+  （返回 `{text, source, would_reply}`，`source` 形如 `kb:《VPN 连不上怎么办》`）。
+- `docs/TEAMS-BOT.md` 增"最短路径：让它用知识库回答"（放资料 → 建索引 → 打开 → 单条验证 → 开发送）。
+
+### 实测
+
+- `api/answer?q=公司网络访问不了外部网站` → `source: kb:wifi`（同义改写命中，
+  纯 FTS 时只有 0.138 的弱命中）；`q=VPN 连不上怎么办` → `source: kb:《VPN 连不上怎么办》`。
+- `tests/test_teams_bot.py` 23 条（新增 hybrid 优先 / 空结果退回 FTS / 无向量层退回 FTS）。
+
 ## [11.0.0-preview.52] - 2026-11-04
 
 ### Fixed

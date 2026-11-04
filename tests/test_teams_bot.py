@@ -333,5 +333,52 @@ class SetupTests(BotTestCase):
         plugin.teardown(ctx)
 
 
+class BotRetrievalTests(BotTestCase):
+    """answer() 的知识库检索：有向量索引 → hybrid；没有 → FTS。"""
+
+    class _FakeSem:
+        def __init__(self, hits):
+            self.hits = hits
+            self.built = 0
+
+        def stats(self):
+            return {"vectorised": 1, "chunks": 1}
+
+        def build(self, force=False):
+            self.built += 1
+            return {"vectorised": 1, "chunks": 1}
+
+        def hybrid(self, q, limit, **kw):
+            return list(self.hits)
+
+    def _answer(self, question, sem):
+        ctx = FakeCtx(enabled=True, kb_first=True, fallback_agent=False,
+                      reply_when_unknown=False)
+        ctx._sem = sem
+        bot = plugin.Bot(ctx)
+        return asyncio.new_event_loop().run_until_complete(bot.answer(question))
+
+    def test_uses_hybrid_when_available(self):
+        hits = [{"title": "VPN", "heading": "排查", "path": "vpn.md",
+                 "text": "换热点试一次", "score": 0.9, "via": "vector"}]
+        self.kb.hits = []                        # FTS 若被用到就没有结果
+        text, source = self._answer("@Gantry VPN 连不上", self._FakeSem(hits))
+        self.assertTrue(text)
+        self.assertIn("VPN", source)
+
+    def test_falls_back_to_fts_without_vector(self):
+        self.kb.hits = [{"title": "T", "heading": "", "score": 0.9, "path": "t.md",
+                         "text": "答案"}]
+        text, source = self._answer("@Gantry 问题", None)
+        self.assertTrue(text)
+        self.assertIn("kb:", source)
+
+    def test_hybrid_empty_falls_back_to_fts(self):
+        self.kb.hits = [{"title": "T", "heading": "", "score": 0.9, "path": "t.md",
+                         "text": "答案"}]
+        text, source = self._answer("@Gantry 问题", self._FakeSem([]))
+        self.assertTrue(text, "混合检索空结果时应退回 FTS")
+
+
 if __name__ == "__main__":
     unittest.main()
