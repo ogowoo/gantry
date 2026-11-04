@@ -92,6 +92,71 @@ def build_prompt(messages: list[Any], tools: list[dict[str, Any]] | None,
     )
 
 
+def _repair_json(text: str) -> str:
+    """修模型常见的非法 JSON 转义。
+
+    实测 Copilot 会输出 `$git=\\'C:\\Program Files\\...\\'`：`\\'` 不是合法
+    JSON 转义，json.loads 直接失败；另外偶尔有字符串里的裸换行/制表符。
+    这里按字符串上下文逐字符修，不破坏 JSON 结构。
+    """
+    out: list[str] = []
+    in_str = False
+    i = 0
+    while i < len(text):
+        ch = text[i]
+        if not in_str:
+            if ch == '"':
+                in_str = True
+            out.append(ch)
+            i += 1
+            continue
+        if ch == '"':
+            in_str = False
+            out.append(ch)
+            i += 1
+            continue
+        if ch == "\\":
+            nxt = text[i + 1] if i + 1 < len(text) else ""
+            if nxt in '"\\/bfnrtu':
+                out.append(ch)
+                i += 1
+                continue
+            if nxt == "'":
+                # 模型把单引号也转义了：JSON 里没必要，去掉反斜杠
+                out.append("'")
+                i += 2
+                continue
+            # 其它非法转义（如 Windows 路径的单反斜杠）→ 转成字面反斜杠
+            out.append("\\\\")
+            i += 1
+            continue
+        if ch == "\n":
+            out.append("\\n")
+            i += 1
+            continue
+        if ch == "\r":
+            out.append("\\r")
+            i += 1
+            continue
+        if ch == "\t":
+            out.append("\\t")
+            i += 1
+            continue
+        out.append(ch)
+        i += 1
+    return "".join(out)
+
+
+def _loads_tolerant(text: str) -> Any:
+    try:
+        return json.loads(text)
+    except Exception:                        # noqa: BLE001
+        try:
+            return json.loads(_repair_json(text))
+        except Exception:                    # noqa: BLE001
+            return None
+
+
 def _extract_json(text: str) -> Any:
     """从模型输出里抠出第一个完整 JSON 对象（容忍代码围栏/前后解释）。"""
     body = (text or "").strip()
@@ -120,10 +185,7 @@ def _extract_json(text: str) -> Any:
         elif ch == "}":
             depth -= 1
             if depth == 0:
-                try:
-                    return json.loads(body[start:i + 1])
-                except Exception:                # noqa: BLE001
-                    return None
+                return _loads_tolerant(body[start:i + 1])
     return None
 
 
