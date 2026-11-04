@@ -337,6 +337,7 @@ const ACTIONS={
  rollbackSession:()=>rollbackSession(),
  rollbackSelfUpgrade:()=>rollbackSelfUpgrade(),
  removeSession:(el)=>removeSession(el.dataset.arg==='true'),
+ deleteSession:(el)=>removeSession(false, el.dataset.arg),
  liveTab:(el)=>liveTab(el.dataset.arg),
  toggleStreamDetail:()=>toggleStreamDetail(),
  cardCollapse:(el)=>toggleCard(el.dataset.arg||'live'),
