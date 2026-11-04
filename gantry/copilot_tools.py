@@ -1,0 +1,197 @@
+# -*- coding: utf-8 -*-
+"""Copilot 网页模型的 tool_calls 合成层。
+
+Copilot 网页没有原生 function calling。这里用"提示词让它输出 JSON + 解析"
+合成 OpenAI 的 tool_calls：只在 `copilot_tool_shim=true` 且请求带 tools 时启用。
+
+可靠性取舍：模型可能夹解释/代码围栏，所以解析失败一律退回普通文本，
+不让整个请求报错；多轮工具循环也不如提供商模型稳。
+"""
+from __future__ import annotations
+
+import json
+import re
+import uuid
+from typing import Any
+
+TOOL_CALL_PROMPT = (
+    "你是一个工具调用路由器。可用工具（JSON Schema）：\n"
+    "{tools}\n\n"
+    "规则：\n"
+    "1. 需要调用工具时，只输出："
+    '{{"tool_calls":[{{"name":"工具名","arguments":{{...}}}}]}}\n'
+    "2. 不需要调用工具时，只输出："
+    '{{"content":"给用户的回答"}}\n'
+    "3. 不要输出代码围栏、解释、引用或任何多余文字。\n"
+    "4. arguments 必须是 JSON 对象，字段符合对应工具的 parameters。\n"
+    "{extra}"
+    "\n对话：\n{transcript}\n\n现在只输出 JSON："
+)
+
+
+def enabled() -> bool:
+    from . import bridge as b
+
+    return bool(b.CFG.get("copilot_tool_shim", False))
+
+
+def _tool_specs(tools: list[dict[str, Any]] | None) -> list[dict[str, Any]]:
+    out: list[dict[str, Any]] = []
+    for t in tools or []:
+        if not isinstance(t, dict):
+            continue
+        fn = t.get("function") if isinstance(t.get("function"), dict) else t
+        name = str(fn.get("name") or "").strip()
+        if not name:
+            continue
+        out.append({
+            "name": name,
+            "description": str(fn.get("description") or ""),
+            "parameters": fn.get("parameters") or {"type": "object", "properties": {}},
+        })
+    return out
+
+
+def _transcript(messages: list[Any], limit: int = 16) -> str:
+    from . import bridge as b
+
+    lines: list[str] = []
+    for m in list(messages or [])[-limit:]:
+        role = str(getattr(m, "role", "") or "")
+        text = b.message_text(m).strip()
+        calls = getattr(m, "tool_calls", None)
+        if role == "tool":
+            lines.append(f"[tool result] {text}")
+        elif role == "assistant" and calls:
+            try:
+                calls_txt = json.dumps(calls, ensure_ascii=False)
+            except Exception:                    # noqa: BLE001
+                calls_txt = str(calls)
+            lines.append(f"[assistant tool_calls] {calls_txt}")
+        elif text:
+            lines.append(f"[{role}] {text}")
+    return "\n".join(lines) or "[user] （空）"
+
+
+def build_prompt(messages: list[Any], tools: list[dict[str, Any]] | None,
+                 tool_choice: Any = None) -> str:
+    specs = _tool_specs(tools)
+    extra = ""
+    if tool_choice == "none":
+        extra = "5. 本轮不允许调用工具，只能输出 content。\n"
+    elif tool_choice in ("required", "any"):
+        extra = "5. 本轮必须调用至少一个工具。\n"
+    elif isinstance(tool_choice, dict) and tool_choice.get("type") == "function":
+        name = (tool_choice.get("function") or {}).get("name")
+        if name:
+            extra = f"5. 本轮必须调用工具「{name}」。\n"
+    return TOOL_CALL_PROMPT.format(
+        tools=json.dumps(specs, ensure_ascii=False, indent=1),
+        extra=extra,
+        transcript=_transcript(messages),
+    )
+
+
+def _extract_json(text: str) -> Any:
+    """从模型输出里抠出第一个完整 JSON 对象（容忍代码围栏/前后解释）。"""
+    body = (text or "").strip()
+    body = re.sub(r"^```(?:json)?\s*", "", body, flags=re.I)
+    body = re.sub(r"\s*```$", "", body)
+    start = body.find("{")
+    if start < 0:
+        return None
+    depth = 0
+    in_str = False
+    esc = False
+    for i in range(start, len(body)):
+        ch = body[i]
+        if in_str:
+            if esc:
+                esc = False
+            elif ch == "\\":
+                esc = True
+            elif ch == '"':
+                in_str = False
+            continue
+        if ch == '"':
+            in_str = True
+        elif ch == "{":
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+            if depth == 0:
+                try:
+                    return json.loads(body[start:i + 1])
+                except Exception:                # noqa: BLE001
+                    return None
+    return None
+
+
+def _normalize_args(value: Any) -> str | None:
+    if value is None:
+        return "{}"
+    if isinstance(value, dict):
+        return json.dumps(value, ensure_ascii=False)
+    if isinstance(value, str):
+        s = value.strip() or "{}"
+        try:
+            json.loads(s)
+        except Exception:                        # noqa: BLE001
+            return None
+        return s
+    return None
+
+
+def parse_decision(raw: str, tools: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+    """把模型输出解析成 {content, tool_calls}；解析不出就当普通文本。"""
+    data = _extract_json(raw)
+    if not isinstance(data, dict):
+        return {"content": (raw or "").strip(), "tool_calls": None}
+    calls = data.get("tool_calls") or data.get("toolCalls")
+    if isinstance(calls, dict):
+        calls = [calls]
+    normalized: list[dict[str, Any]] = []
+    if isinstance(calls, list):
+        for c in calls:
+            if not isinstance(c, dict):
+                continue
+            fn = c.get("function") if isinstance(c.get("function"), dict) else c
+            name = str(fn.get("name") or c.get("name") or "").strip()
+            args = _normalize_args(fn.get("arguments", c.get("arguments")))
+            if not name or args is None:
+                continue
+            normalized.append({
+                "id": f"call_{uuid.uuid4().hex[:12]}",
+                "type": "function",
+                "function": {"name": name, "arguments": args},
+            })
+    if normalized:
+        content = data.get("content")
+        return {"content": str(content) if isinstance(content, str) and content.strip() else None,
+                "tool_calls": normalized}
+    content = data.get("content")
+    if isinstance(content, str) and content.strip():
+        return {"content": content.strip(), "tool_calls": None}
+    return {"content": (raw or "").strip(), "tool_calls": None}
+
+
+async def decide(req: Any) -> dict[str, Any]:
+    """让 Copilot 网页按 tools 决定：返回 {content, tool_calls}。"""
+    from . import bridge as b
+
+    prompt = build_prompt(req.messages, getattr(req, "tools", None),
+                          getattr(req, "tool_choice", None))
+    agent_req = b.AgentRequest(
+        model=req.model,
+        messages=[b.Message(role="user", content=prompt)],
+        stream=False,
+        session_id=f"toolcall-{uuid.uuid4().hex[:12]}",
+        workspace=None,
+        agent_mode=False,
+    )
+    res = await b.plain_completions(agent_req)
+    try:
+        raw = (res["choices"][0]["message"]["content"] or "")
+    except Exception:                            # noqa: BLE001
+        raw = ""
+    return parse_decision(raw, getattr(req, "tools", None))

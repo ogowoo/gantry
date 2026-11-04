@@ -268,6 +268,58 @@ async def help_get():
     }
 
 
+def _tool_decision_payload(decision: dict, model: str) -> dict:
+    tool_calls = decision.get("tool_calls") or None
+    content = decision.get("content")
+    message: dict[str, Any] = {"role": "assistant", "content": content}
+    if tool_calls:
+        message["tool_calls"] = tool_calls
+    finish = "tool_calls" if tool_calls else "stop"
+    return {"id": "chatcmpl-" + uuid.uuid4().hex, "object": "chat.completion",
+            "created": int(time.time()), "model": model,
+            "choices": [{"index": 0, "message": message, "finish_reason": finish}]}
+
+
+async def stream_copilot_tool(req: a.Request):
+    """Copilot 合成 tool_calls 的流式版本：一次性吐工具分片。"""
+    from . import copilot_tools
+
+    rid = "chatcmpl-" + uuid.uuid4().hex
+    created = int(time.time())
+    yield sse({"id": rid, "object": "chat.completion.chunk", "created": created,
+               "model": req.model,
+               "choices": [{"index": 0, "delta": {"role": "assistant"},
+                            "finish_reason": None}]})
+    try:
+        decision = await copilot_tools.decide(req)
+    except Exception as exc:                     # noqa: BLE001
+        yield sse({"error": {"message": str(exc), "type": "tool_shim_error"}})
+        yield sse("[DONE]")
+        return
+    calls = decision.get("tool_calls") or None
+    if calls:
+        for i, call in enumerate(calls):
+            call["index"] = i
+        yield sse({"id": rid, "object": "chat.completion.chunk", "created": created,
+                   "model": req.model,
+                   "choices": [{"index": 0, "delta": {"tool_calls": calls},
+                                "finish_reason": None}]})
+        yield sse({"id": rid, "object": "chat.completion.chunk", "created": created,
+                   "model": req.model,
+                   "choices": [{"index": 0, "delta": {}, "finish_reason": "tool_calls"}]})
+    else:
+        content = str(decision.get("content") or "")
+        for i in range(0, len(content), 200):
+            yield sse({"id": rid, "object": "chat.completion.chunk", "created": created,
+                       "model": req.model,
+                       "choices": [{"index": 0, "delta": {"content": content[i:i + 200]},
+                                    "finish_reason": None}]})
+        yield sse({"id": rid, "object": "chat.completion.chunk", "created": created,
+                   "model": req.model,
+                   "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}]})
+    yield sse("[DONE]")
+
+
 @router.post("/v1/chat/completions")
 async def chat(req: a.Request):
     # Validate before creating StreamingResponse, so an invalid model returns HTTP 400.
@@ -290,13 +342,13 @@ async def chat(req: a.Request):
         if req.stream:
             return StreamingResponse(
                 stream_provider(p, pm[1], messages,
-                                tools=req.tools, tool_choice=req.tool_choice),
+                                tools=getattr(req, "tools", None), tool_choice=getattr(req, "tool_choice", None)),
                 media_type="text/event-stream",
                 headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
             )
         try:
             result = await p.complete_message(pm[1], messages,
-                                              tools=req.tools, tool_choice=req.tool_choice)
+                                              tools=getattr(req, "tools", None), tool_choice=getattr(req, "tool_choice", None))
         except b.providers_mod.ProviderUnavailable as exc:
             raise HTTPException(503, str(exc))
         except b.providers_mod.ProviderError as exc:
@@ -312,6 +364,25 @@ async def chat(req: a.Request):
                 "created": int(time.time()), "model": req.model,
                 "choices": [{"index": 0, "message": message,
                              "finish_reason": finish}]}
+    # Copilot 网页模型没有原生 function calling：带 tools 且开关打开时，
+    # 让模型按 JSON 路由并合成 OpenAI tool_calls。
+    if getattr(req, "tools", None):
+        from . import copilot_tools
+
+        if copilot_tools.enabled():
+            if req.stream:
+                return StreamingResponse(
+                    stream_copilot_tool(req),
+                    media_type="text/event-stream",
+                    headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+                )
+            try:
+                decision = await copilot_tools.decide(req)
+            except b.CopilotBusy as exc:
+                raise HTTPException(409, f"{exc}（稍后再试，或调大「Copilot 自动化窗口数」）")
+            except Exception as exc:             # noqa: BLE001
+                raise HTTPException(500, str(exc))
+            return _tool_decision_payload(decision, req.model)
     prompts = [b.message_text(m).strip() for m in req.messages
                if m.role == "user" and b.message_text(m).strip()]
     if not prompts:
