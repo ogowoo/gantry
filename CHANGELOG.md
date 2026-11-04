@@ -14,6 +14,32 @@
 ### Fixed
 - 
 
+## [11.0.0-preview.48] - 2026-11-04
+
+### Fixed
+
+- **沙箱越界报错不再"只讲规则"**：现场 `task-mw1cb7ue`（"用 python 做一个扫雷"，
+  `fflm/deepseek-r1-0528:8b`）模型写 `write_text_b64` 到 **`/src/minesweeper.py`**，
+  在 Windows 上解析成 `C:\\src\\...`，落在工作区外 → `FS_SANDBOX_ESCAPE`。
+  旧报错只说"改用工作区内相对路径"，小模型不会自己把 `/src/x.py` 换算成 `src/x.py`，
+  于是原地卡住。现在 `_sandbox_denied()` 会**直接给出可照抄的写法**：
+
+  ```
+  建议: 把 path 改成工作区内的相对路径，例如 path="src/minesweeper.py"（会写到 …\workspace\src\minesweeper.py）
+  ```
+
+  规则：`/src/a.py` → `src/a.py`；`C:\\tmp\\a.py` → `tmp/a.py`；`..\\..\\evil.py` → `evil.py`。
+
+- **拦掉"能解码但不是文本"的 b64 载荷**：同一个会话里模型给的 `content_b64` 能通过
+  Base64 解码，但内容是 `Support do e(eval,path istable are friend a messembos user handle…`
+  这种无意义拼接——路径一旦合法就会写出垃圾文件。现在 `_decode_b64` 解出后做控制字符
+  比例检查（> 2% 判为伪文本），直接报错并提示"改用 write_text，不要把内容做 Base64"。
+
+### 实测
+
+- `tests/test_sandbox_errors.py`：9 → **13 条**（越界建议 5 条 + 载荷守卫 4 条），全绿。
+- 手动核对：中文/代码/换行制表符通过；控制字符 78% / 100% 的载荷被拦。
+
 ## [11.0.0-preview.47] - 2026-11-02
 
 ### Added

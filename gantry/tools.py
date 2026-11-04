@@ -655,6 +655,12 @@ class ToolsCoreMixin:
             "② 若确实需要改服务自身代码，请让用户在 config.json 打开 agent.allow_self_upgrade 后重试；"
             "③ 只需要内容时用只读工具读取，或请用户把文件放进工作区。",
         ]
+        if code == "FS_SANDBOX_ESCAPE":
+            rel = self._workspace_relative_hint(target)
+            if rel:
+                lines.append(
+                    f'建议: 把 path 改成工作区内的相对路径，例如 path="{rel}"'
+                    f"（会写到 {Path(self.root) / rel}）")
         if self.allow_self_upgrade:
             # 自升级模式下普通文件工具**仍然**被锁在工作区里（这正是护栏的本意），
             # 但模型会拿 list_directory('..') 去摸服务目录——task-mvs4un2x 第 38 步就这样
@@ -665,6 +671,26 @@ class ToolsCoreMixin:
                 "/ self_replace_text / self_write_text_b64；普通 list_directory/read_text"
                 "/grep 只在工作区内有效。")
         return "\n".join(lines)
+
+    @staticmethod
+    def _workspace_relative_hint(target: str) -> str:
+        """把越界路径翻成"工作区内相对路径"的建议（取最后 1–3 段）。
+
+        `/src/minesweeper.py` → `src/minesweeper.py`
+        `C:\\tmp\\a.py`     → `tmp/a.py`
+        `..\\..\\evil.py`     → `evil.py`
+        盘符/根/`..` 都丢掉；拿不到有效段则返回空串（不给建议）。
+        """
+        raw = str(target or "").replace("\\", "/").strip()
+        if not raw:
+            return ""
+        raw = raw.lstrip("/")
+        if len(raw) > 1 and raw[1] == ":":
+            raw = raw[2:].lstrip("/")
+        parts = [p for p in raw.split("/") if p and p not in (".", "..")]
+        if not parts:
+            return ""
+        return "/".join(parts[-3:])
 
     def _covers_install(self, candidate: Path) -> bool:
         """candidate 是否落在服务安装目录内（danger 档下仍要拦这个）。"""

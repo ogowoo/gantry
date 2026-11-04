@@ -38,3 +38,4 @@ _*.png
 .env
 .env.local
 !.env.example
+config.json.bak*
