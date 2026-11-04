@@ -1,0 +1,25 @@
+{
+  "name": "kb",
+  "version": "0.1.0",
+  "description": "本地知识库：data/kb/**/*.md → SQLite FTS5(trigram) 索引，提供 kb_search / kb_reindex / kb_stats 与 HTTP 接口",
+  "gantry": {
+    "entry": "plugin.py",
+    "permissions": ["tools", "api", "ui"],
+    "contributes": {
+      "tools": ["kb_search", "kb_reindex", "kb_stats"],
+      "api": [
+        "GET api/search",
+        "POST api/reindex",
+        "GET api/stats",
+        "GET api/docs"
+      ],
+      "panels": ["kb-status"]
+    },
+    "config": {
+      "dir": "data/kb",
+      "max_results": 6,
+      "min_score": 0.0,
+      "auto_reindex": true
+    }
+  }
+}

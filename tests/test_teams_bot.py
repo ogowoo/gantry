@@ -314,8 +314,10 @@ class SetupTests(BotTestCase):
         ctx = FakeCtx()
         plugin.setup(ctx)
         names = {t[0] for t in ctx.tools}
-        for need in ("teams_status", "teams_reply", "kb_search", "teams_probe"):
+        for need in ("teams_status", "teams_reply", "teams_probe"):
             self.assertIn(need, names)
+        # kb_search/kb_reindex 已迁到独立 kb 插件，这里不该再注册（会撞工具名）
+        self.assertNotIn("kb_search", names)
         paths = {p for _, p, _ in ctx.apis}
         for need in ("api/status", "api/probe"):
             self.assertIn(need, paths)
