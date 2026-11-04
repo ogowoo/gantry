@@ -2494,6 +2494,19 @@ async def _warm_ready(page) -> bool:
     return False
 
 
+async def _goto_chat_home(page) -> None:
+    """回到 Teams 聊天列表。
+
+    搜索建议点偏了会停在 "Search | ..." 结果页；那里没有会话列表/输入框，
+    `teams_open()` 会一直等不到就绪、最后 300s 超时（实测："没能完成发送"）。
+    """
+    try:
+        await page.goto(TEAMS_URL, wait_until="domcontentloaded", timeout=120_000)
+        await asyncio.sleep(2.0)
+    except Exception:                           # noqa: BLE001
+        pass
+
+
 async def teams_open(timeout: float = 300.0, force_reload: bool = False) -> Any:
     """打开/复用 Teams 标签页，等到主界面出现。SSO 已在共享 ctx 里，通常只需几秒。"""
     global teams_page
@@ -2524,6 +2537,15 @@ async def teams_open(timeout: float = 300.0, force_reload: bool = False) -> Any:
                 await diagnostics("teams_login_wall")
                 raise TeamsError("Teams 要求登录（共享浏览器里没有有效的 Teams 会话）："
                                  "先在自动化浏览器里登录一次 Teams")
+            # 搜索页不是聊天页：回列表，别在这里干等 300s
+            try:
+                _title = (await teams_page.title() or "").lower()
+            except Exception:                   # noqa: BLE001
+                _title = ""
+            if "/search" in url.lower() or "search |" in _title:
+                _b.log("Teams 停在搜索页，返回聊天列表")
+                await _goto_chat_home(teams_page)
+                continue
             # 真的就绪：会话项或输入框已经出现
             if await _warm_ready(teams_page):
                 return teams_page
@@ -2994,6 +3016,12 @@ async def api_open_by_snippet(snippet: str, expect: str = "", page=None,
                                wait: float = 5.0, confirm: float = 30.0) -> dict[str, Any]:
     """用消息片段搜索并点开"最近消息"结果（比按人名搜可靠：人名会开名片）。"""
     page = page or await teams_open()
+    try:
+        if "/search" in (page.url or "").lower() or \
+                "search |" in (await page.title() or "").lower():
+            await _goto_chat_home(page)
+    except Exception:                           # noqa: BLE001
+        pass
     before = await header_title(page)
     out: dict[str, Any] = {"snippet": (snippet or "")[:40], "before": (before or "")[:40]}
     text = (snippet or "").strip()
@@ -3193,6 +3221,8 @@ async def reply_to(peer: str, text: str, send: bool = False,
         if not opened:
             _b.log(f"reply_to 按消息片段打开失败：{res.get('error')} / {res.get('after')}")
     if not opened:
+        # 搜索失败可能停在 "Search" 结果页；先回聊天列表再按人名点
+        await _goto_chat_home(page)
         opened = await open_chat(peer)
         how = how or "name"
     if not opened:
@@ -3201,8 +3231,14 @@ async def reply_to(peer: str, text: str, send: bool = False,
     # 最后一道校验：打开的会话标题必须包含 peer。否则宁可报错，也不能把回复
     # 发进别的群（实测同一个消息片段会命中多个会话，曾打开成 "AI GROUP Chat"）。
     if peer and head and peer.lower()[:8] not in head.lower():
-        return {"opened": False, "how": how, "header": head[:50],
-                "error": f"打开的是「{head[:40]}」，不是「{peer}」"}
+        # snippet 命中了别的会话：回列表按人名再试一次，仍不对就报错
+        await _goto_chat_home(page)
+        if await open_chat(peer):
+            how = "name"
+            head = await header_title(page)
+        if not head or peer.lower()[:8] not in head.lower():
+            return {"opened": False, "how": how, "header": (head or "")[:50],
+                    "error": f"打开的是「{(head or '')[:40]}」，不是「{peer}」"}
     res = await compose_text(text, page=page, send=send)
     if send and res.get("sent"):
         await _leave_chat(page)
