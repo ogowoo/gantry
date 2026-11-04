@@ -35,12 +35,15 @@
       "min_score": 0.0,
       "auto_reindex": true,
       "embedding": {
-        "backend": "auto",
+        "backend": "local",
         "base_url": "http://127.0.0.1:18085/v1",
         "model": "qwen3-embed",
-        "dim": 0,
+        "dim": 1024,
         "w_vec": 0.75,
-        "w_cov": 0.25
+        "w_cov": 0.25,
+        "model_path": "E:/models/gguf/Qwen3-Embedding-0.6B-Q8_0.gguf",
+        "n_ctx": 2048,
+        "n_threads": 8
       }
     }
   }

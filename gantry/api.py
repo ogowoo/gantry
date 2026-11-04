@@ -179,6 +179,13 @@ async def lifespan(app):
         b.log(f"{_APP_NAME} v{_APP_VERSION} 已启动（browser_startup=lazy：首次使用 Copilot 时才启动浏览器）")
     cleanup_task = asyncio.create_task(b.periodic_session_cleanup())
     suspend_task = asyncio.create_task(periodic_suspend_resume())
+    # 内嵌本地模型：只有 providers.*.eager=true 才预热（后台线程，不阻塞启动）
+    try:
+        from .local_models import warm_eager
+
+        warm_eager(b.PROVIDERS)
+    except Exception as exc:                     # noqa: BLE001
+        b.log(f"本地模型预热异常（忽略）: {exc}")
     # 插件系统：启动时加载已启用的插件（data/plugins.json 记启停）
     try:
         b.PLUGINS.load_all()

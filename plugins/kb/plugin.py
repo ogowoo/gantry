@@ -74,9 +74,21 @@ def _kb(ctx):
 
 
 def _emb_cfg(ctx) -> dict[str, Any]:
-    """合并插件配置里的 embedding 段（缺省用 _DEFAULTS）。"""
-    raw = (ctx.config or {}).get("embedding")
+    """embedding 配置：默认 < config.json 的 kb.embedding < 插件 config.embedding。
+
+    用户通常只在 config.json 里配一次；插件自身配置仍然可以覆盖（例如某个工作区
+    想用 hash 兜底）。
+    """
     base = dict(_DEFAULTS["embedding"])
+    try:
+        from gantry.bridge import CFG as _CFG
+
+        glob = ((_CFG.get("kb") or {}).get("embedding") or {})
+        if isinstance(glob, dict):
+            base.update({k: v for k, v in glob.items() if v not in (None, "")})
+    except Exception:                            # noqa: BLE001
+        pass
+    raw = (ctx.config or {}).get("embedding")
     if isinstance(raw, dict):
         base.update({k: v for k, v in raw.items() if v not in (None, "")})
     return base
