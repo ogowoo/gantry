@@ -313,11 +313,12 @@ class PluginImportTests(unittest.TestCase):
 
 
 class _FakeOcr:
-    """RapidOCR 3.x 形状：返回带 .txts 的对象。"""
+    """RapidOCR 3.x 形状：返回带 .txts/.boxes 的对象。"""
 
     class _Out:
-        def __init__(self, txts):
+        def __init__(self, txts, boxes=None):
             self.txts = txts
+            self.boxes = boxes or []
 
     def __init__(self, lines):
         self.lines = lines
@@ -522,6 +523,117 @@ class KbAddToolTests(unittest.TestCase):
         plugin.setup(self.ctx)
         res = self.run_coro(self.ctx.tools["kb_add"]("", "", "", None))
         self.assertFalse(res.get("ok"))
+
+
+class AutoEngineTests(unittest.TestCase):
+    """engine=auto：普通文本走 RapidOCR；稀疏/表格状自动转 Xiaomi。"""
+
+    def setUp(self):
+        from gantry import kb_ocr
+
+        self.kb_ocr = kb_ocr
+        self._orig_cfg = kb_ocr.config()
+        self._orig_e = kb_ocr._ENGINE
+        self._orig_x = kb_ocr._XIAOMI
+        kb_ocr.configure({"engine": "auto"})
+        kb_ocr.set_engine(None)
+        kb_ocr.set_xiaomi(None)
+
+    def tearDown(self):
+        self.kb_ocr.configure(self._orig_cfg)
+        self.kb_ocr.set_engine(self._orig_e)
+        self.kb_ocr.set_xiaomi(self._orig_x)
+
+    def _png(self, size=(600, 200)):
+        from PIL import Image
+
+        buf = io.BytesIO()
+        Image.new("RGB", size, "white").save(buf, format="PNG")
+        return buf.getvalue()
+
+    def _xiaomi(self):
+        class Proc:
+            def apply_chat_template(self, messages, **kw):
+                class T(list):
+                    @property
+                    def shape(self):
+                        return (1, len(self))
+                return {"input_ids": T([1, 2])}
+
+            def batch_decode(self, new, skip_special_tokens=True):
+                return ["# XIAOMI 输出"]
+
+        class Model:
+            def generate(self, **kw):
+                class O:
+                    def __getitem__(self, s):
+                        return [[1]]
+
+                    @property
+                    def shape(self):
+                        return (1, 1)
+                return O()
+
+        class Torch:
+            class inference_mode:
+                def __enter__(self):
+                    return None
+
+                def __exit__(self, *a):
+                    return False
+
+        self.kb_ocr.set_xiaomi((Proc(), Model(), Torch))
+
+    def test_rich_text_stays_rapidocr(self):
+        self.kb_ocr.set_engine(_FakeOcr(["这是一段足够长的正文，用来避免稀疏判定。" * 3]))
+        self._xiaomi()
+        text = self.kb_ocr.ocr_image_bytes(self._png())
+        self.assertNotIn("XIAOMI", text)
+
+    def test_sparse_text_switches_to_xiaomi(self):
+        self.kb_ocr.set_engine(_FakeOcr(["短"]))
+        self._xiaomi()
+        text = self.kb_ocr.ocr_image_bytes(self._png((1000, 1000)))
+        self.assertIn("XIAOMI", text)
+
+    def test_empty_rapidocr_switches_to_xiaomi(self):
+        self.kb_ocr.set_engine(_FakeOcr([]))
+        self._xiaomi()
+        text = self.kb_ocr.ocr_image_bytes(self._png())
+        self.assertIn("XIAOMI", text)
+
+    def test_table_boxes_switch_to_xiaomi(self):
+        class TableOcr(_FakeOcr):
+            def __call__(self, arr):
+                return _FakeOcr._Out(["甲", "乙", "丙", "丁"],
+                                     boxes=[[[0, 0], [10, 0], [10, 10], [0, 10]],
+                                            [[20, 0], [30, 0], [30, 10], [20, 10]],
+                                            [[0, 30], [10, 30], [10, 40], [0, 40]],
+                                            [[20, 30], [30, 30], [30, 40], [20, 40]]])
+
+        self.kb_ocr.set_engine(TableOcr(None))
+        self._xiaomi()
+        text = self.kb_ocr.ocr_image_bytes(self._png((400, 200)))
+        self.assertIn("XIAOMI", text)
+
+    def test_xiaomi_unavailable_falls_back(self):
+        self.kb_ocr.set_engine(_FakeOcr(["短"]))
+        self.kb_ocr.set_xiaomi(None)                    # 没有 Xiaomi
+        import builtins
+
+        real = builtins.__import__
+
+        def fake(name, *a, **k):
+            if name in ("transformers", "torch"):
+                raise ImportError("no")
+            return real(name, *a, **k)
+
+        builtins.__import__ = fake
+        try:
+            text = self.kb_ocr.ocr_image_bytes(self._png((1000, 1000)))
+        finally:
+            builtins.__import__ = real
+        self.assertEqual(text, "短", "Xiaomi 不可用时应回退 RapidOCR 文本")
 
 
 if __name__ == "__main__":
