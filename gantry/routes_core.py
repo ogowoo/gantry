@@ -101,22 +101,31 @@ async def stream_agent(req: a.AgentRequest):
     yield sse("[DONE]")
 
 
-async def stream_provider(p, model: str, messages: list):
-    """API 提供商的流式响应，转发为 OpenAI chunk 格式。"""
+async def stream_provider(p, model: str, messages: list, tools=None, tool_choice=None):
+    """API 提供商的流式响应，转发为 OpenAI chunk 格式（含 tool_calls 分片）。"""
     rid = "chatcmpl-" + uuid.uuid4().hex
     created = int(time.time())
     model_id = f"{p.name}/{model}"
     yield sse({"id": rid, "object": "chat.completion.chunk", "created": created,
                "model": model_id,
                "choices": [{"index": 0, "delta": {"role": "assistant"}, "finish_reason": None}]})
+    finish_sent = False
     try:
-        async for part in p.stream(model, messages):
+        async for choice in p.stream_chunks(model, messages,
+                                           tools=tools, tool_choice=tool_choice):
+            delta = choice.get("delta") or {}
+            finish = choice.get("finish_reason")
+            if not delta and not finish:
+                continue
             yield sse({"id": rid, "object": "chat.completion.chunk", "created": created,
                        "model": model_id,
-                       "choices": [{"index": 0, "delta": {"content": part}, "finish_reason": None}]})
-        yield sse({"id": rid, "object": "chat.completion.chunk", "created": created,
-                   "model": model_id,
-                   "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}]})
+                       "choices": [{"index": 0, "delta": delta, "finish_reason": finish}]})
+            if finish:
+                finish_sent = True
+        if not finish_sent:
+            yield sse({"id": rid, "object": "chat.completion.chunk", "created": created,
+                       "model": model_id,
+                       "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}]})
     except Exception as exc:
         yield sse({"error": {"message": str(exc), "type": "provider_error"}})
     yield sse("[DONE]")
@@ -280,20 +289,29 @@ async def chat(req: a.Request):
             messages.append(item)
         if req.stream:
             return StreamingResponse(
-                stream_provider(p, pm[1], messages),
+                stream_provider(p, pm[1], messages,
+                                tools=req.tools, tool_choice=req.tool_choice),
                 media_type="text/event-stream",
                 headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
             )
         try:
-            answer = await p.complete(pm[1], messages)
+            result = await p.complete_message(pm[1], messages,
+                                              tools=req.tools, tool_choice=req.tool_choice)
         except b.providers_mod.ProviderUnavailable as exc:
             raise HTTPException(503, str(exc))
         except b.providers_mod.ProviderError as exc:
             raise HTTPException(400, str(exc))
+        content = str(result.get("content") or "")
+        tool_calls = result.get("tool_calls") or None
+        message = {"role": "assistant",
+                   "content": content if (content or not tool_calls) else None}
+        if tool_calls:
+            message["tool_calls"] = tool_calls
+        finish = result.get("finish_reason") or ("tool_calls" if tool_calls else "stop")
         return {"id": "chatcmpl-" + uuid.uuid4().hex, "object": "chat.completion",
                 "created": int(time.time()), "model": req.model,
-                "choices": [{"index": 0, "message": {"role": "assistant", "content": answer},
-                             "finish_reason": "stop"}]}
+                "choices": [{"index": 0, "message": message,
+                             "finish_reason": finish}]}
     prompts = [b.message_text(m).strip() for m in req.messages
                if m.role == "user" and b.message_text(m).strip()]
     if not prompts:

@@ -281,8 +281,10 @@ class ApiProvider:
         return {"response_format": {"type": "json_object"}}
 
     @staticmethod
-    def _anthropic_body(model: str, messages: list[dict[str, str]],
-                        max_tokens: int, stream: bool) -> dict[str, Any]:
+    def _anthropic_body(model: str, messages: list[dict[str, Any]],
+                        max_tokens: int, stream: bool,
+                        tools: list[dict[str, Any]] | None = None,
+                        tool_choice: Any = None) -> dict[str, Any]:
         """OpenAI 风格的 messages → Anthropic Messages 请求体。"""
         system_parts = [m.get("content") or "" for m in messages if m.get("role") == "system"]
         conv = [{"role": m.get("role"), "content": m.get("content") or ""}
@@ -293,6 +295,21 @@ class ApiProvider:
             body["system"] = "\n\n".join(x for x in system_parts if x)
         if stream:
             body["stream"] = True
+        if tools:
+            body["tools"] = [
+                {"name": (t.get("function") or {}).get("name") or t.get("name") or "",
+                 "description": (t.get("function") or {}).get("description") or "",
+                 "input_schema": (t.get("function") or {}).get("parameters")
+                 or {"type": "object", "properties": {}}}
+                for t in tools if isinstance(t, dict)
+            ]
+        if tool_choice is not None:
+            if isinstance(tool_choice, dict) and tool_choice.get("type") == "function":
+                name = (tool_choice.get("function") or {}).get("name")
+                if name:
+                    body["tool_choice"] = {"type": "tool", "name": name}
+            elif tool_choice in ("auto", "any", "none"):
+                body["tool_choice"] = {"type": tool_choice}
         return body
 
     @staticmethod
@@ -301,11 +318,19 @@ class ApiProvider:
         return "".join(str(b.get("text") or "") for b in blocks if isinstance(b, dict)
                        and b.get("type") == "text")
 
-    async def complete(self, model: str, messages: list[dict[str, str]],
-                       response_schema: dict[str, Any] | None = None) -> str:
+    async def complete_message(self, model: str, messages: list[dict[str, Any]],
+                               response_schema: dict[str, Any] | None = None,
+                               *, tools: list[dict[str, Any]] | None = None,
+                               tool_choice: Any = None) -> dict[str, Any]:
+        """返回完整的 assistant message：content / tool_calls / finish_reason。
+
+        `/v1/chat/completions` 用这个把提供商的 tool_calls 原样透传给 DSH 等客户端；
+        内部 Agent 调用仍走 `complete()`（只要正文）。
+        """
         self.require_ready()
         if self.api == "anthropic":
-            body = self._anthropic_body(model, messages, self.max_tokens or 8192, stream=False)
+            body = self._anthropic_body(model, messages, self.max_tokens or 8192,
+                                        stream=False, tools=tools, tool_choice=tool_choice)
             try:
                 async with self._client() as client:
                     resp = await client.post("/v1/messages", json=body)
@@ -313,9 +338,27 @@ class ApiProvider:
                 raise ProviderUnavailable(self.net_error_text(exc)) from exc
             self._check_status(resp)
             try:
-                return self._anthropic_text(resp.json())
+                data = resp.json()
             except Exception as exc:
                 raise ProviderError(f"响应格式异常: {exc}") from exc
+            text = self._anthropic_text(data)
+            tool_calls: list[dict[str, Any]] = []
+            for block in data.get("content") or []:
+                if isinstance(block, dict) and block.get("type") == "tool_use":
+                    tool_calls.append({
+                        "id": str(block.get("id") or ""),
+                        "type": "function",
+                        "function": {
+                            "name": str(block.get("name") or ""),
+                            "arguments": json.dumps(block.get("input") or {},
+                                                    ensure_ascii=False),
+                        },
+                    })
+            stop = str(data.get("stop_reason") or "")
+            finish = ("tool_calls" if tool_calls else
+                      "stop" if stop in ("", "end_turn", "stop_sequence") else stop)
+            return {"content": text, "tool_calls": tool_calls or None,
+                    "finish_reason": finish, "raw": data}
         payload: dict[str, Any] = {"model": model, "messages": messages, "stream": False}
         # max_tokens 以前只给 anthropic 用，OpenAI 协议这边**从没发出去**过：
         # 思考型模型（Qwen3.5 等）会把服务端默认预算全花在 reasoning 上，
@@ -323,6 +366,10 @@ class ApiProvider:
         if self.max_tokens:
             payload["max_tokens"] = int(self.max_tokens)
         payload.update(self._json_hint(response_schema))
+        if tools:
+            payload["tools"] = tools
+        if tool_choice is not None:
+            payload["tool_choice"] = tool_choice
         # 先按配置（可能含自动探测到的系统代理）请求；传输层失败且代理是**自动探测**
         # 来的，再直连重试一次——避免"系统代理存在但连不上"把可用服务判死。
         attempts = [True]
@@ -342,35 +389,57 @@ class ApiProvider:
                 continue
             self._check_status(resp)
             try:
-                message = resp.json()["choices"][0]["message"]
+                choice = resp.json()["choices"][0]
+                message = choice.get("message") or {}
             except Exception as exc:
                 raise ProviderError(f"响应格式异常: {exc}") from exc
-            content = str(message.get("content") or "")
-            if content:
-                return content
-            # 只拿到思考过程：把"为什么空 + 怎么改"直接写进错误，别再让上层猜
-            think = str(message.get("reasoning") or message.get("reasoning_content") or "")
-            if think:
+            content = message.get("content")
+            if isinstance(content, list):
+                content = "".join(
+                    str(p.get("text") or "") if isinstance(p, dict) else str(p)
+                    for p in content)
+            content = str(content or "")
+            tool_calls = message.get("tool_calls") or None
+            if not content and not tool_calls:
+                # 只拿到思考过程：把"为什么空 + 怎么改"直接写进错误，别再让上层猜
+                think = str(message.get("reasoning") or message.get("reasoning_content") or "")
+                if think:
+                    raise ProviderError(
+                        f"{self.name}/{model} 只返回了思考过程（reasoning），正文为空。"
+                        f"多半是 max_tokens 太小（当前 {self.max_tokens}）被思考吃光了，"
+                        f"或这是思考型模型。处理：把 config.json 里 "
+                        f"providers.{self.name}.max_tokens 调大（例如 4096），"
+                        f"或换一个非思考模型。")
                 raise ProviderError(
-                    f"{self.name}/{model} 只返回了思考过程（reasoning），正文为空。"
-                    f"多半是 max_tokens 太小（当前 {self.max_tokens}）被思考吃光了，"
-                    f"或这是思考型模型。处理：把 config.json 里 "
-                    f"providers.{self.name}.max_tokens 调大（例如 4096），"
-                    f"或换一个非思考模型。")
-            raise ProviderError(f"{self.name}/{model} 返回空正文（响应里既没有 content 也没有 reasoning）")
+                    f"{self.name}/{model} 返回空正文（响应里既没有 content 也没有 reasoning）")
+            finish = choice.get("finish_reason") or ("tool_calls" if tool_calls else "stop")
+            return {"content": content, "tool_calls": tool_calls,
+                    "finish_reason": finish, "raw": message}
         raise ProviderUnavailable(self.net_error_text(last_exc)) from last_exc
 
-    async def stream(self, model: str, messages: list[dict[str, str]],
-                     response_schema: dict[str, Any] | None = None) -> AsyncIterator[str]:
-        """流式产出 content 增量。
+    async def complete(self, model: str, messages: list[dict[str, Any]],
+                       response_schema: dict[str, Any] | None = None) -> str:
+        msg = await self.complete_message(model, messages, response_schema)
+        if msg.get("tool_calls") and not msg.get("content"):
+            raise ProviderError(
+                f"{self.name}/{model} 返回了工具调用（tool_calls），当前调用方不支持工具调用")
+        return str(msg.get("content") or "")
 
-        response_schema：与 complete() 同样支持结构化输出（Agent 的 JSON 动作协议
-        靠它稳住解析率）。若服务不支持 response_format+stream（4xx），抛
-        ProviderError —— 调用方可退回非流式 complete()。
+    async def stream_chunks(self, model: str, messages: list[dict[str, Any]],
+                            response_schema: dict[str, Any] | None = None,
+                            *, tools: list[dict[str, Any]] | None = None,
+                            tool_choice: Any = None
+                            ) -> AsyncIterator[dict[str, Any]]:
+        """流式产出 OpenAI 风格的 choice 增量（delta 里可能是 content 或 tool_calls）。
+
+        `/v1/chat/completions` 用它把提供商的 tool_calls 分片原样转发给客户端；
+        `stream()` 只是它的纯文本视图（内部 Agent 用）。
         """
         self.require_ready()
         if self.api == "anthropic":
-            body = self._anthropic_body(model, messages, self.max_tokens or 8192, stream=True)
+            body = self._anthropic_body(model, messages, self.max_tokens or 8192,
+                                        stream=True, tools=tools, tool_choice=tool_choice)
+            tool_index = 0
             try:
                 async with self._client() as client:
                     async with client.stream("POST", "/v1/messages", json=body) as resp:
@@ -384,17 +453,45 @@ class ApiProvider:
                                 ev = json.loads(raw)
                             except Exception:
                                 continue
-                            if ev.get("type") == "content_block_delta":
-                                delta = (ev.get("delta") or {}).get("text")
-                                if delta:
-                                    yield delta
-                            elif ev.get("type") == "message_stop":
+                            kind = ev.get("type")
+                            if kind == "content_block_start":
+                                block = ev.get("content_block") or {}
+                                if block.get("type") == "tool_use":
+                                    yield {"delta": {"tool_calls": [{
+                                        "index": tool_index,
+                                        "id": str(block.get("id") or ""),
+                                        "type": "function",
+                                        "function": {"name": str(block.get("name") or ""),
+                                                     "arguments": ""},
+                                    }]}, "finish_reason": None}
+                                    tool_index += 1
+                            elif kind == "content_block_delta":
+                                delta = ev.get("delta") or {}
+                                if delta.get("type") == "text_delta" and delta.get("text"):
+                                    yield {"delta": {"content": delta["text"]},
+                                           "finish_reason": None}
+                                elif delta.get("type") == "input_json_delta":
+                                    yield {"delta": {"tool_calls": [{
+                                        "index": max(0, tool_index - 1),
+                                        "function": {"arguments": delta.get("partial_json") or ""},
+                                    }]}, "finish_reason": None}
+                            elif kind == "message_delta":
+                                stop = (ev.get("delta") or {}).get("stop_reason")
+                                if stop:
+                                    yield {"delta": {},
+                                           "finish_reason": "tool_calls"
+                                           if stop == "tool_use" else "stop"}
+                            elif kind == "message_stop":
                                 return
             except (httpx.TimeoutException, httpx.TransportError) as exc:
                 raise ProviderUnavailable(self.net_error_text(exc)) from exc
             return
         body: dict[str, Any] = {"model": model, "messages": messages, "stream": True}
         body.update(self._json_hint(response_schema))
+        if tools:
+            body["tools"] = tools
+        if tool_choice is not None:
+            body["tool_choice"] = tool_choice
         try:
             async with self._client() as client:
                 async with client.stream("POST", "/chat/completions", json=body) as resp:
@@ -411,11 +508,20 @@ class ApiProvider:
                         except Exception:
                             continue
                         for choice in chunk.get("choices") or []:
-                            delta = (choice.get("delta") or {}).get("content")
-                            if delta:
-                                yield delta
+                            delta = choice.get("delta") or {}
+                            finish = choice.get("finish_reason")
+                            if delta or finish:
+                                yield {"delta": delta, "finish_reason": finish}
         except (httpx.TimeoutException, httpx.TransportError) as exc:
             raise ProviderUnavailable(self.net_error_text(exc)) from exc
+
+    async def stream(self, model: str, messages: list[dict[str, Any]],
+                     response_schema: dict[str, Any] | None = None) -> AsyncIterator[str]:
+        """流式产出 content 增量（内部 Agent 用；工具分片请用 stream_chunks）。"""
+        async for choice in self.stream_chunks(model, messages, response_schema):
+            delta = (choice.get("delta") or {}).get("content")
+            if delta:
+                yield delta
 
 
 def build_providers(cfg: dict[str, Any]) -> dict[str, ApiProvider]:
