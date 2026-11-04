@@ -1,6 +1,7 @@
 # 快速使用手册（一页版）
 
 > 目标：**5 分钟内**从零跑到第一个任务。更细的说明看 [README](../README.md)。
+> 本文覆盖到 `v11.0.0-preview.59`（含知识库/OCR、本地模型、Teams 机器人插件）。
 
 ## 一页图（可直接保存/转发）
 
@@ -12,7 +13,8 @@
 - 繁體：[quickstart-zh-TW.png](quickstart-zh-TW.png)
 - English：[quickstart-en.png](quickstart-en.png)
 
-> 图由 `python scripts/make_quickstart_card.py` 生成（改文案后重跑即可）。
+> 图由 `python scripts/make_quickstart_card.py` 生成（改文案后重跑即可）；
+> 卡片里已包含 v11 新增的**知识库（OCR + 向量检索 + 对话入库）**、**本地模型**、**Teams 机器人**。
 
 ## 1. 准备
 
@@ -66,7 +68,7 @@ python start.py
 | **实时流** | 对话、工具结果、当前状态一行（`completed · 步 388 · Token`） |
 | **步骤时间线** | 每一步的工具/参数/结果，可展开 JSON，可筛选/导出 |
 | **待办 / 子代理** | 实时流下方两条：点横条展开；待办会随进度自动勾选 |
-| **左下角 ⚙** | 设置：主题/语言、执行参数、权限档位、浏览器、危险区（重启/终止） |
+| **左下角 ⚙** | 设置：主题/语言、执行参数、权限档位、浏览器、知识库（📚）、危险区（重启/终止） |
 
 ## 7. 常用操作
 
@@ -98,6 +100,68 @@ print(client.chat.completions.create(
     messages=[{"role": "user", "content": "你好"}],
 ).choices[0].message.content)
 ```
+
+## 10. 知识库（OCR + 向量检索 + 对话入库）
+
+放在 `data/kb/**/*.md`，导入时自动切块、建 FTS5 与向量索引，供 Agent / Teams 机器人 / API 检索。
+
+**管理页**：`/ui/` → ⚙ 设置 → **📚 知识库**
+
+| 能力 | 怎么用 |
+|---|---|
+| 文件导入 | 拖拽/选择：`docx` `pdf` `xlsx` `pptx` `md` `txt` `csv` `html` 和图片（`png/jpg/...`） |
+| 网页 | 填 URL →「导入 URL」（取正文，标题用 `<title>`） |
+| 粘贴文本 | 展开「粘贴文本入库」，填标题后导入 |
+| 收件箱 | 把文件丢进 `data/kb/inbox/`，点「收件箱」批量导入 |
+| 删除 / 重建 | 列表右侧 ✕；「重建索引」做增量重建 |
+| 检索测试 | 输入问题，看后端（`hybrid(local:…)`）与分数 |
+
+**OCR（扫描件 / 图片）**：`config.json` 的 `kb.ocr.engine`
+
+- `auto`（默认）：普通页走 **RapidOCR**（20 MB，约 0.7 秒/张），稀疏或表格状页面自动转 **Xiaomi-OCR-0**（0.8B，表格输出 OTSL、公式 LaTeX，约 6 秒/页）
+- `rapidocr` / `xiaomi`：强制其一
+- `kb.ocr.eager: true`：启动后台预热 Xiaomi，避免第一次表格页等约 30 秒
+- 扫描件没文本层时自动 OCR；`.doc/.xls/.ppt` 请先另存为新格式
+
+**向量检索**：`kb.embedding.backend` = `local`（进程内 Qwen3-Embedding，默认）/
+`http`/`hash`/`off`；打分 = `0.75 × 余弦 + 0.25 × 词面覆盖率`，专有词与同义改写都不丢。
+
+**对话入库（三种）**
+
+1. 消息右上 **📚**：把这条消息原文直接存库（不经过模型）；
+2. `/kb 内容`：让模型先整理成条目（去重、分点、加标题）再入库；
+3. 模型自己调 `kb_add` 工具（`text` / `url` / `paths` 都行）。
+
+## 11. 本地模型（可选，不用外部 server）
+
+默认用外部 `llama-server`（`providers.llamacpp`）。想让 `python start.py` 一个进程全起来：
+
+```json
+"providers": {
+  "local": {
+    "backend": "local",
+    "models": ["minicpm5-2b"],
+    "model_path": "E:/models/gguf/MiniCPM5-2B-Q4_K_M.gguf",
+    "n_ctx": 16384, "n_threads": 12, "eager": false
+  }
+}
+```
+
+- 模型 id 变成 `local/minicpm5-2b`，`/v1/models` 自动列出；
+- `eager: true` 启动后台预热；`idle_unload_seconds` 闲置释放内存；
+- 提示会按 `n_ctx` 自动裁剪（保 system + 最近对话），推理模型的 `<think>` 会被剥掉；
+- 解耦：删掉 `providers.local` 或改指外部 `base_url`，其它都不用动。
+
+## 12. 插件（按需启用）
+
+`/ui/` → ⚙ → 🧩 插件管理，或 `data/plugins.json`。常用：
+
+| 插件 | 作用 |
+|---|---|
+| `kb` | 知识库工具 `kb_search` / `kb_reindex` / `kb_embed` / `kb_add` 与 `/v1/plugins/kb/api/*` |
+| `web-search` | `web_search`（DuckDuckGo 免 key，可选 Brave/Tavily/Serper） |
+| `teams-bot` | Teams 机器人：只看未读私聊，知识库优先 + 混合检索；**默认 dry_run 不发消息** |
+| `schedule` / `mcp` / `telegram` / `image-gen` / `research` | 定时任务 / MCP 服务器 / Telegram / 生图 / 深研 |
 
 ---
 

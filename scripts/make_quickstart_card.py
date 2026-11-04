@@ -89,13 +89,21 @@ TEXT = {
         "ui": [("实时流", "对话 + 工具结果 + 状态行（completed · 步数 · Token）"),
                ("步骤时间线", "每步的工具/参数/结果，可展开 JSON、筛选、导出"),
                ("待办 / 子代理", "实时流下方两条，点横条展开；待办随进度自动勾选"),
-               ("左下角 ⚙", "设置：主题/语言、执行参数、权限档位、浏览器、危险区")],
+               ("左下角 ⚙", "设置：主题/语言、执行参数、权限档位、浏览器、危险区"),
+               ("⚙ → 📚 知识库", "拖 docx/pdf/图片、导入 URL、粘贴文本；自动 OCR（普通页 RapidOCR，"
+                                 "表格页转 Xiaomi-OCR-0）+ 向量检索，导入即建索引"),
+               ("对话里入库", "消息右上「📚」直接存原文；/kb 让模型先整理成条目再入库（kb_add）"),
+               ("本地模型（可选）", "config.json 的 providers.local → 模型列表出现 local/minicpm5-2b，"
+                                   "不用外部 llama-server；eager 可预热"),
+               ("Teams 机器人（可选）", "插件 teams-bot：只看未读私聊、知识库优先 + 混合检索；"
+                                       "默认 dry_run，确认后再开发送")],
         "ops_title": "常用操作",
         "ops": [("暂停 / 继续", "任务条「暂停」→「恢复」从检查点续跑"),
                 ("边跑边改要求", "输入框直接发（Ctrl+J 立即生效，不必等这轮跑完）"),
                 ("换模型", "任务条右侧下拉；限流挂起时用挂起卡片里的「换模型继续」"),
                 ("看它改了什么", "步骤时间线 →「查看结果」；更多菜单可「回滚任务改动」"),
-                ("删任务 / 重启", "More → 删除任务；设置页 → 危险区 → 重启服务")],
+                ("删任务 / 重启", "More → 删除任务；设置页 → 危险区 → 重启服务"),
+                ("把内容存进知识库", "消息右上「📚」，或 /kb 内容 让模型整理后入库；管理页可删除/重建/检索测试")],
         "faq_title": "常见问题",
         "faq": [("Copilot 未就绪", "点「重试浏览器」；仍不行重跑 python scripts/login.py"),
                 ("卡在「等待服务」", "网页限流：自动挂起、到点继续；也可换提供商模型立刻继续"),
@@ -132,13 +140,21 @@ TEXT = {
         "ui": [("即時流", "對話 + 工具結果 + 狀態列（completed · 步數 · Token）"),
                ("步驟時間軸", "每步的工具/參數/結果，可展開 JSON、篩選、匯出"),
                ("待辦 / 子代理", "即時流下方兩列，點橫條展開；待辦會隨進度自動勾選"),
-               ("左下角 ⚙", "設定：主題/語言、執行參數、權限級別、瀏覽器、危險區")],
+               ("左下角 ⚙", "設定：主題/語言、執行參數、權限級別、瀏覽器、危險區"),
+               ("⚙ → 📚 知識庫", "拖 docx/pdf/圖片、匯入 URL、貼上文字；自動 OCR（一般頁 RapidOCR，"
+                                 "表格頁轉 Xiaomi-OCR-0）+ 向量檢索，匯入即建索引"),
+               ("對話中入庫", "訊息右上「📚」直接存原文；/kb 讓模型先整理成條目再入庫（kb_add）"),
+               ("本機模型（選用）", "config.json 的 providers.local → 模型清單出現 local/minicpm5-2b，"
+                                   "不需外部 llama-server"),
+               ("Teams 機器人（選用）", "外掛 teams-bot：只看未讀私聊、知識庫優先 + 混合檢索；"
+                                       "預設 dry_run，確認後再開啟傳送")],
         "ops_title": "常用操作",
         "ops": [("暫停 / 繼續", "任務列「暫停」→「恢復」從檢查點續跑"),
                 ("邊跑邊改需求", "輸入框直接送（Ctrl+J 立即生效，不必等這輪跑完）"),
                 ("換模型", "任務列右側下拉；限流掛起時用掛起卡片裡的「換模型繼續」"),
                 ("看它改了什麼", "步驟時間軸 →「查看結果」；更多選單可「回滾任務改動」"),
-                ("刪任務 / 重啟", "More → 刪除任務；設定頁 → 危險區 → 重啟服務")],
+                ("刪任務 / 重啟", "More → 刪除任務；設定頁 → 危險區 → 重啟服務"),
+                ("把內容存進知識庫", "訊息右上「📚」，或 /kb 內容 讓模型整理後入庫；管理頁可刪除/重建/檢索測試")],
         "faq_title": "常見問題",
         "faq": [("Copilot 未就緒", "點「重試瀏覽器」；仍不行請重跑 python scripts/login.py"),
                 ("卡在「等待服務」", "網頁限流：自動掛起、到點繼續；也可換提供商模型立刻繼續"),
@@ -177,13 +193,22 @@ TEXT = {
         "ui": [("Live stream", "chat + tool results + a status line (completed · steps · tokens)"),
                ("Step timeline", "every step's tool/args/result; expandable JSON, filters, export"),
                ("Todos / Subagents", "two rows under the stream; click a row to expand; todos tick themselves"),
-               ("Bottom-left ⚙", "settings: theme/language, execution, permission level, browser, danger zone")],
+               ("Bottom-left ⚙", "settings: theme/language, execution, permission level, browser, danger zone"),
+               ("⚙ → 📚 Knowledge base", "drop docx/pdf/images, import a URL, paste text; automatic OCR "
+                                         "(RapidOCR for plain pages, Xiaomi-OCR-0 for tables) + vector search"),
+               ("Save from chat", "the 📚 button on a message stores it; /kb lets the model tidy it first"),
+               ("Local models (optional)", "providers.local in config.json → local/minicpm5-2b shows up, "
+                                           "no external llama-server needed"),
+               ("Teams bot (optional)", "teams-bot plugin: unread DMs only, KB-first answers + hybrid "
+                                        "retrieval; dry_run by default")],
         "ops_title": "Everyday actions",
         "ops": [("Pause / resume", "task bar \"Pause\" → \"Resume\" continues from the checkpoint"),
                 ("Change your mind", "just type in the composer (Ctrl+J injects immediately)"),
                 ("Switch model", "model dropdown on the task bar; when rate-limited use \"Switch model & continue\""),
                 ("See what changed", "step timeline → \"View result\"; More menu → roll back task changes"),
-                ("Delete / restart", "More → Delete task; Settings → Danger zone → Restart service")],
+                ("Delete / restart", "More → Delete task; Settings → Danger zone → Restart service"),
+                ("Save to the KB", "📚 on a message, or /kb content; manage under ⚙ → 📚 "
+                                   "(delete / rebuild / test queries)")],
         "faq_title": "Troubleshooting",
         "faq": [("Copilot not ready", "click \"Retry browser\"; if it persists re-run python scripts/login.py"),
                 ("Stuck at \"waiting\"", "web rate limit: it suspends and resumes automatically, "
@@ -233,10 +258,11 @@ def html(lang: str) -> str:
 <div class="head"><div class="logo">CB</div><h1>{esc(t['title'])}</h1></div>
 <div class="sub">{esc(t['sub'])}</div>
 <div class="grid">
-  <div>{''.join(steps)}</div>
+  <div>{''.join(steps)}
+    <div class="panel"><h3>⌨ {esc(t['ops_title'])}</h3>{table(t['ops'])}</div>
+  </div>
   <div>
     <div class="panel"><h3>🗂 {esc(t['ui_title'])}</h3>{table(t['ui'])}</div>
-    <div class="panel"><h3>⌨ {esc(t['ops_title'])}</h3>{table(t['ops'])}</div>
   </div>
 </div>
 <div class="faq"><h3>🩺 {esc(t['faq_title'])}</h3>{table(t['faq'], 'faqtable')}</div>
