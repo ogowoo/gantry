@@ -14,6 +14,25 @@
 ### Fixed
 - 
 
+## [11.0.0-preview.62] - 2026-11-05
+
+### Added
+
+- **向量检索加 numpy 快路径**（可选优化）：`SemanticIndex.search` 在有 numpy 时用矩阵乘算余弦，
+  没有就退回纯 Python；两条路径排序一致（新增 `VectorPathParityTests` 保证）。仍然**零新增依赖**：
+  向量就存在同一个 `data/kb.db` 的 `chunks_vec` 表里，不需要 Chroma / Milvus / sqlite-vec。
+- **`docs/QUICKSTART.md` 两节新内容**：
+  - 「11. 向量库：自带的，不用另装」——表结构、增量建向量、四种 embedding 后端与各自需要什么；
+  - 「12. 从旧版升级（CopilotBridge → Gantry）」——停止服务 → `git pull` → `python install.py`
+    （可选 `--ocr` / `--xiaomi`）→ 可选配置段 → `kb.py index` / `embed` → 启动，
+    并给出升级后自检表（version / 插件 / vector-stats / ocr / models）与三条注意事项。
+- `README.md` 增「Upgrading from an older install」小节。
+
+### 实测
+
+- `tests/test_kb_semantic.py` 22 条（新增 numpy / 纯 Python 一致性 1 条）；
+- 全套 1547（skipped=1）OK；不变量 25 条全绿。
+
 ## [11.0.0-preview.61] - 2026-11-05
 
 ### Changed

@@ -261,5 +261,43 @@ class PluginModeTests(unittest.TestCase):
         self.assertEqual(res["model"], self.idx.embedder.name)
 
 
+class VectorPathParityTests(unittest.TestCase):
+    """两条实现（numpy 快路径 / 纯 Python）排序必须一致。"""
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp(prefix="kb_np_"))
+        kbdir = self.tmp / "data" / "kb"
+        kbdir.mkdir(parents=True)
+        (kbdir / "vpn.md").write_text(VPN, encoding="utf-8")
+        (kbdir / "wifi.md").write_text(WIFI, encoding="utf-8")
+        self.kb = KnowledgeBase(self.tmp)
+        self.kb.reindex()
+        self.idx = SemanticIndex(self.kb, HashEmbedder(256))
+        self.idx.build()
+
+    def tearDown(self):
+        self.kb.close()
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def test_numpy_and_python_agree(self):
+        with_np = self.idx.search("无线认证失败", 3)
+        import builtins
+
+        real = builtins.__import__
+
+        def no_numpy(name, *a, **k):
+            if name == "numpy":
+                raise ImportError("blocked for test")
+            return real(name, *a, **k)
+
+        builtins.__import__ = no_numpy
+        try:
+            without = self.idx.search("无线认证失败", 3)
+        finally:
+            builtins.__import__ = real
+        self.assertEqual([h["id"] for h in with_np], [h["id"] for h in without])
+        self.assertTrue(with_np)
+
+
 if __name__ == "__main__":
     unittest.main()
