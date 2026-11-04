@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 """Copilot 网页模型的 tool_calls 合成层（提示词 + JSON 解析）。"""
+import json
 import sys
 import unittest
 from pathlib import Path
@@ -46,6 +47,21 @@ class ParseTests(unittest.TestCase):
             '{"tool_calls":[{"name":"weather","arguments":"not-json"}]}')
         self.assertIsNone(d["tool_calls"])
         self.assertTrue(d["content"])
+
+    def test_single_quote_escape_repaired(self):
+        """实测 Copilot 会输出 \\'（非法 JSON 转义），不能让整条工具调用丢失。"""
+        raw = ('{"tool_calls":[{"name":"pwsh","arguments":{"command":'
+               '"$git=\'C:\\\\Program Files\\\\Git\\\\cmd\\\\git.exe\'; & $git status"}}]}')
+        d = copilot_tools.parse_decision(raw)
+        self.assertIsNotNone(d["tool_calls"])
+        self.assertEqual(d["tool_calls"][0]["function"]["name"], "pwsh")
+        args = json.loads(d["tool_calls"][0]["function"]["arguments"])
+        self.assertIn("Program Files", args["command"])
+
+    def test_raw_newline_in_string_repaired(self):
+        raw = '{"tool_calls":[{"name":"x","arguments":{"text":"line1\nline2"}}]}'
+        d = copilot_tools.parse_decision(raw)
+        self.assertIsNotNone(d["tool_calls"])
 
 
 class PromptTests(unittest.TestCase):
