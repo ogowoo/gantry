@@ -258,7 +258,7 @@ _SUGGESTION_ZH = re.compile(
     r"扩展|擴展|搜索|搜尋|读取|讀取|分析|整理|润色|潤色|改写|改寫|让|讓|按|设置|設置|配置|尝试|嘗試|"
     r"重试|重試|补上|補上|输出|輸出|显示|顯示|打开|打開|关闭|關閉|运行|運行|执行|執行|循环|循環|"
     r"定时|定時|监控|監控|记录|記錄|导出|匯出|导入|匯入|拆分|合并|合併|精简|精簡|详细|詳細|具体|具體|"
-    r"缩短|縮短|补充|補充)"
+    r"把|將|缩短|縮短|补充|補充)"
 )
 _SUGGESTION_JA = re.compile(
     r"(?:にして|してください|教えて|翻訳して|要約して|書き換えて|説明して|"
@@ -279,10 +279,14 @@ def _looks_like_suggestion(line: str) -> bool:
         return False
     if s[0] in "-*0123456789":
         return False
+    # 建议按钮也可以是问句（“用一句话解释为什么？”），所以先看动词前缀，
+    # 命中就算建议；没命中再看句末标点，避免误判正文。
+    if (_SUGGESTION_ZH.match(s) or _SUGGESTION_JA.search(s)
+            or _SUGGESTION_EN.match(s)):
+        return True
     if s[-1] in "。！？.!?":
         return False
-    return bool(_SUGGESTION_ZH.match(s) or _SUGGESTION_JA.search(s)
-                or _SUGGESTION_EN.match(s))
+    return False
 
 
 def _strip_plain_suggestion_tail(raw: str) -> str:
@@ -307,9 +311,12 @@ def _strip_plain_suggestion_tail(raw: str) -> str:
         return raw
     matched = sum(1 for x in tail if _looks_like_suggestion(x))
     if matched < 2:
-        # 兜底：Copilot 的建议按钮文字不一定是已知动词开头（“让它…/把…/加入…”）。
-        # 只对“最后一个空行之后 2~4 行、都很短、无句末标点、不是列表”整段剥离；
-        # 正文里的步骤列表通常带 -/*/编号或句号，不会命中。
+        # 兜底：至少命中 1 条建议句式，且最后 2~4 行都很短、无句末标点、
+        # 不是列表，才整段剥离；0 条命中时不猜（“端口是 8080/日志在 data”
+        # 这种正常短结论不能被误删）。
+        if matched < 1:
+            return raw
+
         def _short(s: str) -> bool:
             s = s.strip()
             return (0 < len(s) <= 40 and s[-1] not in "。！？.!?：:"

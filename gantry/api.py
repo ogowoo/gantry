@@ -417,7 +417,8 @@ async def nonstream(req, prompt):
         "model": selected_model,
         "choices": [{
             "index": 0,
-            "message": {"role": "assistant", "content": "".join(parts)},
+            "message": {"role": "assistant",
+                        "content": b.strip_suggestion_tail("".join(parts))},
             "finish_reason": "stop",
         }],
     }

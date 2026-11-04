@@ -1038,7 +1038,11 @@ async def answer_markdown(plain: str = "") -> str:
             if (!best || (best !== el && best.contains(el))) best = el;   // 最深的（被别的候选包含的）
           }
           if (!best) return '';
-          return {md: window.__cbp_html2md(best), dom: best.outerHTML.slice(0, 300000)};
+          // 回答区域内也可能混着复制/建议按钮；markdown 转换前从克隆里剔除，
+          // 避免“让它循环执行…”这类建议文字进入正文。
+          const clone = best.cloneNode(true);
+          clone.querySelectorAll('button,[role="button"],[data-testid*="suggestion" i],[data-testid*="follow-up" i],[class*="suggestion" i]').forEach(el => el.remove());
+          return {md: window.__cbp_html2md(clone), dom: best.outerHTML.slice(0, 300000)};
         }"""
         res = await b.page.evaluate(js, [first, last])
         if not res or not isinstance(res, dict):
