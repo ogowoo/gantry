@@ -205,6 +205,13 @@ const I18N_EN = {
   "复制会话 ID": "Copy session ID",
   "删除会话": "Delete session",
   "已复制会话 ID": "Session ID copied",
+  "删除本组会话": "Delete all sessions in this group",
+  "批量删除": "Bulk delete",
+  "删除「{label}」组的 {n} 个会话？\n\n会先删本地记录，再尽力清理对应的 Copilot 网页对话。此操作不可撤销。":
+    "Delete {n} sessions in group \"{label}\"?\n\nLocal records are removed first, then the matching Copilot conversations are cleaned up as far as possible. This cannot be undone.",
+  "批量删除完成：成功 {ok}，失败 {fail}": "Bulk delete done: {ok} succeeded, {fail} failed",
+  "该组会话都在运行中，先停止再删除": "All sessions in this group are running; stop them before deleting",
+  "已跳过运行中的 {n} 个会话": "Skipped {n} running session(s)",
   "已更新": "Updated",
   "已恢复": "Resumed",
   "暂不授权": "Not now",

@@ -3119,7 +3119,13 @@ async def compose_text(text: str, page=None, send: bool = False) -> dict[str, An
         return {**out, "error": "找不到输入框"}
     try:
         await box.click()
-        await page.keyboard.type(body, delay=8)
+        # 多行必须用 Shift+Enter：`keyboard.type` 遇到 \n 会按 Enter 直接发送，
+        # 一段回答会被拆成好几条 Teams 消息（用户实测："回复有点奇怪"）。
+        lines = body.split("\n")
+        for i, line in enumerate(lines):
+            if i:
+                await page.keyboard.press("Shift+Enter")
+            await page.keyboard.type(line, delay=8)
         await asyncio.sleep(0.6)
     except Exception as exc:                     # noqa: BLE001
         return {**out, "error": f"输入失败: {str(exc)[:120]}"}

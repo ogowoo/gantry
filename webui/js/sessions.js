@@ -70,9 +70,20 @@ function drawSessions(){
  sessSig=sig;
  box.innerHTML='';
  if(!list.length){box.innerHTML='<div class="sess-empty">'+esc(tr('没有匹配的 Session'))+'</div>';return}
- // 按**工作区**分组（对齐 DSH：组头是文件夹名，组内按 updated 倒序，组间按最近活跃排序）
+ // 分组：有 tag（teams-bot=Teams / DSH 工具调用=DSH）按 tag 成组，
+ // 其余仍按工作区分组；组头可直接批量删除整组。
+ const tagOf=(s)=>{
+  const t=String(s.tag||'').trim();
+  if(t)return t;
+  const id=String(s.id||'');
+  return id.startsWith('teams-')?'Teams':(id.startsWith('toolcall-')?'DSH':'');
+ };
  const groups=new Map();
- list.forEach(s=>{const t=(s.workspace||'').trim();if(!groups.has(t))groups.set(t,[]);groups.get(t).push(s)});
+ list.forEach(s=>{
+  const t=tagOf(s);
+  const key=t?'tag:'+t:'ws:'+(s.workspace||'').trim();
+  if(!groups.has(key))groups.set(key,[]);
+  groups.get(key).push(s)});
  const _maxUpd=(arr)=>Math.max(...arr.map(x=>Number(x.updated)||0));
  const keys=[...groups.keys()].sort((a,b)=>_maxUpd(groups.get(b))-_maxUpd(groups.get(a)));
  const wsName=(p)=>{const parts=String(p||'').replace(/\\/g,'/').split('/').filter(Boolean);
@@ -111,25 +122,43 @@ function drawSessions(){
   e.onkeydown=ev=>{if(ev.key==='Enter'||ev.key===' '){ev.preventDefault();load(s.id)}};
   box.appendChild(e)};
  keys.forEach(k=>{
+  const isTag=k.startsWith('tag:');
+  const label=isTag?k.slice(4):wsName(k.slice(3));
   const h=document.createElement('div');h.className='taghead wshead';
-  h.title=k||'';
-  const ico=document.createElementNS('http://www.w3.org/2000/svg','svg');
-  ico.setAttribute('viewBox','0 0 24 24');ico.setAttribute('width','13');ico.setAttribute('height','13');
-  ico.setAttribute('fill','none');ico.setAttribute('stroke','currentColor');
-  ico.setAttribute('stroke-width','1.8');ico.setAttribute('stroke-linecap','round');
-  ico.setAttribute('stroke-linejoin','round');ico.setAttribute('aria-hidden','true');
-  ico.innerHTML='<path d="M3 7.5A1.5 1.5 0 0 1 4.5 6h4l1.6 2h9.4A1.5 1.5 0 0 1 21 9.5v8A1.5 1.5 0 0 1 19.5 19h-15A1.5 1.5 0 0 1 3 17.5z"/>';
-  const nm=document.createElement('span');nm.className='wsname';nm.textContent=wsName(k);
-  nm.setAttribute('data-i18n-skip','1');   // 文件夹名是数据
-  const cnt=document.createElement('span');cnt.className='wscount';cnt.textContent=String(groups.get(k).length);
+  h.title=isTag?label:k.slice(3);
   const caret=document.createElement('span');caret.className='wscaret';
   caret.textContent=wsIsCollapsed(k)?'▸':'▾';
-  const add=document.createElement('button');
-  add.type='button';add.className='wsadd';add.title=tr('在此工作区新建会话');
-  add.setAttribute('data-i18n-title','在此工作区新建会话');
-  add.textContent='＋';
-  add.onclick=(ev)=>{ev.stopPropagation();newSessionInWorkspace(k)};
-  h.appendChild(caret);h.appendChild(ico);h.appendChild(nm);h.appendChild(cnt);h.appendChild(add);
+  h.appendChild(caret);
+  if(isTag){
+   const tagico=document.createElement('span');tagico.className='gtagico';tagico.textContent='🏷';
+   h.appendChild(tagico);
+  }else{
+   const ico=document.createElementNS('http://www.w3.org/2000/svg','svg');
+   ico.setAttribute('viewBox','0 0 24 24');ico.setAttribute('width','13');ico.setAttribute('height','13');
+   ico.setAttribute('fill','none');ico.setAttribute('stroke','currentColor');
+   ico.setAttribute('stroke-width','1.8');ico.setAttribute('stroke-linecap','round');
+   ico.setAttribute('stroke-linejoin','round');ico.setAttribute('aria-hidden','true');
+   ico.innerHTML='<path d="M3 7.5A1.5 1.5 0 0 1 4.5 6h4l1.6 2h9.4A1.5 1.5 0 0 1 21 9.5v8A1.5 1.5 0 0 1 19.5 19h-15A1.5 1.5 0 0 1 3 17.5z"/>';
+   h.appendChild(ico);
+  }
+  const nm=document.createElement('span');nm.className='wsname';nm.textContent=label;
+  nm.setAttribute('data-i18n-skip','1');   // 标签/文件夹名是数据
+  const cnt=document.createElement('span');cnt.className='wscount';cnt.textContent=String(groups.get(k).length);
+  h.appendChild(nm);h.appendChild(cnt);
+  if(isTag){
+   const del=document.createElement('button');
+   del.type='button';del.className='wsdel';del.title=tr('删除本组会话');
+   del.setAttribute('aria-label',tr('删除本组会话'));del.textContent='🗑';
+   del.onclick=(ev)=>{ev.stopPropagation();removeGroupSessions(label,groups.get(k))};
+   h.appendChild(del);
+  }else{
+   const add=document.createElement('button');
+   add.type='button';add.className='wsadd';add.title=tr('在此工作区新建会话');
+   add.setAttribute('data-i18n-title','在此工作区新建会话');
+   add.textContent='＋';
+   add.onclick=(ev)=>{ev.stopPropagation();newSessionInWorkspace(k.slice(3))};
+   h.appendChild(add);
+  }
   h.classList.toggle('collapsed', wsIsCollapsed(k));
   h.onclick=()=>wsToggleCollapse(k);
   box.appendChild(h);
@@ -138,6 +167,39 @@ function drawSessions(){
   })});
  try{translateAttrs(box)}catch(e){}}
 
+/* 批量删除一个标签组：先快速删本地，再按标记尽力清理远端 Copilot 对话。 */
+async function removeGroupSessions(label, arr){
+ const all=(arr||[]).filter(Boolean);
+ const live=new Set(['running','waiting','queued']);
+ const sids=all.filter(s=>!live.has(String(s.state||''))).map(s=>s.id).filter(Boolean);
+ const skipped=all.length-sids.length;
+ if(!sids.length){
+  if(skipped)toast(tr('该组会话都在运行中，先停止再删除'),'err');
+  return}
+ if(!await dlgConfirm(tr('删除「{label}」组的 {n} 个会话？\n\n会先删本地记录，再尽力清理对应的 Copilot 网页对话。此操作不可撤销。',
+                        {label:label,n:sids.length}),tr('批量删除'),true))return;
+ let ok=0,fail=0;
+ for(const sid of sids){
+  try{
+   await api('/v1/agent/sessions/'+encodeURIComponent(sid)+'?force_local=true',{method:'DELETE'});
+   ok++;
+   if(sid===window.current){
+    stopEvents();window.current=null;
+    document.getElementById('sessionView').style.display='none';
+    document.getElementById('emptyState').style.display='flex';}
+  }catch(e){fail++}
+ }
+ // 远端按 [GANTRY-AGENT][sid] 标记清理；一次最多 50 个 sid
+ for(let i=0;i<sids.length;i+=50){
+  try{
+   await api('/v1/agent/copilot/cleanup-marked',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({sids:sids.slice(i,i+50),delete_matching:true})});
+  }catch(e){}
+ }
+ await refreshSessions();
+ toast(tr('批量删除完成：成功 {ok}，失败 {fail}',{ok:ok,fail:fail}),fail?'err':'ok');
+ if(skipped)toast(tr('已跳过运行中的 {n} 个会话',{n:skipped}),'err');
+}
 /* 会话标签：纯本地组织手段（不参与 Agent 逻辑），列表按标签分组 */
 async function editTag(btn){return editTagById(btn&&btn.dataset?btn.dataset.arg:'')}
 async function editTagById(sid){
