@@ -483,6 +483,9 @@ class Request(BaseModel):
     messages: list[Message] = Field(min_length=1)
     stream: bool = True
     new_conversation: bool = True
+    # OpenAI 工具定义：提供商模型需要它才会真的发起 tool_calls（DSH 会带）
+    tools: list[dict[str, Any]] | None = None
+    tool_choice: Any = None
 
 class SessionMessageRequest(BaseModel):
     content: str = Field(default="", max_length=120000)
@@ -512,6 +515,8 @@ class AgentRequest(BaseModel):
     plan_mode: bool = False
     # 沙箱档位覆盖（read-only / workspace-write / danger-full-access）；不传用配置
     sandbox_mode: str | None = None
+    tools: list[dict[str, Any]] | None = None
+    tool_choice: Any = None
 
 
 def log(s):
