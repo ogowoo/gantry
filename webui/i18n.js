@@ -200,6 +200,7 @@ const I18N_EN = {
   "标签已更新": "Tag updated",
   "已取消标签": "Tag cleared",
   "已删除": "Deleted",
+  "已删除会话 ": "Deleted session ",
   "已更新": "Updated",
   "已恢复": "Resumed",
   "暂不授权": "Not now",

@@ -17,9 +17,12 @@ function openCopilot(){if(window.currentUrl){if(!/^https?:\/\//i.test(window.cur
 /* 删除会话：**自动判断是否用过 Copilot**，用过就一并删远端记录。
    实测痛点：任务删不掉——一是用户不知道该点"仅删本地"还是"连同 Copilot"，
    二是远端删不掉时整个删除被中止、任务留在列表里。现在合并成一个入口。 */
-async function removeSession(auto){
- if(!window.current)return;
- const sid=window.current;
+async function removeSession(auto,sidOverride,titleOverride){
+ const sid=sidOverride||window.current;
+ if(!sid)return;
+ const title=titleOverride||(sidOverride
+   ?((window.sessCache||[]).find(x=>x.id===sid)||{}).title||''
+   :(document.getElementById('title').textContent||'').trim());
  let plan=null;
  try{ plan=await api('/v1/agent/sessions/'+encodeURIComponent(sid)+'/deletion-plan') }catch(e){ plan=null }
  if(plan&&plan.running){toast(tr('该任务正在运行，先停止再删除'),'err');return}
@@ -29,9 +32,9 @@ async function removeSession(auto){
    :'';
  const msg=(remote
    ?tr('这个任务用过 Copilot，将同时删除远端对话记录。\n\n  ID: {id}\n  标题: {title}\n\n本地 Session{extra}。此操作不可撤销，确定继续？',
-       {id:sid,title:(document.getElementById('title').textContent||'').trim(),extra:extra})
+       {id:sid,title:title,extra:extra})
    :tr('即将删除的会话：\n\n  ID: {id}\n  标题: {title}\n\n仅删除本地 Session（这个任务没有用过 Copilot 网页会话）。此操作不可撤销，确定继续？',
-       {id:sid,title:(document.getElementById('title').textContent||'').trim()}));
+       {id:sid,title:title}));
  if(!await dlgConfirm(msg,tr('删除确认'),true))return;
  try{
   let url='/v1/agent/sessions/'+encodeURIComponent(sid);
@@ -42,14 +45,17 @@ async function removeSession(auto){
   if(qs.length)url+='?'+qs.join('&');
   let d=await api(url,{method:'DELETE'});
   const failed=(d.remote_results||[]).filter(x=>!x.deleted);
+  const isCurrent=sid===window.current;
   if(failed.length&&d.deleted){showDeleteResult(d,sid)}      // 本地已删，展示远端失败明细
   else if(!d.deleted){showDeleteResult(d,sid);return}
   if(d.deleted){
-   stopEvents();         // 删掉当前会话必须停 SSE，否则重连定时器会一直敲已删除的会话
-   window.current=null;
-   document.getElementById('sessionView').style.display='none';
-   document.getElementById('emptyState').style.display='flex';
-   await refreshSessions()}
+   if(isCurrent){
+    stopEvents();         // 删掉当前会话必须停 SSE，否则重连定时器会一直敲已删除的会话
+    window.current=null;
+    document.getElementById('sessionView').style.display='none';
+    document.getElementById('emptyState').style.display='flex';}
+   await refreshSessions();
+   if(sidOverride)toast(tr('已删除会话 ')+sid,'ok');}
  }catch(e){toast(tr('删除失败: ')+(e.text||e),'err')}}
 /* ── 限流倒计时：居中卡片，可收起为右下角小标 ── */
 function fmtCountdown(total){
