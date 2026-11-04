@@ -29,6 +29,31 @@ function toggleSubagents(){
             {n: parents.size}),'ok');
 }
 /* 列表签名：内容没变就不重建 DOM，避免每秒滚动回顶/点击错位 */
+/* 会话行「⋯」菜单：设置标签 / 复制 ID / 删除会话。
+   浮层挂 body 并 fixed 定位，避免被侧栏滚动容器裁掉。 */
+let sessMenuEl=null;
+function closeSessMenu(){if(sessMenuEl){sessMenuEl.remove();sessMenuEl=null}}
+function openSessMenu(btn,sid){
+ closeSessMenu();
+ const el=document.createElement('div');
+ el.className='codemenu sessmenu';
+ el.innerHTML=
+  `<button type="button" class="cmitem" data-menu="tag">🏷 ${esc(tr('设置标签'))}</button>`+
+  `<button type="button" class="cmitem" data-menu="copy">📋 ${esc(tr('复制会话 ID'))}</button>`+
+  `<button type="button" class="cmitem danger" data-menu="del">🗑 ${esc(tr('删除会话'))}</button>`;
+ document.body.appendChild(el);
+ const r=btn.getBoundingClientRect();
+ el.style.top=Math.round(r.bottom+4)+'px';
+ el.style.left=Math.round(Math.max(8,Math.min(r.right-el.offsetWidth,window.innerWidth-el.offsetWidth-8)))+'px';
+ el.querySelector('[data-menu="tag"]').onclick=()=>{closeSessMenu();editTagById(sid)};
+ el.querySelector('[data-menu="copy"]').onclick=()=>{closeSessMenu();
+  try{navigator.clipboard.writeText(sid);toast(tr('已复制会话 ID')+' '+sid,'ok')}catch(e){toast(sid)}};
+ el.querySelector('[data-menu="del"]').onclick=()=>{closeSessMenu();window.removeSession(false,sid)};
+ sessMenuEl=el;
+}
+document.addEventListener('click',e=>{
+ if(sessMenuEl&&!e.target.closest('.sessmenu')&&!e.target.closest('.sess-more'))closeSessMenu()});
+document.addEventListener('keydown',e=>{if(e.key==='Escape')closeSessMenu()});
 /* 工作区短名：只显示末两段（全路径放 title），避免会话列表被长路径撑开 */
 function drawSessions(){
  let q=(document.getElementById('sessFilter').value||'').toLowerCase();
@@ -72,14 +97,14 @@ function drawSessions(){
   const _num=(v,extra)=>extra>0
     ?`<span class="ssub" title="${esc(_sumTip)}">${esc(v)}</span>`
     :esc(v);
-  e.innerHTML=`<span class="sstat ${stateClassOf(s)}" title="${esc(stateLabel(s))}" aria-label="${esc(stateLabel(s))}">${stateIcon(s.state)}</span><div class="smeta"><b>${_kind?`<span class="skind">${_kind}</span>`:''}${esc(s.title)}</b><small><code class="sid" title="点击复制会话 ID">${esc(s.id)}</code><br>${tr('步骤')} ${_num(_ownSteps+_subSteps,_subSteps)} · ${tr('会话')} ${esc((s.conversation_index??0)+1)} · Token ${_num(_ownTk+_subTk,_subTk)}</small></div>${(s.attachment_count||0)>0?`<span class="attchip" title="含 ${s.attachment_count} 条带图片附件的消息">📎${s.attachment_count}</span>`:''}<button type="button" class="sess-tag" title="设置标签（用于分组）" data-act="editTag" data-arg="${esc(s.id)}">🏷</button><button type="button" class="sess-del" title="删除会话" data-act="deleteSession" data-arg="${esc(s.id)}">🗑</button>`;
+  e.innerHTML=`<span class="sstat ${stateClassOf(s)}" title="${esc(stateLabel(s))}" aria-label="${esc(stateLabel(s))}">${stateIcon(s.state)}</span><div class="smeta"><b>${_kind?`<span class="skind">${_kind}</span>`:''}${esc(s.title)}</b><small><code class="sid" title="点击复制会话 ID">${esc(s.id)}</code><br>${tr('步骤')} ${_num(_ownSteps+_subSteps,_subSteps)} · ${tr('会话')} ${esc((s.conversation_index??0)+1)} · Token ${_num(_ownTk+_subTk,_subTk)}</small></div>${(s.attachment_count||0)>0?`<span class="attchip" title="含 ${s.attachment_count} 条带图片附件的消息">📎${s.attachment_count}</span>`:''}<button type="button" class="sess-more" title="${esc(tr('更多操作'))}" aria-haspopup="menu">⋯</button>`;
   // 子代理不再列进侧栏 → 前导位（▸ 的那个位置）也就没用了：
   // 空着那 12px + gap 会把整行往右推，看起来跟工作区分组头"跳格"（用户实测）。
   let chip=e.querySelector('.sid');
   if(chip)chip.onclick=ev=>{ev.stopPropagation();try{navigator.clipboard.writeText(s.id);chip.textContent=tr('已复制 ✓');setTimeout(()=>chip.textContent=s.id,900)}catch(_){}};
-  // 行内删除：必须 stopPropagation，否则先触发整行 onclick=load(s.id)，变成"点删除反而打开会话"
-  const del=e.querySelector('.sess-del');
-  if(del)del.onclick=ev=>{ev.stopPropagation();window.removeSession(false,s.id)};
+  // 行内「⋯」菜单：必须 stopPropagation，否则先触发整行 onclick=load(s.id)
+  const more=e.querySelector('.sess-more');
+  if(more)more.onclick=ev=>{ev.stopPropagation();openSessMenu(more,s.id)};
   e.onclick=()=>load(s.id);
   // 键盘可达：会话切换是主入口，纯 div+onclick 对键盘用户等于不可用
   e.tabIndex=0;
@@ -114,8 +139,8 @@ function drawSessions(){
  try{translateAttrs(box)}catch(e){}}
 
 /* 会话标签：纯本地组织手段（不参与 Agent 逻辑），列表按标签分组 */
-async function editTag(btn){
- const sid=btn.dataset.arg;
+async function editTag(btn){return editTagById(btn&&btn.dataset?btn.dataset.arg:'')}
+async function editTagById(sid){
  if(!sid)return;
  const cur=((window.sessCache||[]).find(s=>s.id===sid)||{}).tag||'';
  const tag=await dlgPrompt(tr('设置会话标签（列表按标签分组；留空取消标签）'),cur,tr('保存'),tr('会话标签'));

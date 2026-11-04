@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import asyncio
 import time
+import uuid
 from typing import Any
 
 _DEFAULTS: dict[str, Any] = {
@@ -195,25 +196,28 @@ class Bot:
                 "回答用中文、口语化、分步骤，控制在 6 行以内；不要说自己是在查资料，也不要提 AI。\n\n"
                 f"同事的问题：{question}"
             )
-        req = b.AgentRequest(
-            model=str(_cfg(self.ctx, "model") or "copilot-auto"),
-            messages=[b.Message(role="user", content=prompt)],
-            stream=False,
-            session_id=f"teams-{int(time.time())}",
-            workspace=None,
-            agent_mode=bool(_cfg(self.ctx, "agent_mode")),
-        )
-        # `run_agent` 不读 agent_mode：它永远跑 Agent 循环，要求模型返回可解析的
-        # JSON 动作。普通对话（agent_mode=false）必须走 plain_completions，
-        # 否则模型正常的一段回答会被判成"未返回完整的 Agent JSON 动作" → 空回复。
+        model = str(_cfg(self.ctx, "model") or "copilot-auto")
+        # Agent 模式需要会话承载工具循环；普通对话**不落会话**——
+        # 每回答一个问题就建一个 teams-* 会话会把侧栏刷满（实测）。
         if bool(_cfg(self.ctx, "agent_mode")):
+            req = b.AgentRequest(
+                model=model,
+                messages=[b.Message(role="user", content=prompt)],
+                stream=False,
+                session_id=f"teams-{int(time.time())}",
+                workspace=None,
+                agent_mode=True,
+            )
             result = await b.run_agent(req)
             return (getattr(result, "content", "") or "").strip()
-        res = await b.plain_completions(req)
+        sid = f"teams-reply-{uuid.uuid4().hex[:12]}"
+        previous_active = b.ACTIVE_SESSION_ID
         try:
-            return (res["choices"][0]["message"]["content"] or "").strip()
-        except Exception:                        # noqa: BLE001
-            return ""
+            async with b._window(sid, need_page=True):
+                b.ACTIVE_SESSION_ID = sid
+                return (await b.agent_chat_once(prompt, model, make_new=True)).strip()
+        finally:
+            b.ACTIVE_SESSION_ID = previous_active
 
     # ── 一个轮询周期 ──
     async def cycle(self) -> dict[str, Any]:
