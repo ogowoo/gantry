@@ -31,7 +31,6 @@ from __future__ import annotations
 
 import asyncio
 import time
-import uuid
 from typing import Any
 
 _DEFAULTS: dict[str, Any] = {
@@ -197,27 +196,31 @@ class Bot:
                 f"同事的问题：{question}"
             )
         model = str(_cfg(self.ctx, "model") or "copilot-auto")
-        # Agent 模式需要会话承载工具循环；普通对话**不落会话**——
-        # 每回答一个问题就建一个 teams-* 会话会把侧栏刷满（实测）。
+        sid = f"teams-{int(time.time())}"
+        req = b.AgentRequest(
+            model=model,
+            messages=[b.Message(role="user", content=prompt)],
+            stream=False,
+            session_id=sid,
+            workspace=None,
+            agent_mode=bool(_cfg(self.ctx, "agent_mode")),
+        )
         if bool(_cfg(self.ctx, "agent_mode")):
-            req = b.AgentRequest(
-                model=model,
-                messages=[b.Message(role="user", content=prompt)],
-                stream=False,
-                session_id=f"teams-{int(time.time())}",
-                workspace=None,
-                agent_mode=True,
-            )
             result = await b.run_agent(req)
-            return (getattr(result, "content", "") or "").strip()
-        sid = f"teams-reply-{uuid.uuid4().hex[:12]}"
-        previous_active = b.ACTIVE_SESSION_ID
+            content = (getattr(result, "content", "") or "").strip()
+        else:
+            res = await b.plain_completions(req)
+            try:
+                content = (res["choices"][0]["message"]["content"] or "").strip()
+            except Exception:                    # noqa: BLE001
+                content = ""
+        # 会话要留在侧栏里才能被「⋯ → 删除会话」回收（连带删远端 Copilot 会话）；
+        # 标题改成可读的，别让一屏都是提示词第一行。
         try:
-            async with b._window(sid, need_page=True):
-                b.ACTIVE_SESSION_ID = sid
-                return (await b.agent_chat_once(prompt, model, make_new=True)).strip()
-        finally:
-            b.ACTIVE_SESSION_ID = previous_active
+            b.AGENT_SESSIONS.patch(sid, title=f"Teams: {question[:40]}", tag="Teams")
+        except Exception:                        # noqa: BLE001
+            pass
+        return content
 
     # ── 一个轮询周期 ──
     async def cycle(self) -> dict[str, Any]:

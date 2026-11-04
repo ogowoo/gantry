@@ -240,20 +240,30 @@ def parse_decision(raw: str, tools: list[dict[str, Any]] | None = None) -> dict[
 async def decide(req: Any) -> dict[str, Any]:
     """让 Copilot 网页按 tools 决定：返回 {content, tool_calls}。
 
-    不在 `AGENT_SESSIONS` 里建会话：每次 tool shim 都建一个 `toolcall-*`
-    会话会把侧栏刷满（实测）。这里直接借用窗口 + `agent_chat_once`，
-    只发一轮、只取回答，不留任何 Gantry 会话记录。
+    每轮保留一个 Gantry 会话（`toolcall-*`）——侧栏「⋯ → 删除会话」需要它
+    才能连带回收远端 Copilot 对话；标题固定成可读的「DSH 工具调用」，
+    不再是一屏提示词第一行。
     """
     from . import bridge as b
 
     prompt = build_prompt(req.messages, getattr(req, "tools", None),
                           getattr(req, "tool_choice", None))
-    sid = f"toolshim-{uuid.uuid4().hex[:12]}"
-    previous_active = b.ACTIVE_SESSION_ID
+    sid = f"toolcall-{uuid.uuid4().hex[:12]}"
+    agent_req = b.AgentRequest(
+        model=req.model,
+        messages=[b.Message(role="user", content=prompt)],
+        stream=False,
+        session_id=sid,
+        workspace=None,
+        agent_mode=False,
+    )
+    res = await b.plain_completions(agent_req)
     try:
-        async with b._window(sid, need_page=True):
-            b.ACTIVE_SESSION_ID = sid
-            raw = await b.agent_chat_once(prompt, req.model, make_new=True)
-    finally:
-        b.ACTIVE_SESSION_ID = previous_active
+        b.AGENT_SESSIONS.patch(sid, title="DSH 工具调用", tag="DSH")
+    except Exception:                            # noqa: BLE001
+        pass
+    try:
+        raw = (res["choices"][0]["message"]["content"] or "")
+    except Exception:                            # noqa: BLE001
+        raw = ""
     return parse_decision(raw, getattr(req, "tools", None))
