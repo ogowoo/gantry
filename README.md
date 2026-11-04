@@ -8,7 +8,7 @@
 
 > **Works without Copilot**: the browser starts on demand — service startup never touches the browser, and the WebUI plus provider models (DeepSeek/Kimi/OpenAI, etc.) are usable immediately; the browser is only launched when Copilot is actually needed, and a status with a "Retry browser" button is shown at the top of the UI. **Note**: in lazy mode, the first Copilot task after a restart must wait for the browser to launch and for SSO (can take several minutes on enterprise tenants); that waiting time does not count toward the task timeout. Provider models are unaffected.
 
-> **Version**: the `main` branch is currently **11.0.0-preview.54** (the multi-window parallel preview line has been merged in).
+> **Version**: the `main` branch is currently **11.0.0-preview.55** (the multi-window parallel preview line has been merged in).
 > The old stable line is archived at tag `v10.2.1-archive` / branch `archive/10.2.1-stable`.
 > For versioning rules, release process, and multi-machine collaboration conventions, see [docs/VERSIONING.md](docs/VERSIONING.md);
 > for changes in each release, see [CHANGELOG.md](CHANGELOG.md).
@@ -260,14 +260,17 @@ fallback) / `off`.
 
 Open the console (`/ui/`), click the ⚙ gear → **📚 知识库**. From there you can:
 
-- **drag & drop / choose files** — `docx`, `pdf`, `xlsx`, `xlsm`, `pptx`, `md`, `txt`, `csv`, `html`;
+- **drag & drop / choose files** — `docx`, `pdf`, `xlsx`, `xlsm`, `pptx`, `md`, `txt`, `csv`, `html`,
+  and images (`png/jpg/jpeg/bmp/webp/tif/tiff`);
 - **import a URL** — fetches the page and keeps its text (title from `<title>`);
 - **paste text** — for FAQs / announcements / meeting notes;
 - **inbox** — drop files into `data/kb/inbox/` and press 收件箱 to ingest them in one go;
 - **list / delete documents**, **rebuild index**, and **test a query** (shows backend + score).
 
 All extraction is **pure Python** (`python-docx`, `pypdf`, `openpyxl`, `python-pptx`, `beautifulsoup4`)
-— no external service. Imported documents land in `data/kb/imported/<slug>.md` with front-matter
+— no external service. Scanned PDFs and images go through **RapidOCR** (ONNX, CPU, PP-OCRv5/6
+models, ~20 MB, `pip install rapidocr`); if it is not installed the import fails with a clear
+`pip install` hint instead of silently storing an empty document. Imported documents land in `data/kb/imported/<slug>.md` with front-matter
 (`title/category/source/updated`), and every import rebuilds the FTS index and the vector index
 (same `kb.embedding` config as the rest of the KB).
 
