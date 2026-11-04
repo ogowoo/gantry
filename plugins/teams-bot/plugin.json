@@ -14,9 +14,7 @@
       "tools": [
         "teams_status",
         "teams_reply",
-        "teams_probe",
-        "kb_search",
-        "kb_reindex"
+        "teams_probe"
       ],
       "api": [
         "GET api/status",

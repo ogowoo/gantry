@@ -219,5 +219,35 @@ class ScoreTests(unittest.TestCase):
         self.assertEqual(pick_hits(hits, 1.01), [])
 
 
+class ForceReindexTests(unittest.TestCase):
+    """force 重建曾经必炸：FTS 行没先删 → rowid 冲突（sqlite3.IntegrityError）。"""
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp(prefix="kb_force_"))
+        kbdir = self.tmp / "data" / "kb"
+        kbdir.mkdir(parents=True)
+        (kbdir / "vpn.md").write_text(VPN_DOC, encoding="utf-8")
+        self.kb = KnowledgeBase(self.tmp)
+        self.kb.reindex()
+
+    def tearDown(self):
+        self.kb.close()
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def test_force_twice_is_stable(self):
+        first = self.kb.reindex(force=True)
+        second = self.kb.reindex(force=True)
+        self.assertEqual(first["documents"], 1)
+        self.assertEqual(second["documents"], 1)
+        self.assertEqual(first["chunks"], second["chunks"], "force 重建不该累积分块")
+        # 检索仍然可用（说明 FTS 与 chunks 行数一致）
+        self.assertTrue(self.kb.search("VPN 连不上", 3))
+
+    def test_force_keeps_single_copy(self):
+        before = self.kb.stats()["chunks"]
+        self.kb.reindex(force=True)
+        self.assertEqual(self.kb.stats()["chunks"], before)
+
+
 if __name__ == "__main__":
     unittest.main()

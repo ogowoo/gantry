@@ -147,9 +147,11 @@ def _query_terms(query: str) -> list[str]:
 class KnowledgeBase:
     """`data/kb/**` 的全文索引。线程内使用；跨线程各自建实例即可（SQLite 自己会加锁）。"""
 
-    def __init__(self, root: Path, db_path: Path | None = None):
+    def __init__(self, root: Path, db_path: Path | None = None,
+                 kb_dir: Path | None = None):
         self.root = Path(root)
-        self.dir = self.root / "data" / "kb"
+        # kb_dir 可覆盖（插件里允许把知识库放到别的目录），默认 data/kb
+        self.dir = Path(kb_dir) if kb_dir else self.root / "data" / "kb"
         self.db_path = Path(db_path) if db_path else self.root / "data" / "kb.db"
         self._db: sqlite3.Connection | None = None
         self.fts = True
@@ -206,9 +208,14 @@ class KnowledgeBase:
                 skipped += 1
                 continue
             chunks = _chunks_for_file(path, self.dir)
-            con.execute("DELETE FROM chunks WHERE path=?", (rel,))
+            # ⚠ 先删 FTS 行，再删 chunks：反过来的话子查询已经为空，FTS 留孤儿行，
+            # 重新插入时 rowid 冲突（force 重建必炸，实测 sqlite3.IntegrityError）
             if self.fts:
-                con.execute("DELETE FROM chunks_fts WHERE rowid IN (SELECT rowid FROM chunks WHERE path=?)", (rel,))
+                rowids = [r[0] for r in con.execute(
+                    "SELECT rowid FROM chunks WHERE path=?", (rel,))]
+                for rid in rowids:
+                    con.execute("DELETE FROM chunks_fts WHERE rowid=?", (rid,))
+            con.execute("DELETE FROM chunks WHERE path=?", (rel,))
             for c in chunks:
                 cur = con.execute(
                     "INSERT INTO chunks(id,path,doc_title,heading,tags,text,chars)"
@@ -227,9 +234,12 @@ class KnowledgeBase:
             else:
                 added += 1
         for rel in set(known) - seen:
-            con.execute("DELETE FROM chunks WHERE path=?", (rel,))
             if self.fts:
-                con.execute("DELETE FROM chunks_fts WHERE rowid IN (SELECT rowid FROM chunks WHERE path=?)", (rel,))
+                rowids = [r[0] for r in con.execute(
+                    "SELECT rowid FROM chunks WHERE path=?", (rel,))]
+                for rid in rowids:
+                    con.execute("DELETE FROM chunks_fts WHERE rowid=?", (rid,))
+            con.execute("DELETE FROM chunks WHERE path=?", (rel,))
             con.execute("DELETE FROM files WHERE path=?", (rel,))
             removed += 1
         con.commit()

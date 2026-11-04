@@ -14,6 +14,36 @@
 ### Fixed
 - 
 
+## [11.0.0-preview.49] - 2026-11-04
+
+### Added
+
+- **本地知识库独立成插件 `plugins/kb/`**（用户："本地知识库怎么做成插件"）。原来
+  `kb_search` / `kb_reindex` 挂在 `teams-bot` 里，现在拆成通用插件：
+  - 工具：`kb_search`（带 `cite` 出处）、`kb_reindex`、`kb_stats`；
+  - 接口：`GET api/search?q=&n=`、`POST api/reindex`、`GET api/stats`、`GET api/docs`；
+  - 面板 `kb-status`；配置 `dir` / `max_results` / `min_score` / `auto_reindex`。
+  - `KnowledgeBase` 支持 `kb_dir=` 覆盖目录（索引库默认 `data/<目录名>.db`）。
+  - 索引为空时首次搜索自动建索引（`auto_reindex`）。
+- `plugins/kb/README.md`：切块/分词/打分/引用/配置说明，含"什么时候该上向量检索"。
+- `tests/test_kb_plugin.py`（12 条）：清单、注册、检索/重建/统计工具、四个接口、自动建索引。
+
+### Changed
+
+- `plugins/teams-bot/plugin.json` 的 `contributes.tools` 去掉 `kb_*`（避免与 kb 插件撞名），
+  内部仍用 `gantry.kb.KnowledgeBase` 做"知识库优先"作答。
+
+### Fixed
+
+- **`force=True` 重建索引必炸**：原来先 `DELETE FROM chunks` 再删 FTS 行，子查询已经为空
+  → FTS 留孤儿行 → 重新插入复用 rowid 时 `sqlite3.IntegrityError: constraint failed`。
+  改成**先删 FTS 行（先取 rowid）再删 chunks**；补 `ForceReindexTests` 两条回归。
+
+### 实测
+
+- `tests/test_kb_plugin.py` + `tests/test_kb.py`：33 条全绿；`kb_reindex(force=True)` 连跑两次
+  分块数不变、检索仍可用。
+
 ## [11.0.0-preview.48] - 2026-11-04
 
 ### Fixed

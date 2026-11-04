@@ -429,7 +429,7 @@ def setup(ctx):
     async def _teams_probe() -> dict:
         return await teams.probe(dump_dir=_root(ctx) / "data" / "teams-probe")
 
-    async def _kb_search(query: str = "", limit: int = 4) -> dict:
+    async def _unused_kb_search(query: str = "", limit: int = 4) -> dict:  # noqa: F841
         kb = _kb(ctx)
         try:
             kb.reindex()
@@ -439,7 +439,7 @@ def setup(ctx):
         return {"query": query, "hits": hits,
                 "filtered": pick_hits(hits, float(_cfg(ctx, "kb_min_score")))}
 
-    async def _kb_reindex() -> dict:
+    async def _unused_kb_reindex() -> dict:  # noqa: F841
         return _kb(ctx).reindex(force=False)
 
     ctx.register_tool("teams_status", _teams_status,
@@ -450,10 +450,8 @@ def setup(ctx):
                        "force": "绕过 dry_run"})
     ctx.register_tool("teams_probe", _teams_probe,
                       "校准用：dump Teams 页面命中的选择器/会话/消息，写 data/teams-probe/", {})
-    ctx.register_tool("kb_search", _kb_search,
-                      "查本地 IT 知识库（data/kb/*.md），返回带出处的片段",
-                      {"query": "问题", "limit": "条数，默认 4"})
-    ctx.register_tool("kb_reindex", _kb_reindex, "重建本地知识库索引（增量）", {})
+    # 说明：kb_search / kb_reindex 由独立的 `kb` 插件提供（同一份 gantry.kb 实现），
+    # 这里不再重复注册——重复注册会撞工具名，而且知识库是通用能力，不该绑在渠道插件里。
 
     # ── HTTP 接口（WebUI 面板/排障用）──
     async def _api_status(request=None):
