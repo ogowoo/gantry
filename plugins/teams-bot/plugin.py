@@ -214,10 +214,13 @@ class Bot:
                 content = (res["choices"][0]["message"]["content"] or "").strip()
             except Exception:                    # noqa: BLE001
                 content = ""
+        # Copilot 侧栏的"后续建议"按钮文字会被 inner_text 一起读进来，去掉
+        content = b.strip_suggestion_tail(content)
         # 会话要留在侧栏里才能被「⋯ → 删除会话」回收（连带删远端 Copilot 会话）；
         # 标题改成可读的，别让一屏都是提示词第一行。
+        _q = " ".join(str(question or "").split())[:40]
         try:
-            b.AGENT_SESSIONS.patch(sid, title=f"Teams: {question[:40]}", tag="Teams")
+            b.AGENT_SESSIONS.patch(sid, title=f"Teams: {_q}", tag="Teams")
         except Exception:                        # noqa: BLE001
             pass
         return content
