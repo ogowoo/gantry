@@ -14,6 +14,24 @@
 ### Fixed
 - 
 
+## [11.0.0-preview.57] - 2026-11-05
+
+### Added
+
+- **OCR 引擎 `auto`（按页自动选）**：先用 RapidOCR；满足任一条件就转 Xiaomi-OCR-0：
+  - 一个字都没识别到；
+  - 文本稀疏：`字符数 / 百万像素 < auto_sparse_chars`（默认 40，表格/表单/PPT 常见）；
+  - 版面像表格：按垂直中心分行后，有 ≥ `auto_table_rows`（默认 2）行、每行 ≥2 个框。
+  Xiaomi 不可用（未装 transformers/torch 或模型加载失败）时**静默回退** RapidOCR 文本；
+  两项阈值可在 `kb.ocr` 里调。`config.json` 默认改为 `"engine": "auto"`。
+
+### 实测
+
+- 表格截图：RapidOCR 给出 4 个单元格框 → 判定表格 → 转 Xiaomi（测试用假引擎覆盖）。
+- 长正文图片：保持 RapidOCR（不额外花 6 秒）。
+- 引擎选择：`auto` 保留，`default`/未知值回退 `rapidocr`。
+- `tests/test_kb_ingest.py` 37 条（新增 auto 5 条：富文本/稀疏/空结果/表格框/不可用回退）。
+
 ## [11.0.0-preview.56] - 2026-11-05
 
 ### Added

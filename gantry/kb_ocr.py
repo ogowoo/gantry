@@ -21,7 +21,10 @@ _ENGINE: Any = None
 _LOCK = threading.Lock()
 
 
-_CFG: dict[str, Any] = {"engine": "rapidocr", "xiaomi_model": "SeerRay-Lab/Xiaomi-OCR-0"}
+_CFG: dict[str, Any] = {"engine": "rapidocr",
+                        "xiaomi_model": "SeerRay-Lab/Xiaomi-OCR-0",
+                        "auto_sparse_chars": 40,   # 每百万像素少于这么多字就转 Xiaomi
+                        "auto_table_rows": 2}      # 至少这么多行、每行 ≥2 框 → 视为表格
 _XIAOMI: Any = None
 
 
@@ -32,13 +35,16 @@ def configure(cfg: dict[str, Any] | None = None) -> dict[str, Any]:
     """
     c = dict(cfg or {})
     name = str(c.get("engine") or "rapidocr").lower()
-    if name in ("auto", "default", ""):
+    if name in ("default", ""):
         name = "rapidocr"
-    if name not in ("rapidocr", "xiaomi"):
+    if name not in ("rapidocr", "xiaomi", "auto"):
         name = "rapidocr"
     _CFG["engine"] = name
     if c.get("xiaomi_model"):
         _CFG["xiaomi_model"] = str(c["xiaomi_model"])
+    for k in ("auto_sparse_chars", "auto_table_rows"):
+        if c.get(k) not in (None, ""):
+            _CFG[k] = c[k]
     return dict(_CFG)
 
 
@@ -95,18 +101,89 @@ def ocr_image_bytes(data: bytes) -> str:
         out = engine(np.array(img))
     except Exception as exc:                     # noqa: BLE001
         raise IngestError(f"OCR 失败：{str(exc)[:160]}") from exc
-    # RapidOCR 3.x 返回对象（.txts）或旧版 (result, elapse) 元组
-    lines: list[str] = []
-    txts = getattr(out, "txts", None)
-    if txts is not None:
-        lines = [str(t) for t in txts if str(t).strip()]
-    elif isinstance(out, tuple) and out:
-        rows = out[0] or []
-        lines = [str(r[1]) for r in rows if len(r) > 1 and str(r[1]).strip()]
+    lines, boxes = _rapidocr_parts(out)
     text = "\n".join(lines).strip()
     if not text:
+        if _CFG.get("engine") == "auto":
+            return _auto_xiaomi(data, img.size, "", [])
         raise IngestError("OCR 没有识别出文字（图片可能太模糊或没有文字）")
+    if _CFG.get("engine") == "auto" and _needs_xiaomi(text, boxes, img.size):
+        return _auto_xiaomi(data, img.size, text, boxes)
     return text[:MAX_TEXT_CHARS]
+
+
+def _rapidocr_parts(out: Any) -> tuple[list[str], list[Any]]:
+    """兼容 RapidOCR 3.x（.txts/.boxes）与旧版 (rows, elapse) 元组。"""
+    lines: list[str] = []
+    boxes: list[Any] = []
+    txts = getattr(out, "txts", None)
+    box_attr = getattr(out, "boxes", None)
+    if txts is not None:
+        lines = [str(t) for t in txts if str(t).strip()]
+        if box_attr is not None:
+            boxes = list(box_attr)
+    elif isinstance(out, tuple) and out:
+        rows = out[0] or []
+        for r in rows:
+            if len(r) > 2 and str(r[1]).strip():
+                boxes.append(r[0])
+                lines.append(str(r[1]))
+    return lines, boxes
+
+
+def _box_center(box: Any) -> tuple[float, float, float]:
+    """框 → (中心 x, 中心 y, 高度)；兼容 4 点/矩形两种写法。"""
+    try:
+        pts = list(box)
+        xs = [float(p[0]) for p in pts]
+        ys = [float(p[1]) for p in pts]
+        return (sum(xs) / len(xs), sum(ys) / len(ys),
+                max(ys) - min(ys) or 1.0)
+    except Exception:                            # noqa: BLE001
+        return (0.0, 0.0, 1.0)
+
+
+def _table_like(boxes: list[Any]) -> bool:
+    """按垂直中心分行，若有足够的"多框行"就认为像表格（表格/表单/PPT 版式）。"""
+    if len(boxes) < 4:
+        return False
+    rows: list[list[tuple[float, float]]] = []
+    for b in boxes:
+        cx, cy, h = _box_center(b)
+        for row in rows:
+            if abs(row[0][1] - cy) <= max(h, row[0][2]) * 0.6:
+                row.append((cx, cy, h))
+                break
+        else:
+            rows.append([(cx, cy, h)])
+    multi = [r for r in rows if len(r) >= 2]
+    need = int(_CFG.get("auto_table_rows") or 2)
+    return len(multi) >= need
+
+
+def _needs_xiaomi(text: str, boxes: list[Any], size: tuple[int, int]) -> bool:
+    """文本太稀 或 版面像表格 → 值得花 6 秒让 Xiaomi-OCR-0 重新解析。"""
+    w, h = size
+    mp = max(0.01, (int(w) * int(h)) / 1_000_000)
+    threshold = float(_CFG.get("auto_sparse_chars") or 40)
+    if len(text) / mp < threshold:
+        return True
+    return _table_like(boxes)
+
+
+def _auto_xiaomi(data: bytes, size: tuple[int, int], fallback: str,
+                boxes: list[Any]) -> str:
+    """auto 模式下调用 Xiaomi；不可用/失败时回退到 RapidOCR 文本。"""
+    try:
+        return xiaomi_image_bytes(data)
+    except Exception:                            # noqa: BLE001
+        if fallback.strip():
+            return fallback[:MAX_TEXT_CHARS]
+        w, h = size
+        raise IngestError(
+            "RapidOCR 在这张图上没识别出文字，且 Xiaomi-OCR-0 不可用"
+            f"（{w}x{h}）。装它：pip install -U transformers torch，"
+            "或在 config.json 把 kb.ocr.engine 设成 xiaomi") from None
 
 
 def ocr_file_bytes(data: bytes) -> str:
