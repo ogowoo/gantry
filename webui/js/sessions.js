@@ -85,7 +85,10 @@ function drawSessions(){
   if(!groups.has(key))groups.set(key,[]);
   groups.get(key).push(s)});
  const _maxUpd=(arr)=>Math.max(...arr.map(x=>Number(x.updated)||0));
- const keys=[...groups.keys()].sort((a,b)=>_maxUpd(groups.get(b))-_maxUpd(groups.get(a)));
+ // 标签组（Teams/DSH）排在最上面，工作区组随后；组内按最近活跃
+ const keys=[...groups.keys()].sort((a,b)=>{
+  const at=a.startsWith('tag:')?0:1, bt=b.startsWith('tag:')?0:1;
+  return at-bt || (_maxUpd(groups.get(b))-_maxUpd(groups.get(a)))});
  const wsName=(p)=>{const parts=String(p||'').replace(/\\/g,'/').split('/').filter(Boolean);
    return parts.length?parts[parts.length-1]:tr('默认工作区')};
  const renderCard=(s,opts)=>{
