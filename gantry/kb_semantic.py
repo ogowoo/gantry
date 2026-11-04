@@ -205,15 +205,42 @@ class SemanticIndex:
             return []
         qvec = self.embedder.embed([q])[0]
         con = self.kb.db()
-        scored = []
-        for r in rows:
-            try:
-                vec = json.loads(r["vec"])
-            except Exception:                    # noqa: BLE001
-                continue
-            if len(vec) != len(qvec):
-                continue
-            scored.append((_cosine(qvec, vec), r["chunk_id"]))
+        scored: list[tuple[float, str]] = []
+        # numpy 快路径（可选）：1000+ 分块时比纯 Python 余弦快一个量级；
+        # 没装 numpy 就退回下面的纯 Python 实现（零依赖原则不变）。
+        try:
+            import numpy as np
+
+            ids: list[str] = []
+            mat: list[list[float]] = []
+            for r in rows:
+                try:
+                    vec = json.loads(r["vec"])
+                except Exception:                # noqa: BLE001
+                    continue
+                if len(vec) != len(qvec):
+                    continue
+                ids.append(r["chunk_id"])
+                mat.append(vec)
+            if ids:
+                q = np.asarray(qvec, dtype=np.float32)
+                m = np.asarray(mat, dtype=np.float32)
+                qn = float(np.linalg.norm(q)) or 1.0
+                mn = np.linalg.norm(m, axis=1)
+                mn[mn == 0] = 1.0
+                sims = (m @ q) / (mn * qn)
+                scored = list(zip([float(x) for x in sims], ids))
+        except Exception:                        # noqa: BLE001
+            scored = []
+        if not scored:
+            for r in rows:
+                try:
+                    vec = json.loads(r["vec"])
+                except Exception:                # noqa: BLE001
+                    continue
+                if len(vec) != len(qvec):
+                    continue
+                scored.append((_cosine(qvec, vec), r["chunk_id"]))
         scored.sort(reverse=True)
         out = []
         for cos, cid in scored[:max(1, limit)]:

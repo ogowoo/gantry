@@ -8,7 +8,7 @@
 
 > **Works without Copilot**: the browser starts on demand — service startup never touches the browser, and the WebUI plus provider models (DeepSeek/Kimi/OpenAI, etc.) are usable immediately; the browser is only launched when Copilot is actually needed, and a status with a "Retry browser" button is shown at the top of the UI. **Note**: in lazy mode, the first Copilot task after a restart must wait for the browser to launch and for SSO (can take several minutes on enterprise tenants); that waiting time does not count toward the task timeout. Provider models are unaffected.
 
-> **Version**: the `main` branch is currently **11.0.0-preview.61** (the multi-window parallel preview line has been merged in).
+> **Version**: the `main` branch is currently **11.0.0-preview.62** (the multi-window parallel preview line has been merged in).
 > The old stable line is archived at tag `v10.2.1-archive` / branch `archive/10.2.1-stable`.
 > For versioning rules, release process, and multi-machine collaboration conventions, see [docs/VERSIONING.md](docs/VERSIONING.md);
 > for changes in each release, see [CHANGELOG.md](CHANGELOG.md).
@@ -304,6 +304,23 @@ The same operations are available over HTTP:
 - `data/logs/legacy/` — archived logs from older launchers (nothing writes here).
 - `data/kb/` — knowledge base markdown (`imported/` holds imported docs, `inbox/` is the drop folder).
 - `webui/img/` — screenshots used by the in-app manual (`scripts/make_manual_shots.py` regenerates them).
+
+## Upgrading from an older install (CopilotBridge → Gantry)
+
+`data/` (knowledge base DB, `EdgeProfile/`, sessions) and `config.json` carry over.
+
+```powershell
+# stop the service first (tray → quit, or Settings → Danger zone → shutdown)
+git pull origin main
+python install.py                 # same command as before; add --ocr / --xiaomi if you want OCR
+python scripts/kb.py index        # rebuild the FTS index (incremental)
+python scripts/kb.py embed        # build the vector index (first time only)
+python start.py
+```
+
+New config blocks are **optional** — absent means the old behaviour (FTS-only, no OCR,
+external models only). Verify with `GET /v1/plugins/kb/api/vector-stats` / `api/ocr`
+and `GET /v1/models`.
 
 ## Configuration (config.json)
 

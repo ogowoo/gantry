@@ -138,7 +138,69 @@ print(client.chat.completions.create(
 2. `/kb 内容`：让模型先整理成条目（去重、分点、加标题）再入库；
 3. 模型自己调 `kb_add` 工具（`text` / `url` / `paths` 都行）。
 
-## 11. 本地模型（可选，不用外部 server）
+## 11. 向量库：自带的，不用另装
+
+向量检索**内置**，不需要 Chroma / Milvus / sqlite-vec，也不需要额外 pip 包：
+
+- 向量存在**同一个** `data/kb.db` 里，表 `chunks_vec(chunk_id, model, dim, vec, at)`；
+- 余弦相似度在进程内算（有 numpy 走矩阵乘，没有就纯 Python，两条路径结果一致）；
+- 分块只算一次：按 `chunk_id` 对齐，改过的文档只补新块；换 embedding 模型时按 `model`
+  区分并整体重建，避免混用不同向量空间。
+
+```powershell
+python scripts/kb.py embed            # 增量建向量（只算缺失分块）
+python scripts/kb.py vector-stats      # 看已向量化多少 / 维度 / 是否完整
+python scripts/kb.py search "上不了外网" --mode hybrid
+```
+
+embedding 来源三选一（`config.json` 的 `kb.embedding.backend`）：
+
+| backend | 说明 | 需要 |
+|---|---|---|
+| `local`（推荐） | 进程内 `llama_cpp` 加载 GGUF，例如 Qwen3-Embedding-0.6B | 一个 embedding GGUF（约 600 MB） |
+| `http` | 任意 OpenAI 兼容 `/embeddings`（llama.cpp `--embeddings`、Ollama、FLM） | 外部服务 |
+| `hash` | 零依赖字符 n-gram 兜底（语义弱，离线可用） | 无 |
+| `off` | 关闭向量，只走 FTS | 无 |
+
+## 12. 从旧版升级（CopilotBridge → Gantry）
+
+`data/`（含 `kb.db`、`EdgeProfile/`、会话库）与 `config.json` 都沿用，不需要重建环境。
+
+```powershell
+# 1) 停止服务（托盘右键退出，或网页 设置 → 危险区 → 关闭服务）
+# 2) 拉新代码
+git pull origin main
+# 3) 补装/更新依赖（默认行为不变；要 OCR 才加参数）
+python install.py
+python install.py --ocr        # 可选：扫描件/图片 OCR
+python install.py --xiaomi     # 可选：表格/公式（体积大）
+# 4) 配置合并（只加需要的段，旧配置照旧可用）
+copy config.json config.json.bak-pre-upgrade
+#    需要知识库就加 kb.embedding / kb.ocr，需要本地模型就加 providers.local（见第 10/11/13 节）
+# 5) 重建知识库索引（FTS 增量；向量首次要建）
+python scripts/kb.py index
+python scripts/kb.py embed
+# 6) 启动
+python start.py
+```
+
+升级后自检：
+
+| 检查 | 期望 |
+|---|---|
+| `GET /health` 的 `version` | 新的 `11.0.0-preview.*` |
+| `GET /v1/plugins` | `kb` / `web-search` / `teams-bot` 等 `loaded` |
+| `GET /v1/plugins/kb/api/vector-stats` | `vectorised > 0`、`complete=true`（建过向量后） |
+| `GET /v1/plugins/kb/api/ocr` | `rapidocr` / `xiaomi` / `effective` 符合预期 |
+| `GET /v1/models` | 有 `local/...` 说明本地模型生效 |
+
+注意：
+
+- 升级**不会**动 `EdgeProfile/`，登录态保留；但换机器/换账号仍需 `python scripts/login.py`。
+- 新增配置段都是**可选**的：不写就是旧行为（FTS-only、无 OCR、纯外部模型）。
+- 旧版遗留的 `data/service.log` 若还在，可删除（新日志统一在 `data/logs/gantry.log`）。
+
+## 13. 本地模型（可选，不用外部 server）
 
 默认用外部 `llama-server`（`providers.llamacpp`）。想让 `python start.py` 一个进程全起来：
 
@@ -158,7 +220,7 @@ print(client.chat.completions.create(
 - 提示会按 `n_ctx` 自动裁剪（保 system + 最近对话），推理模型的 `<think>` 会被剥掉；
 - 解耦：删掉 `providers.local` 或改指外部 `base_url`，其它都不用动。
 
-## 12. 插件（按需启用）
+## 14. 插件（按需启用）
 
 `/ui/` → ⚙ → 🧩 插件管理，或 `data/plugins.json`。常用：
 
