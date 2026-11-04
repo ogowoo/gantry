@@ -276,13 +276,26 @@ def _cosine(a: list[float], b: list[float]) -> float:
 
 
 def build_embedder(cfg: dict[str, Any] | None = None) -> Embedder | None:
-    """按配置造嵌入后端：backend = auto|http|hash|off（auto = 端点可用就用 HTTP）。"""
+    """按配置造嵌入后端：backend = auto|http|hash|local|off。
+
+    auto  = 端点可用就用 HTTP（失败退回 None→FTS）
+    local = 进程内 llama_cpp 加载 GGUF（配 model_path）
+    """
     c = dict(cfg or {})
     backend = str(c.get("backend") or "auto").lower()
     if backend in ("off", "none", "disabled", "false", "0"):
         return None
     if backend == "hash":
         return HashEmbedder(int(c.get("dim") or 512))
+    if backend == "local":
+        from .local_models import LocalEmbedder
+
+        path = str(c.get("model_path") or "")
+        if not path:
+            return None
+        return LocalEmbedder(path, n_ctx=int(c.get("n_ctx") or 2048),
+                             n_threads=int(c.get("n_threads") or 0),
+                             dim=int(c.get("dim") or 0))
     base = str(c.get("base_url") or "http://127.0.0.1:18085/v1")
     model = str(c.get("model") or "qwen3-embed")
     emb = HttpEmbedder(base, model, api_key=str(c.get("api_key") or ""),

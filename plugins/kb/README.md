@@ -42,11 +42,15 @@ curl http://127.0.0.1:8765/v1/plugins/kb/api/docs
 
 | 键 | 默认 | 说明 |
 | --- | --- | --- |
-| `backend` | `auto` | `auto`=端点可用就用 HTTP，否则退回 FTS；`http` / `hash` / `off` |
+| `backend` | `auto` | `auto`=端点可用就用 HTTP，否则退回 FTS；`http` / `hash` / `local` / `off` |
 | `base_url` | `http://127.0.0.1:18085/v1` | 任意 OpenAI 兼容 `/embeddings`（llama.cpp `--embeddings`、Ollama、FLM） |
 | `model` | `qwen3-embed` | 本机 `llama-server -m Qwen3-Embedding-0.6B-Q8_0.gguf --embeddings --port 18085` |
 | `dim` | `0` | 0=自动探测 |
 | `w_vec` / `w_cov` | `0.75` / `0.25` | 混合权重 |
+
+`local` 是**进程内**模式：给 `model_path` 指向 embedding GGUF（如
+`Qwen3-Embedding-0.6B-Q8_0.gguf`），由 `gantry.local_models.LocalEmbedder` 用 `llama_cpp`
+直接加载，不需要外部 `llama-server`。
 
 `hash` 是**零依赖兜底**（字符 n-gram hashing）：不联网、不下载模型，语义能力弱但确定性强，
 适合离线环境与单测。

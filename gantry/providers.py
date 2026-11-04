@@ -21,6 +21,7 @@ from __future__ import annotations
 import json
 import os
 import urllib.request
+from pathlib import Path
 from typing import Any, AsyncIterator
 
 import httpx
@@ -524,6 +525,96 @@ class ApiProvider:
                 yield delta
 
 
+class LocalProvider(ApiProvider):
+    """进程内 GGUF 提供商（`backend: "local"`）：模型跑在服务进程里，不走 HTTP。
+
+    和 ApiProvider 同构（complete_message / stream_chunks / models），因此
+    `/v1/models`、Agent、RAG、/v1/chat/completions 都不需要改。
+    限制：暂不支持原生 tool_calls 与 `json_schema` 严格模式（用 json_object 提示）。
+    """
+
+    def __init__(self, name: str, cfg: dict[str, Any]):
+        super().__init__(name, cfg)
+        from .local_models import LocalChatEngine
+
+        self.backend = "local"
+        self.model_path = str(cfg.get("model_path") or "")
+        self.eager = bool(cfg.get("eager", False))
+        self.engine = LocalChatEngine(
+            self.model_path,
+            n_ctx=int(cfg.get("n_ctx") or 4096),
+            n_threads=int(cfg.get("n_threads") or 0),
+            max_tokens=int(cfg.get("max_tokens") or 2048),
+            temperature=float(cfg.get("temperature", 0.7)),
+            idle_unload_seconds=float(cfg.get("idle_unload_seconds") or 0),
+            verbose=bool(cfg.get("verbose", False)))
+        self.base_url = self.base_url or "local://in-process"
+        self.api_key = self.api_key or "local"
+
+    @property
+    def configured(self) -> bool:
+        return bool(self.model_path and Path(self.model_path).is_file())
+
+    def require_ready(self) -> None:
+        if not self.model_path:
+            raise ProviderError(
+                f"本地提供商 {self.name} 缺少 model_path（在 config.json 的 "
+                f"providers.{self.name}.model_path 指定 GGUF 路径）")
+        if not Path(self.model_path).is_file():
+            raise ProviderError(f"本地提供商 {self.name} 的模型文件不存在：{self.model_path}")
+
+    async def complete_message(self, model: str, messages: list[dict[str, Any]],
+                               response_schema: dict[str, Any] | None = None,
+                               *, tools: list[dict[str, Any]] | None = None,
+                               tool_choice: Any = None) -> dict[str, Any]:
+        import asyncio
+
+        self.require_ready()
+        res = await asyncio.to_thread(
+            self.engine.chat, messages, response_schema=response_schema)
+        return {"content": res.get("content") or "",
+                "tool_calls": None,
+                "finish_reason": res.get("finish_reason") or "stop",
+                "raw": res}
+
+    async def stream_chunks(self, model: str, messages: list[dict[str, Any]],
+                            response_schema: dict[str, Any] | None = None,
+                            *, tools: list[dict[str, Any]] | None = None,
+                            tool_choice: Any = None):
+        import asyncio
+
+        self.require_ready()
+        queue: asyncio.Queue = asyncio.Queue()
+        loop = asyncio.get_running_loop()
+
+        def worker() -> None:
+            try:
+                for piece in self.engine.stream(messages, response_schema=response_schema):
+                    asyncio.run_coroutine_threadsafe(queue.put(("delta", piece)), loop)
+            except Exception as exc:             # noqa: BLE001
+                asyncio.run_coroutine_threadsafe(queue.put(("error", exc)), loop)
+            finally:
+                asyncio.run_coroutine_threadsafe(queue.put(("done", None)), loop)
+
+        import threading
+
+        threading.Thread(target=worker, name=f"local-{self.name}", daemon=True).start()
+        while True:
+            kind, payload = await queue.get()
+            if kind == "delta":
+                yield {"delta": {"content": payload}, "finish_reason": None}
+            elif kind == "error":
+                raise ProviderUnavailable(str(payload)[:300]) from payload
+            else:
+                yield {"delta": {}, "finish_reason": "stop"}
+                return
+
+    async def complete(self, model: str, messages: list[dict[str, Any]],
+                       response_schema: dict[str, Any] | None = None) -> str:
+        msg = await self.complete_message(model, messages, response_schema)
+        return str(msg.get("content") or "")
+
+
 def build_providers(cfg: dict[str, Any]) -> dict[str, ApiProvider]:
     """内置预设与 config.json 的 providers 段合并（后者覆盖/新增）。"""
     merged: dict[str, dict[str, Any]] = {name: dict(preset) for name, preset in PRESETS.items()}
@@ -535,5 +626,9 @@ def build_providers(cfg: dict[str, Any]) -> dict[str, ApiProvider]:
         cfg2 = dict(c)
         # 未显式配置时按已知能力给默认值（不支持的会在 4xx 时自动降级重试）
         cfg2.setdefault("json_mode", JSON_MODE_BY_PROVIDER.get(name.lower(), "auto"))
-        out[name] = ApiProvider(name, cfg2)
+        # backend=local（或给了 model_path）→ 进程内引擎，不走 HTTP
+        if str(cfg2.get("backend") or "").lower() == "local" or cfg2.get("model_path"):
+            out[name] = LocalProvider(name, cfg2)
+        else:
+            out[name] = ApiProvider(name, cfg2)
     return out

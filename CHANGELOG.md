@@ -14,6 +14,31 @@
 ### Fixed
 - 
 
+## [11.0.0-preview.51] - 2026-11-04
+
+### Added
+
+- **内嵌本地模型引擎**（`gantry/local_models.py`）：GGUF 直接跑在 Gantry 进程里，
+  `python start.py` 一个进程带上模型；HTTP provider 照旧，可解耦。
+  - `LocalChatEngine`：懒加载 / 单飞锁（llama.cpp 上下文非线程安全）/ 空闲卸载 /
+    统计（加载耗时、调用数、tok/s）；`chat()` 与 `stream()`。
+  - **推理模型兼容**：`split_think()` 拆 `<think>…</think>`；流式输出扣住可能是
+    `<think`/`</think` 前缀的尾巴，标签被切成两个 chunk 也不漏出思考段。
+  - `LocalEmbedder`：进程内 embedding，实现 `kb_semantic.Embedder` 协议。
+  - `warm_eager()`：只预热 `eager: true` 的提供商，后台线程，不阻塞启动。
+- `providers.LocalProvider`：与 `ApiProvider` 同构（`complete` / `complete_message` /
+  `stream_chunks` / `models`）；`build_providers` 按 `backend: "local"` 或 `model_path` 分派；
+  `/v1/models` 自动出现 `local/<model>`。
+- `kb.embedding.backend: local`：知识库 embedding 可走进程内 GGUF（不再依赖 18085）。
+- `tests/test_local_models.py`（21 条）。
+
+### 实测
+
+- `local/minicpm5-2b`（MiniCPM5-2B Q4_K_M，1.45 GB）进程内：加载 **1.12s**、
+  **35.4 tok/s**（n_threads=12），回答无 `<think>` 残留。
+- kb 插件 `backend: local`（Qwen3-Embedding-0.6B）：`api/vector-stats` 显示
+  `local:Qwen3-Embedding-0.6B-Q8_0`。
+
 ## [11.0.0-preview.50] - 2026-11-04
 
 ### Added
