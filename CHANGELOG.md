@@ -14,6 +14,28 @@
 ### Fixed
 - 
 
+## [11.0.0-preview.59] - 2026-11-05
+
+### Added
+
+- **使用手册「快速上手」配图**：新增主界面与知识库管理页两张真实截图（`webui/img/`，
+  中文/英文手册各一份，带图注），并把 `figure/figcaption` 样式补进 `dialogs.css`。
+  `/ui/{asset}` 白名单扩展为 `js|css|img` + `js|css|png|webp|svg`，不变量同步。
+- `scripts/make_manual_shots.py`：重新生成手册截图（Playwright，1440×900）。
+
+### Fixed
+
+- **`data/service.log` 归档**：它是**旧版启动器**留下的 uvicorn stdout 日志（16.3 MB，
+  最后写入 2026-10-22，代码里已无任何引用），与 `data/logs/gantry.log`（结构化日志，
+  `gantry.logcfg` 写入）**不是同一份文件**，只是内容有部分重叠（都是 uvicorn access 行）。
+  已移到 `data/logs/legacy/service-20261022.log`，`data/` 根目录不再放日志。
+
+### 实测
+
+- 手册：18 节、2 张图（naturalWidth 1440 全部加载成功）、无前端异常。
+- 资产：`GET /ui/img/quickstart-main.png` 200（91 KB）、`quickstart-kb.png` 200（121 KB）。
+- 全套 1544（skipped=1）OK；不变量 25 条全绿。
+
 ## [11.0.0-preview.58] - 2026-11-05
 
 ### Added

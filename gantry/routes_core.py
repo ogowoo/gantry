@@ -425,7 +425,7 @@ async def web_ui_asset(asset: str):
         return FileResponse(b.BASE / "webui" / asset, headers={"Cache-Control": "no-cache, must-revalidate"})
     # ES 模块 / 共享状态 / 拆分后的样式：只允许 <目录>/<名字>.(js|css)，不许 ".."、
     # 不许子目录再嵌套（main.js 与 css/tokens.css 这类一层路径）
-    if re.fullmatch(r"(?:js|css)/[0-9A-Za-z._-]+\.(?:js|css)", asset):
+    if re.fullmatch(r"(?:js|css|img)/[0-9A-Za-z._-]+\.(?:js|css|png|webp|svg)", asset):
         return FileResponse(b.BASE / "webui" / asset, headers={"Cache-Control": "no-cache, must-revalidate"})
     raise HTTPException(404, "Not Found")
 

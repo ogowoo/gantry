@@ -514,7 +514,7 @@ def _ui_assets_whitelisted() -> None:
         if x in allowed:
             return True
         # js/main.js / css/tokens.css 这类按 `<目录>/<名字>.<扩展名>` 正则放行的资产
-        m2 = re.fullmatch(r"([a-z]+)/[0-9A-Za-z._-]+\.(js|css)", x)
+        m2 = re.fullmatch(r"([a-z]+)/[0-9A-Za-z._-]+\.(js|css|png|webp|svg)", x)
         if m2 and m2.group(1) in glob_dirs:
             return True
         return False

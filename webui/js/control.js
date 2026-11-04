@@ -293,6 +293,10 @@ async function forceDeleteLocal(){
  finally{btn.disabled=false;btn.textContent=tr('重试远程并强制清理本地记录')}}
 /* ── 使用手册 ── */
 const MANUAL_HTML=`<h3>快速上手</h3>
+<figure>
+<img src="img/quickstart-main.png" alt="主界面：左侧会话列表、中间任务输入框、底部设置与版本">
+<figcaption>主界面：左侧会话列表（点选查看历史），中间输入任务；<b>Agent 执行</b>可读写文件并自动验证，<b>普通对话</b>只问答。</figcaption>
+</figure>
 <ul>
 <li>左侧「新任务」：填任务内容，选 <b>Agent 执行</b>（可读写工作区文件、自动验证）或 <b>普通对话</b>（纯问答），点「启动任务」。</li>
 <li>每个任务对应一个 Session，背后是一个独立的 Copilot 网页会话；左侧列表点选查看。</li>
@@ -478,6 +482,10 @@ Agent 行为，改完必须实测一轮真实任务。</li>
 
 <h3>知识库（OCR / 向量检索 / 对话入库）</h3>
 <ul>
+<figure>
+<img src="img/quickstart-kb.png" alt="知识库管理页：拖拽区、URL、粘贴、文档列表与检索测试">
+<figcaption>知识库管理页（⚙ 设置 → 📚 知识库）：拖文件进来或填 URL/粘贴文本，导入后自动建索引；下面的"检索测试"能看到命中和分数。</figcaption>
+</figure>
 <li><b>管理页</b>：<code>/ui/</code> → ⚙ 设置 → <b>📚 知识库</b>。拖拽或选择文件（docx / pdf /
 xlsx / pptx / md / txt / csv / html / 图片）、导入 URL、粘贴文本、扫收件箱
 （把文件丢进 <code>data/kb/inbox/</code>）、逐篇删除、重建索引、检索测试（显示后端与分数）。</li>
@@ -733,6 +741,10 @@ of the machine. Prefer turning it on only while you watch, turning it off afterw
 
 <h3>Knowledge base (OCR / vectors / chat-to-KB)</h3>
 <ul>
+<figure>
+<img src="img/quickstart-kb.png" alt="Knowledge base admin page: drop zone, URL, paste, document list and query test">
+<figcaption>The knowledge base page (⚙ Settings → 📚 Knowledge base): drop files, add a URL or paste text; indexing runs on import, and the query test shows hits and scores.</figcaption>
+</figure>
 <li><b>Admin page</b>: <code>/ui/</code> → ⚙ Settings → <b>📚 Knowledge base</b>. Drag or pick files
 (docx / pdf / xlsx / pptx / md / txt / csv / html / images), import a URL, paste text, scan the inbox
 (drop files into <code>data/kb/inbox/</code>), delete documents, rebuild the index, and test queries

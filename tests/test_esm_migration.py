@@ -78,8 +78,9 @@ class RetirementTests(unittest.TestCase):
 class RouteTests(unittest.TestCase):
     def test_module_route_allows_js_and_css_files(self):
         # 正则现在同时放行 js/<名字>.js 与 css/<名字>.css（样式也按块拆开了）
-        self.assertRegex(ROUTES, r're\.fullmatch\(r"\(\?:js\|css\)/',
-                         "/ui 资产路由要放行 js/*.js 与 css/*.css")
+        self.assertRegex(ROUTES, r're\.fullmatch\(r"\(\?:js\|css\|img\)/',
+                         "/ui 资产路由要放行 js/*.js、css/*.css 与 img/*.png（手册截图）")
+        self.assertIn("png", ROUTES, "img 资产要放行 png")
         self.assertIn("{asset:path}", ROUTES, "资产路由要支持子路径（js/main.js）")
 
     def test_module_route_still_blocks_traversal(self):
