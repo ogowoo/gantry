@@ -14,6 +14,32 @@
 ### Fixed
 - 
 
+## [11.0.0-preview.50] - 2026-11-04
+
+### Added
+
+- **知识库向量检索（语义召回）落地**（用户："把 1 落进仓库"）。`gantry/kb_semantic.py`：
+  - `HttpEmbedder`：任意 OpenAI 兼容 `/embeddings`；本机实测 **Qwen3-Embedding-0.6B**
+    （`llama-server --embeddings --port 18085`，1024 维，0.04s/请求）。
+  - `HashEmbedder`：零依赖兜底（字符 n-gram hashing，L2 归一化），离线与单测可用。
+  - `SemanticIndex`：向量存 `data/kb.db` 的 `chunks_vec(chunk_id, model, dim, vec, at)`；
+    **只算缺失分块**，换模型/维度自动整体重建；`build(force)` / `search` / `hybrid`。
+  - 混合打分：`w_vec × 余弦归一化 + w_cov × 词面覆盖率`（默认 0.75 / 0.25）。
+  - `build_embedder(backend=auto|http|hash|off)`：`auto` 探一下端点，不可用返回 `None`
+    （调用方退回 FTS，不抛异常）。
+- kb 插件：`kb_search(..., mode="auto|fts|vector|hybrid")`（默认 auto）、新工具 `kb_embed`、
+  接口 `GET api/semantic` / `POST api/embed` / `GET api/vector-stats`；配置 `embedding.*`。
+- `scripts/kb.py`：`embed` / `vector-stats` 子命令，`search --mode fts|vector|hybrid`。
+- `tests/test_kb_semantic.py`（21 条）：hashing 后端、增量/强制重建、余弦打分、混合公式、
+  后端选择（off/hash/http/auto 探测失败）、插件 mode 分发与 `kb_embed`。
+
+### 实测
+
+- 真实数据（12 分块 / Qwen3-Embedding 1024 维，0.28s 建完）：
+  `公司网络访问不了外部网站` 纯 FTS 只有 1 条弱命中（0.138），混合检索 **0.603** 命中
+  《Wi-Fi 802.1X 认证失败 › 症状》；`企业微信登录不上` FTS 0 条，混合仍有可解释结果。
+- 单测全绿；`api/vector-stats` 显示 `vectorised=12 chunks=12 complete=true`。
+
 ## [11.0.0-preview.49] - 2026-11-04
 
 ### Added

@@ -45,6 +45,8 @@ class FakeCtx:
         self.tools: dict[str, object] = {}
         self.apis: dict[tuple[str, str], object] = {}
         self.panels: list[dict] = []
+        # 显式"没有向量层"：默认 mode=auto 时走 FTS，测试不联网
+        self._sem = None
 
     def log(self, msg, *a, **k):
         self.logs.append(str(msg))
@@ -118,7 +120,7 @@ class KbPluginTests(unittest.TestCase):
     def test_search_returns_hits_with_cite(self):
         plugin.setup(self.ctx)
         fn = self.ctx.tools["kb_search"]
-        res = self.run_coro(fn("VPN 连不上", 3))
+        res = self.run_coro(fn("VPN 连不上", 3, None, "fts"))
         self.assertGreater(res["count"], 0)
         hit = res["hits"][0]
         self.assertIn("VPN", hit["title"])
@@ -128,13 +130,13 @@ class KbPluginTests(unittest.TestCase):
 
     def test_search_empty_query(self):
         plugin.setup(self.ctx)
-        res = self.run_coro(self.ctx.tools["kb_search"]("", 3))
+        res = self.run_coro(self.ctx.tools["kb_search"]("", 3, None, "fts"))
         self.assertEqual(res["count"], 0)
         self.assertIn("query", res["note"])
 
     def test_min_score_filters(self):
         plugin.setup(self.ctx)
-        res = self.run_coro(self.ctx.tools["kb_search"]("VPN 连不上", 3, 1.01))
+        res = self.run_coro(self.ctx.tools["kb_search"]("VPN 连不上", 3, 1.01, "fts"))
         self.assertEqual(res["count"], 0, "阈值应该能筛掉")
 
     def test_reindex_tool(self):
@@ -199,6 +201,13 @@ class KbPluginTests(unittest.TestCase):
             kb.close()
         finally:
             shutil.rmtree(empty, ignore_errors=True)
+
+
+    def test_auto_falls_back_to_fts_without_vector_layer(self):
+        plugin.setup(self.ctx)
+        res = self.run_coro(self.ctx.tools["kb_search"]("VPN 连不上", 3))
+        self.assertEqual(res["backend"], "fts5-trigram", "没有向量层时 auto 应退回词面检索")
+        self.assertTrue(res["hits"])
 
 
 if __name__ == "__main__":

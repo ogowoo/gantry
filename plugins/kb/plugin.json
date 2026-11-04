@@ -4,22 +4,44 @@
   "description": "本地知识库：data/kb/**/*.md → SQLite FTS5(trigram) 索引，提供 kb_search / kb_reindex / kb_stats 与 HTTP 接口",
   "gantry": {
     "entry": "plugin.py",
-    "permissions": ["tools", "api", "ui"],
+    "permissions": [
+      "tools",
+      "api",
+      "ui"
+    ],
     "contributes": {
-      "tools": ["kb_search", "kb_reindex", "kb_stats"],
+      "tools": [
+        "kb_search",
+        "kb_reindex",
+        "kb_stats",
+        "kb_embed"
+      ],
       "api": [
         "GET api/search",
         "POST api/reindex",
         "GET api/stats",
-        "GET api/docs"
+        "GET api/docs",
+        "GET api/semantic",
+        "POST api/embed",
+        "GET api/vector-stats"
       ],
-      "panels": ["kb-status"]
+      "panels": [
+        "kb-status"
+      ]
     },
     "config": {
       "dir": "data/kb",
       "max_results": 6,
       "min_score": 0.0,
-      "auto_reindex": true
+      "auto_reindex": true,
+      "embedding": {
+        "backend": "auto",
+        "base_url": "http://127.0.0.1:18085/v1",
+        "model": "qwen3-embed",
+        "dim": 0,
+        "w_vec": 0.75,
+        "w_cov": 0.25
+      }
     }
   }
 }
