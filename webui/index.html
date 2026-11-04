@@ -389,6 +389,56 @@
     </div>
   </div>
 </div>
+<!-- 知识库管理：导入 Word/PDF/Excel/PPT/HTML/文本/URL，管理已收录文档 -->
+<div class="mask" role="dialog" aria-modal="true" aria-label="知识库" id="kbMask" data-act="mask" data-arg="kb">
+  <div class="dlg" style="width:min(860px,96vw)">
+    <div class="dhead"><span>📚 <span data-i18n="知识库">知识库</span></span><span class="hint">Esc 关闭</span></div>
+    <div class="dbody" style="max-height:70vh;overflow:auto">
+      <div class="meta" id="kbStats" style="margin-bottom:8px">—</div>
+
+      <div id="kbDrop" class="kbdrop" style="border:1px dashed var(--line);border-radius:10px;padding:14px;text-align:center;margin-bottom:10px">
+        <div style="margin-bottom:6px" data-i18n="把文件拖到这里，或">把文件拖到这里，或</div>
+        <input type="file" id="kbFile" multiple accept=".md,.txt,.csv,.html,.htm,.docx,.xlsx,.xlsm,.pptx,.pdf" style="display:none">
+        <button type="button" class="btn accent" data-act="kbPick">选择文件</button>
+        <span class="hint" style="margin-left:8px">docx / pdf / xlsx / pptx / md / txt / html</span>
+      </div>
+
+      <div class="kbrow" style="display:flex;gap:6px;margin-bottom:8px">
+        <input id="kbUrl" class="kbinput" type="url" placeholder="https://… 抓取网页正文" style="flex:1;min-width:0">
+        <button type="button" class="btn" data-act="kbUrl">导入 URL</button>
+        <button type="button" class="btn ghost" data-act="kbInbox" title="扫描 data/kb/inbox/">收件箱</button>
+      </div>
+
+      <details style="margin-bottom:10px">
+        <summary class="hint" style="cursor:pointer" data-i18n="粘贴文本入库">粘贴文本入库</summary>
+        <div style="display:flex;gap:6px;margin-top:6px">
+          <input id="kbTitle" class="kbinput" placeholder="标题" style="width:180px">
+          <button type="button" class="btn" data-act="kbText">导入这段文本</button>
+        </div>
+        <textarea id="kbTextBody" rows="4" placeholder="把 FAQ / 公告 / 会议纪要粘进来" style="width:100%;margin-top:6px"></textarea>
+      </details>
+
+      <div style="display:flex;gap:6px;align-items:center;margin-bottom:6px">
+        <b data-i18n="已收录">已收录</b>
+        <span class="hint" id="kbDocCount"></span>
+        <span style="flex:1"></span>
+        <button type="button" class="btn ghost" data-act="kbReindex">重建索引</button>
+        <button type="button" class="btn ghost" data-act="kbRefresh">刷新</button>
+      </div>
+      <div id="kbDocs" style="max-height:26vh;overflow:auto;margin-bottom:10px"></div>
+
+      <div style="display:flex;gap:6px;margin-bottom:6px">
+        <input id="kbQ" class="kbinput" placeholder="检索测试：输入问题看命中与分数" style="flex:1">
+        <button type="button" class="btn" data-act="kbSearch">检索</button>
+      </div>
+      <div id="kbHits"></div>
+    </div>
+    <div class="dfoot">
+      <span class="hint" style="margin-right:auto">导入后自动重建索引（FTS + 向量）</span>
+      <button type="button" class="btn accent" data-act="closeKb" data-i18n="关闭">关闭</button>
+    </div>
+  </div>
+</div>
 <script src="js/globals.js"></script><script src="i18n.js"></script>
 <script type="module" src="js/main.js"></script>
 </body></html>

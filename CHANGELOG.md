@@ -14,6 +14,31 @@
 ### Fixed
 - 
 
+## [11.0.0-preview.54] - 2026-11-04
+
+### Added
+
+- **知识库管理页**（`/ui/` → ⚙ 设置 → 📚 知识库）：拖拽/选择文件导入 `docx / pdf / xlsx /
+  pptx / md / txt / csv / html`，导入 URL（抓正文），粘贴文本入库，收件箱（`data/kb/inbox/`），
+  文档列表 + 删除 + 重建索引 + 检索测试（显示后端与分数）。
+  前端 `webui/js/kb.js` + `webui/index.html` 的 `#kbMask`；入口按钮在设置页。
+- **纯 Python 提取**（`gantry/kb_ingest.py`）：`python-docx` / `pypdf` / `openpyxl` /
+  `python-pptx` / `beautifulsoup4`，不依赖外部服务；`.doc/.xls/.ppt` 明确提示另存；
+  扫描版 PDF 无文本层给出可行动错误。导入落 `data/kb/imported/<slug>.md`（front-matter
+  带 title/category/source/updated，同名按来源覆盖）。
+- kb 插件接口：`POST api/import`（`{name,data_b64}` / `{url}` / `{text,title}`）、
+  `POST api/delete`（限制在知识库目录内）、`GET api/inbox`、`POST api/inbox/scan`；
+  每次增删自动重建 FTS + 向量索引。
+- `tests/test_kb_ingest.py`（21 条）：docx/xlsx/pptx/pdf/html/纯文本提取、URL 抓取（假网络）、
+  落盘与 front-matter、Base64 导入、粘贴、删除、越界拒绝、收件箱扫描。
+
+### 实测
+
+- 通过管理页上传 docx → 列表出现 `imported/upload-check.md`；检索 `打印机脱机` →
+  `hybrid(local:Qwen3-Embedding-0.6B-Q8_0)`，`《printer》 › 打印服务使用说明 › 常见问题` 0.88。
+- `python scripts/verify_kb_page.py`：打开/统计/列表/上传/检索/关闭全通过；`ui_smoke` 通过。
+- 单测 1524（skipped=1）OK；不变量 25 条全绿（含 data-act/i18n 覆盖、静态资源白名单）。
+
 ## [11.0.0-preview.53] - 2026-11-04
 
 ### Added

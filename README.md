@@ -8,7 +8,7 @@
 
 > **Works without Copilot**: the browser starts on demand — service startup never touches the browser, and the WebUI plus provider models (DeepSeek/Kimi/OpenAI, etc.) are usable immediately; the browser is only launched when Copilot is actually needed, and a status with a "Retry browser" button is shown at the top of the UI. **Note**: in lazy mode, the first Copilot task after a restart must wait for the browser to launch and for SSO (can take several minutes on enterprise tenants); that waiting time does not count toward the task timeout. Provider models are unaffected.
 
-> **Version**: the `main` branch is currently **11.0.0-preview.53** (the multi-window parallel preview line has been merged in).
+> **Version**: the `main` branch is currently **11.0.0-preview.54** (the multi-window parallel preview line has been merged in).
 > The old stable line is archived at tag `v10.2.1-archive` / branch `archive/10.2.1-stable`.
 > For versioning rules, release process, and multi-machine collaboration conventions, see [docs/VERSIONING.md](docs/VERSIONING.md);
 > for changes in each release, see [CHANGELOG.md](CHANGELOG.md).
@@ -255,6 +255,25 @@ Knowledge-base embeddings use the same switch (`config.json`):
 
 `backend` = `local` (in-process) / `http` (external `/embeddings`) / `hash` (zero-dependency
 fallback) / `off`.
+
+## Knowledge base management page
+
+Open the console (`/ui/`), click the ⚙ gear → **📚 知识库**. From there you can:
+
+- **drag & drop / choose files** — `docx`, `pdf`, `xlsx`, `xlsm`, `pptx`, `md`, `txt`, `csv`, `html`;
+- **import a URL** — fetches the page and keeps its text (title from `<title>`);
+- **paste text** — for FAQs / announcements / meeting notes;
+- **inbox** — drop files into `data/kb/inbox/` and press 收件箱 to ingest them in one go;
+- **list / delete documents**, **rebuild index**, and **test a query** (shows backend + score).
+
+All extraction is **pure Python** (`python-docx`, `pypdf`, `openpyxl`, `python-pptx`, `beautifulsoup4`)
+— no external service. Imported documents land in `data/kb/imported/<slug>.md` with front-matter
+(`title/category/source/updated`), and every import rebuilds the FTS index and the vector index
+(same `kb.embedding` config as the rest of the KB).
+
+The same operations are available over HTTP:
+`POST /v1/plugins/kb/api/import` (`{name,data_b64}` / `{url}` / `{text,title}`),
+`POST api/delete`, `GET api/inbox`, `POST api/inbox/scan`.
 
 ## Configuration (config.json)
 
