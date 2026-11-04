@@ -155,3 +155,38 @@ curl -X POST http://127.0.0.1:8765/v1/plugins/teams-bot/api/compose `
   -d '{"peer":"Lynn Ling","snippet":"我在BPM下载下来的","text":"测试内容","send":false}'
 # send=false 时只输入并清空输入框，不会发出去
 ```
+
+## 最短路径：让它用知识库（含向量）回答
+
+1. **放资料**：`data/kb/**/*.md`（文件头可写 `title/tags/category`）。
+2. **建索引**（一次，进程内 embedding，无需外部服务）：
+
+   ```powershell
+   python scripts/kb.py index      # FTS5
+   python scripts/kb.py embed      # 向量（config.json 的 kb.embedding，backend=local）
+   ```
+
+3. **打开机器人**（只算不发，先看效果）：
+
+   ```powershell
+   curl -X POST http://127.0.0.1:8765/v1/plugins/teams-bot/api/settings ^
+     -H "Content-Type: application/json" ^
+     -d "{\"enabled\":true,\"dry_run\":true,\"send_enabled\":false,\"kb_first\":true,\"fallback_agent\":false,\"my_name\":\"Walt Liang - DSV\"}"
+   ```
+
+   - `kb_first: true` → 命中知识库就直接用资料拼答案（带出处），**不调模型**，快且不编造；
+   - `fallback_agent: false` → 没命中就不硬编（配合 `reply_when_unknown` 决定要不要回"转人工"）。
+
+4. **单条验证**（不发送、不用等有人 @）：
+
+   ```powershell
+   curl "http://127.0.0.1:8765/v1/plugins/teams-bot/api/answer?q=VPN%%20连不上怎么办"
+   # → {"text":"根据本地知识库：…","source":"kb:《VPN 连不上怎么办》","would_reply":true}
+   ```
+
+5. **看整轮**：`POST api/run` 后看 `GET api/status` 的 `last_cycle.would[]`（dry_run 下不发送）。
+6. **真要发**：`{"dry_run": false, "send_enabled": true}`（两个都要开）。
+
+检索走 `gantry.kb_semantic.hybrid`（0.75×余弦 + 0.25×词面覆盖率），与 kb 插件、CLI 完全一致；
+向量没建好时自动退回 FTS，不会报错。阈值用 `kb_min_score`（默认 0.35；混合分一般 0.5+，
+觉得太宽松可提到 0.45~0.5）。

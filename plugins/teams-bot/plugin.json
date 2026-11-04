@@ -52,7 +52,8 @@
         "GET api/click-test",
         "GET api/search-typing",
         "POST api/compose",
-        "GET api/search-rows"
+        "GET api/search-rows",
+        "GET api/answer"
       ]
     },
     "config": {
