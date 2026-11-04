@@ -8,7 +8,7 @@
 
 > **Works without Copilot**: the browser starts on demand — service startup never touches the browser, and the WebUI plus provider models (DeepSeek/Kimi/OpenAI, etc.) are usable immediately; the browser is only launched when Copilot is actually needed, and a status with a "Retry browser" button is shown at the top of the UI. **Note**: in lazy mode, the first Copilot task after a restart must wait for the browser to launch and for SSO (can take several minutes on enterprise tenants); that waiting time does not count toward the task timeout. Provider models are unaffected.
 
-> **Version**: the `main` branch is currently **11.0.0-preview.57** (the multi-window parallel preview line has been merged in).
+> **Version**: the `main` branch is currently **11.0.0-preview.58** (the multi-window parallel preview line has been merged in).
 > The old stable line is archived at tag `v10.2.1-archive` / branch `archive/10.2.1-stable`.
 > For versioning rules, release process, and multi-machine collaboration conventions, see [docs/VERSIONING.md](docs/VERSIONING.md);
 > for changes in each release, see [CHANGELOG.md](CHANGELOG.md).
@@ -274,7 +274,7 @@ models, ~20 MB, `pip install rapidocr`); if it is not installed the import fails
 (`title/category/source/updated`), and every import rebuilds the FTS index and the vector index
 (same `kb.embedding` config as the rest of the KB).
 
-**Two OCR engines** (both optional; `pip install rapidocr` / `transformers+torch`):
+**OCR engines** (both optional; `pip install rapidocr` / `transformers+torch`). `eager: true` warms the model in the background at startup:
 
 | engine | model | speed (CPU) | best at |
 | --- | --- | --- | --- |
@@ -283,7 +283,8 @@ models, ~20 MB, `pip install rapidocr`); if it is not installed the import fails
 | `auto` (recommended) | RapidOCR first, Xiaomi when the page looks sparse/table-like | 0.7 s for plain pages | both, without paying 6 s on every page |
 
 ```json
-"kb": {"ocr": {"engine": "xiaomi", "xiaomi_model": "SeerRay-Lab/Xiaomi-OCR-0"}}
+"kb": {"ocr": {"engine": "auto", "eager": true,
+                "xiaomi_model": "SeerRay-Lab/Xiaomi-OCR-0"}}
 ```
 
 **Adding to the KB from a chat**: the `kb_add` tool lets the model save curated text/URLs/files

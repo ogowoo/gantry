@@ -636,5 +636,54 @@ class AutoEngineTests(unittest.TestCase):
         self.assertEqual(text, "短", "Xiaomi 不可用时应回退 RapidOCR 文本")
 
 
+class OcrWarmTests(unittest.TestCase):
+    def setUp(self):
+        from gantry import kb_ocr
+
+        self.kb_ocr = kb_ocr
+        self._orig_cfg = kb_ocr.config()
+        self._orig_load = kb_ocr._load_xiaomi
+        self._orig_engine = kb_ocr._engine
+        self._orig_x = kb_ocr._XIAOMI
+        kb_ocr.set_xiaomi(None)
+
+    def tearDown(self):
+        self.kb_ocr.configure(self._orig_cfg)
+        self.kb_ocr._load_xiaomi = self._orig_load
+        self.kb_ocr._engine = self._orig_engine
+        self.kb_ocr.set_xiaomi(self._orig_x)
+
+    def test_warm_xiaomi(self):
+        calls = {"n": 0}
+
+        def fake_load(name):
+            calls["n"] += 1
+            return ("p", "m", "t")
+
+        self.kb_ocr._load_xiaomi = fake_load
+        self.kb_ocr.configure({"engine": "xiaomi"})
+        res = self.kb_ocr.warm()
+        self.assertTrue(res["ok"], res)
+        self.assertEqual(calls["n"], 1)
+        self.assertIn("seconds", res)
+
+    def test_warm_rapidocr(self):
+        self.kb_ocr._engine = lambda: object()
+        self.kb_ocr.configure({"engine": "rapidocr"})
+        res = self.kb_ocr.warm()
+        self.assertTrue(res["ok"])
+        self.assertEqual(res.get("rapidocr"), "loaded")
+
+    def test_warm_reports_error(self):
+        def boom(name):
+            raise RuntimeError("模型下载失败")
+
+        self.kb_ocr._load_xiaomi = boom
+        self.kb_ocr.configure({"engine": "xiaomi"})
+        res = self.kb_ocr.warm()
+        self.assertFalse(res["ok"])
+        self.assertIn("下载失败", res.get("error", ""))
+
+
 if __name__ == "__main__":
     unittest.main()

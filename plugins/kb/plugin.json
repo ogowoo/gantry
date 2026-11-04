@@ -54,7 +54,8 @@
       },
       "ocr": {
         "engine": "rapidocr",
-        "xiaomi_model": "SeerRay-Lab/Xiaomi-OCR-0"
+        "xiaomi_model": "SeerRay-Lab/Xiaomi-OCR-0",
+        "eager": false
       }
     }
   }

@@ -476,6 +476,38 @@ Agent 行为，改完必须实测一轮真实任务。</li>
 实质是给本机完全控制权。建议只在有人盯着时开、改完关回去，且每次改完自己
 <code>git diff</code> 审一遍再提交。</p>
 
+<h3>知识库（OCR / 向量检索 / 对话入库）</h3>
+<ul>
+<li><b>管理页</b>：<code>/ui/</code> → ⚙ 设置 → <b>📚 知识库</b>。拖拽或选择文件（docx / pdf /
+xlsx / pptx / md / txt / csv / html / 图片）、导入 URL、粘贴文本、扫收件箱
+（把文件丢进 <code>data/kb/inbox/</code>）、逐篇删除、重建索引、检索测试（显示后端与分数）。</li>
+<li><b>OCR 引擎</b>（<code>config.json</code> 的 <code>kb.ocr.engine</code>）：
+<code>auto</code>（默认：普通页走 RapidOCR，稀疏/表格页自动转 Xiaomi-OCR-0）、
+<code>rapidocr</code>（20 MB，约 0.7 秒/张）、<code>xiaomi</code>（0.8B VLM，表格输出 OTSL、
+公式输出 LaTeX，约 6 秒/页）。<code>kb.ocr.eager=true</code> 启动后台预热，避免第一次
+表格页白等 30 秒。</li>
+<li><b>向量检索</b>：<code>kb.embedding.backend</code> 可选 <code>local</code>（进程内
+Qwen3-Embedding，无需外部服务）/<code>http</code>/<code>hash</code>/<code>off</code>；
+打分 = 0.75×余弦 + 0.25×词面覆盖率，专有词与同义改写都不丢；<code>kb_embed</code> 建向量索引。</li>
+<li><b>对话式入库</b>：会话里让模型调用 <code>kb_add</code> 工具；每条消息右上角 <b>📚</b>
+把原文直接存库；<code>/kb</code> 命令先让模型整理成条目（去重、分点、加标题）再入库。</li>
+</ul>
+
+<h3>内嵌本地模型（不用外部 server）</h3>
+<ul>
+<li><code>config.json</code> 的 <code>providers.local</code>：<code>backend</code> 设为
+<code>local</code>，<code>model_path</code> 指向 GGUF，模型 id 就是 <code>local/&lt;名&gt;</code>，
+<code>/v1/models</code> 自动列出。</li>
+<li>默认懒加载；<code>eager: true</code> 启动时后台预热；<code>idle_unload_seconds</code>
+闲置释放内存；提示会按 <code>n_ctx</code> 自动裁剪（保留 system + 最近对话，结果里的
+<code>trimmed</code> 能看到丢了多少）。</li>
+<li>推理模型的 <code>&lt;think&gt;…&lt;/think&gt;</code> 会从正文和流式输出里剥掉；CPU 上 2B
+约 35 tok/s，但 1 万 token 的提示要 ~100 秒 —— 本地模型适合短提示的 RAG 问答，
+不适合长系统提示的 Agent 任务。</li>
+<li>想解耦：删掉 <code>providers.local</code>，或改成指向外部 <code>base_url</code> 的 HTTP
+提供商，其它都不用动。</li>
+</ul>
+
 <h3>常见问题</h3>
 <ul>
 <li><b>服务重启后短暂停在登录页</b>：企业 SSO 会经过公司 ADFS 自动回跳，约需 40 秒，一般无需手动登录；若停在账户选择页，手动点一下即可。</li>
@@ -698,6 +730,39 @@ with <code>self_append_text_b64</code>. Validating a half-written file always fa
 <code>allow_shell</code> / <code>allow_python</code> / <code>allow_delete</code> that is effectively full control
 of the machine. Prefer turning it on only while you watch, turning it off afterwards, and reviewing
 <code>git diff</code> yourself before committing.</p>
+
+<h3>Knowledge base (OCR / vectors / chat-to-KB)</h3>
+<ul>
+<li><b>Admin page</b>: <code>/ui/</code> → ⚙ Settings → <b>📚 Knowledge base</b>. Drag or pick files
+(docx / pdf / xlsx / pptx / md / txt / csv / html / images), import a URL, paste text, scan the inbox
+(drop files into <code>data/kb/inbox/</code>), delete documents, rebuild the index, and test queries
+(backend and score are shown).</li>
+<li><b>OCR engine</b> (<code>kb.ocr.engine</code> in <code>config.json</code>):
+<code>auto</code> (default: RapidOCR for plain pages, Xiaomi-OCR-0 for sparse/table pages),
+<code>rapidocr</code> (20 MB, ~0.7 s per image), <code>xiaomi</code> (0.8B VLM, tables as OTSL,
+formulas as LaTeX, ~6 s per page). <code>kb.ocr.eager=true</code> warms it in the background so the
+first table page does not wait ~30 s.</li>
+<li><b>Vector search</b>: <code>kb.embedding.backend</code> = <code>local</code> (in-process
+Qwen3-Embedding) / <code>http</code> / <code>hash</code> / <code>off</code>; score =
+0.75 × cosine + 0.25 × term coverage. <code>kb_embed</code> rebuilds the vectors.</li>
+<li><b>Chat-to-KB</b>: the model can call the <code>kb_add</code> tool mid-conversation; the <b>📚</b>
+button on a message stores it verbatim; <code>/kb</code> has the model tidy the content first.</li>
+</ul>
+
+<h3>Embedded local models (no external server)</h3>
+<ul>
+<li><code>providers.local</code> in <code>config.json</code>: set <code>backend</code> to
+<code>local</code> and point <code>model_path</code> at a GGUF; the model id becomes
+<code>local/&lt;name&gt;</code> and appears in <code>/v1/models</code>.</li>
+<li>Lazy load by default; <code>eager: true</code> warms at startup; <code>idle_unload_seconds</code>
+releases memory when idle; prompts are trimmed to <code>n_ctx</code> (system + newest turns kept,
+<code>trimmed</code> is reported).</li>
+<li>Reasoning models' <code>&lt;think&gt;…&lt;/think&gt;</code> is stripped from both full and streamed
+answers. On CPU a 2B model runs ~35 tok/s, but a 10k-token prompt costs ~100 s — local models are for
+short RAG prompts, not long agent system prompts.</li>
+<li>To decouple again, delete <code>providers.local</code> (or point it at an external
+<code>base_url</code>); everything else keeps working.</li>
+</ul>
 
 <h3>FAQ</h3>
 <ul>

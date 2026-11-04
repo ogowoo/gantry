@@ -256,6 +256,18 @@ def setup(ctx) -> None:
         kb_ocr.configure(_ocr_settings(ctx))
         ctx.log(f"OCR 引擎: {kb_ocr.config().get('engine')} "
                 f"(rapidocr 可用={kb_ocr.available()})")
+        if bool(_ocr_settings(ctx).get("eager")):
+            import threading
+
+            def _warm_ocr() -> None:
+                try:
+                    res = kb_ocr.warm()
+                    ctx.log(f"OCR 预热完成: {res}")
+                except Exception as exc:         # noqa: BLE001
+                    ctx.log(f"OCR 预热失败（不影响使用）: {exc}")
+
+            threading.Thread(target=_warm_ocr, name="kb-ocr-warm", daemon=True).start()
+            ctx.log("OCR 预热已排入后台（kb.ocr.eager=true）")
     except Exception as exc:                     # noqa: BLE001
         ctx.log(f"OCR 配置读取失败（忽略）: {exc}")
 
