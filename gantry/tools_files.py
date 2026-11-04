@@ -27,6 +27,23 @@ from . import editmatch
 from .tools import ToolError  # noqa: F401
 
 
+
+def _guard_printable(text: str) -> None:
+    """解出来的内容若明显不是文本（控制字符过多），拒绝并给出可行动提示。
+
+    只拦"控制字符异常多"这种硬信号，避免误伤中文/二进制类合法文本
+    （中文是可见字符，不算控制字符）。
+    """
+    if not text:
+        return
+    ctrl = sum(1 for ch in text if ord(ch) < 32 and ch not in "\t\n\r")
+    if ctrl / max(1, len(text)) > 0.02:
+        raise ToolError(
+            "content_b64 解码后不像文本（控制字符占 "
+            f"{ctrl / len(text):.0%}）：可能把原文直接当 Base64 塞进来了。"
+            "纯文本/代码文件请改用 write_text(path, content=原文)，"
+            "不要把内容做 Base64。")
+
 class FilesMixin:
     async def list_directory(self, path: str = ".", since_mtime: float | None = None) -> dict[str, Any]:
         target = self._path(path)
@@ -340,7 +357,11 @@ class FilesMixin:
     def _decode_b64(content_b64: str) -> str:
         try:
             raw = base64.b64decode(content_b64, validate=True)
-            return raw.decode("utf-8")
+            text = raw.decode("utf-8")
+            _guard_printable(text)
+            return text
+        except ToolError:
+            raise
         except Exception as exc:
             # 提示要可自救：模型（尤其小模型）常见错误是把明文直接塞进
             # content_b64，或漏做 Base64。给出"下一步怎么做"，别让它原地重试。

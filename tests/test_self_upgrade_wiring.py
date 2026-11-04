@@ -32,13 +32,30 @@ class SelfUpgradeWiringTests(unittest.TestCase):
         self.assertEqual(src.count('elif key.startswith("agent.")'), 1)
 
     def test_switch_on_actually_opens_tools(self):
-        """开关开着时，self_* 工具必须出现在工具清单里（模型才能看到）。"""
-        import gantry.bridge as b
-        # 从 agent 段读（这是接线对不对的试金石）
-        self.assertTrue(b.AGENT_CFG.get("allow_self_upgrade"),
-                        "config.json 的 agent.allow_self_upgrade 应为 true（用户开过）")
-        self.assertTrue(b.AGENT_TOOLS.allow_self_upgrade,
-                        "agent 段开了但工具侧没生效——接线断了")
+        """开关打开时 self_* 工具必须进清单；关闭时不该出现。
+
+        注意：**不能**断言 config.json 的当前值——那是用户随时会改的运行时状态
+        （实测把它从 true 改回 false 就让这条测试红了）。这里自带配置、双向验证。
+        """
+        import shutil
+        import tempfile
+
+        from gantry.tools import ToolRegistry
+
+        ws = Path(tempfile.mkdtemp(prefix="cbp_self_switch_"))
+        try:
+            off = ToolRegistry(ws, {"allow_self_upgrade": False})
+            names_off = set(((off.tool_list().get("groups") or {}).get("self") or []))
+            on = ToolRegistry(ws, {"allow_self_upgrade": True})
+            names_on = set(((on.tool_list().get("groups") or {}).get("self") or []))
+            self.assertTrue(on.allow_self_upgrade, "配置 true 应落到 allow_self_upgrade")
+            self.assertFalse(off.allow_self_upgrade)
+            self.assertIn("self_replace_text", names_on,
+                          "开关打开后 self_* 工具必须在清单里（模型才能看到）")
+            self.assertTrue(names_on)
+            self.assertFalse(names_off, "开关关闭时不应出现 self_* 工具")
+        finally:
+            shutil.rmtree(ws, ignore_errors=True)
 
 
 if __name__ == "__main__":
