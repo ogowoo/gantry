@@ -196,7 +196,7 @@ async def run_agent(req: b.AgentRequest, attach_paths: list | None = None):
     if not b.AGENT_CFG.get("enabled", True): raise HTTPException(503, "Agent 功能已禁用")
     # 软归一：历史会话可能保存了已失效的模型 ID，回退默认模型而非 400
     req.model=b.normalize_model_soft(req.model)
-    task="\n".join(f"[{m.role}] {m.content.strip()}" for m in req.messages if m.content.strip())
+    task="\n".join(f"[{m.role}] {b.message_text(m).strip()}" for m in req.messages if b.message_text(m).strip())
     if not task: raise HTTPException(400,"至少需要一条消息")
     sid=req.session_id or ("task-"+uuid.uuid4().hex[:12])
     b.runtime_update(sid, phase="queued", detail="任务已进入执行队列", answer_preview="", prompt_preview="")
@@ -911,7 +911,8 @@ async def plain_completions(req: b.AgentRequest):
     """普通对话模式发起新任务：创建 Session 但不启动 Agent 工具循环。"""
     if not b.AGENT_CFG.get("enabled", True): raise HTTPException(503, "Agent 功能已禁用")
     model_id = b.normalize_model(req.model)
-    contents = [m.content.strip() for m in req.messages if m.role == "user" and m.content.strip()]
+    contents = [b.message_text(m).strip() for m in req.messages
+                if m.role == "user" and b.message_text(m).strip()]
     if not contents: raise HTTPException(400, "至少需要一条 user 消息")
     content = contents[-1]
     attach_paths = b.save_image_attachments(req.attachments)

@@ -7,7 +7,7 @@ import asyncio, base64, collections, contextlib, json, os, re, shutil, time, uui
 from os.path import commonprefix
 from datetime import datetime
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 from fastapi import HTTPException
 from playwright.async_api import async_playwright
 from pydantic import BaseModel, Field
@@ -442,8 +442,40 @@ def runtime_update(session_id=None, **values):
 
 
 class Message(BaseModel):
-    role: Literal["system", "user", "assistant"]
-    content: str = Field(min_length=1, max_length=200000)
+    """OpenAI 兼容消息。
+
+    DSH / 其它 Agent 客户端会把**工具回合**也发过来（role=tool、content=null、
+    assistant 带 tool_calls）。旧 schema 只认 system/user/assistant 且 content 必须是
+    非空字符串，直接 422。这里放宽：工具消息照收（Copilot 网页不会执行工具，
+    但至少不能因为 schema 把请求打回），正文由 `message_text()` 统一取。
+    """
+    role: Literal["system", "user", "assistant", "tool", "function", "developer"] = "user"
+    content: Any = None
+    tool_calls: list[dict[str, Any]] | None = None
+    tool_call_id: str | None = None
+    name: str | None = None
+
+
+def message_text(m: Any) -> str:
+    """从 OpenAI 消息里取纯文本（兼容 content=null / 多段数组 / tool 消息）。"""
+    c = getattr(m, "content", m if isinstance(m, (str, list)) else None)
+    if isinstance(c, str):
+        return c
+    if isinstance(c, list):
+        parts: list[str] = []
+        for part in c:
+            if isinstance(part, str):
+                parts.append(part)
+            elif isinstance(part, dict):
+                txt = part.get("text")
+                if isinstance(txt, str):
+                    parts.append(txt)
+                elif isinstance(part.get("content"), str):
+                    parts.append(part["content"])
+        return "\n".join(p for p in parts if p)
+    if c is None:
+        return ""
+    return str(c)
 
 
 class Request(BaseModel):
