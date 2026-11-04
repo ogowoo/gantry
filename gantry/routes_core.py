@@ -267,7 +267,17 @@ async def chat(req: a.Request):
     if pm and pm[0] in b.PROVIDERS:
         # API 提供商（OpenAI 兼容 HTTP API）：直接透传 messages
         p = b.PROVIDERS[pm[0]]
-        messages = [{"role": m.role, "content": m.content} for m in req.messages]
+        messages = []
+        for m in req.messages:
+            item = {"role": m.role,
+                    "content": b.message_text(m) if m.content is not None else None}
+            if getattr(m, "tool_calls", None):
+                item["tool_calls"] = m.tool_calls
+            if getattr(m, "tool_call_id", None):
+                item["tool_call_id"] = m.tool_call_id
+            if getattr(m, "name", None):
+                item["name"] = m.name
+            messages.append(item)
         if req.stream:
             return StreamingResponse(
                 stream_provider(p, pm[1], messages),
@@ -284,7 +294,8 @@ async def chat(req: a.Request):
                 "created": int(time.time()), "model": req.model,
                 "choices": [{"index": 0, "message": {"role": "assistant", "content": answer},
                              "finish_reason": "stop"}]}
-    prompts = [m.content.strip() for m in req.messages if m.role == "user" and m.content.strip()]
+    prompts = [b.message_text(m).strip() for m in req.messages
+               if m.role == "user" and b.message_text(m).strip()]
     if not prompts:
         raise HTTPException(400, "至少需要一条 user 消息")
     if req.stream:
@@ -406,8 +417,9 @@ async def agent_completions(req: a.AgentRequest, request: HttpRequest = None):
         from pathlib import Path as _Path
         _root = _Path(str(req.workspace or b.AGENT_TOOLS.root or (b.BASE / "workspace"))).resolve()
         for _m in (req.messages or []):
-            if _m.role == "user" and "@" in (_m.content or ""):
-                _expanded, _refs = expand_at_mentions(_m.content, _root)
+            _txt = b.message_text(_m)
+            if _m.role == "user" and "@" in _txt:
+                _expanded, _refs = expand_at_mentions(_txt, _root)
                 if _refs:
                     _m.content = _expanded
     except Exception as _e:

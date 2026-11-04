@@ -66,7 +66,7 @@ class SandboxPathHintTests(unittest.TestCase):
     def test_posix_absolute_gets_relative_suggestion(self):
         msg = self.tools._sandbox_denied("FS_SANDBOX_ESCAPE", "/src/minesweeper.py", "越界")
         self.assertIn('path="src/minesweeper.py"', msg)
-        self.assertIn(str(self.ws), msg, "还要给出最终落盘位置")
+        self.assertIn(str(self.ws.resolve()), msg, "还要给出最终落盘位置")
 
     def test_windows_drive_path(self):
         msg = self.tools._sandbox_denied("FS_SANDBOX_ESCAPE", r"C:\tmp\a.py", "越界")
