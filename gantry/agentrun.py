@@ -882,11 +882,18 @@ async def plain_chat_turn(sid: str, content: str, model_id: str, attach_paths: l
             await b.send(send_content, make_new, model_id)
             answer = (await wait_agent_answer(previous, sent=content,
                                               marker=turn_marker)).strip()
+            # Copilot 会在回答末尾追加“后续建议”按钮文字；DOM 里它们常和正文一起
+            # 被 innerText 读进来。所有普通对话统一剥掉，避免 API/Teams/WebUI
+            # 各自漏过滤（用户实测：代码块后跟“让它循环…/改成…/加入…”）。
+            answer = b.strip_suggestion_tail(answer)
             # 显示/存储用 markdown（保留代码块/列表/标题/粗体）；纯文本只用于回合判定。
             # 失败时回退纯文本，保证对话总能落库。
             # 先等 DOM 稳定：否则代码块还没渲染出来，取到的 markdown 缺代码块
             await b._wait_dom_stable()
             display = (await b.answer_markdown(answer)) or answer
+            # answer_markdown 可能把回答下方的建议按钮也一起转进 markdown，
+            # 所以 markdown 之后再剥一次（纯文本先剥一次保证解析/回合判定干净）。
+            display = b.strip_suggestion_tail(display)
             current = b.AGENT_SESSIONS.get(sid)
             if not current:
                 raise RuntimeError("会话在执行期间被删除")
