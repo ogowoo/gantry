@@ -1107,6 +1107,7 @@ async def api_idb_watch(page=None, limit: int = 400) -> dict[str, Any]:
           memberKeys: Object.keys(v.memberProperties || {}).length,
           topic: tp.topic || '',
           threadType: tp.threadType || '',
+          targetLink: String(v.targetLink || ''),
           lastText: String(lm.content || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 200),
           lastFrom: lm.imdisplayname || lm.fromDisplayNameInToken || '',
           lastAt: lm.composetime || '',
@@ -1186,6 +1187,7 @@ async def api_idb_record(page=None, skip: int = 0) -> dict[str, Any]:
       }
       const tp = v.threadProperties || {};
       const out = {id: String(v.id || ''), types,
+                   targetLink: String(v.targetLink || '').slice(0, 300),
                    threadProperties: {},
                    lastMessage: null, messagesHead: null};
       for (const k of Object.keys(tp)) {
@@ -2653,6 +2655,73 @@ async def list_chats(limit: int = 20) -> list[dict[str, Any]]:
     return items
 
 
+async def open_chat_by_row(peer: str, snippet: str = "") -> bool:
+    """按聊天列表行直接打开会话（优先于点搜索/深链）。
+
+    收到 @ 的会话会立刻排到列表最上面，所以按 peer 文本找行、点**标题**
+    （不是行中心：中心会命中头像资料卡）比搜索稳定，也不会偏到搜索页/旧文件。
+    """
+    page = await teams_open()
+    needle = (peer or "").strip()
+    if not needle:
+        return False
+    frag = " ".join((snippet or "").split())[:12]
+    for _attempt in range(4):
+        for sel in _SEL["chat_item"]:
+            try:
+                rows = page.locator(sel)
+                n = await rows.count()
+            except Exception:                    # noqa: BLE001
+                continue
+            for i in range(min(n, 20)):
+                row = rows.nth(i)
+                try:
+                    txt = (await row.inner_text(timeout=1500)) or ""
+                except Exception:                # noqa: BLE001
+                    continue
+                if needle.lower()[:8] not in txt.lower():
+                    continue
+                # 同名可能有多个会话：优先带最后一条消息片段的那行
+                if frag and frag not in " ".join(txt.split()):
+                    continue
+                clicked = False
+                for tsel in _SEL["chat_title"]:
+                    try:
+                        t = row.locator(tsel).first
+                        if await t.count() and await t.is_visible():
+                            await t.click()
+                            clicked = True
+                            break
+                    except Exception:            # noqa: BLE001
+                        continue
+                if not clicked:
+                    try:
+                        box = await row.bounding_box()
+                        if box:
+                            # 偏左、偏上：标题区域，避开头像/状态点
+                            await page.mouse.click(box["x"] + 36,
+                                                   box["y"] + box["height"] * 0.35)
+                    except Exception:            # noqa: BLE001
+                        pass
+                await asyncio.sleep(2.0)
+                head = await header_title(page)
+                if head and needle.lower()[:8] in head.lower():
+                    try:
+                        await _settle(page, "message", rounds=1, delay=0.6)
+                    except Exception:            # noqa: BLE001
+                        pass
+                    return True
+        # 虚拟列表：往下滚一屏再找（目标通常在顶部，滚只是兜底）
+        try:
+            first = page.locator(_SEL["chat_item"][0]).first
+            await first.hover()
+            await page.mouse.wheel(0, 600)
+            await asyncio.sleep(0.8)
+        except Exception:                        # noqa: BLE001
+            break
+    return False
+
+
 async def open_chat(title_or_index: str | int, scroll_pages: int = 8) -> bool:
     """点开一个会话。给 index（list_chats 的返回值）或标题片段。
 
@@ -3214,7 +3283,15 @@ async def reply_to(peer: str, text: str, send: bool = False,
     page = await teams_open()
     opened = False
     how = ""
-    if snippet:
+    # 第一优先：记忆里的会话在 @ 后会排到列表顶部，直接点行，避免搜索偏页
+    if peer:
+        try:
+            if await open_chat_by_row(peer, snippet):
+                opened = True
+                how = "row"
+        except Exception as exc:                 # noqa: BLE001
+            _b.log(f"reply_to 按列表行打开失败：{str(exc)[:120]}")
+    if not opened and snippet:
         res = await api_open_by_snippet(snippet, expect=peer, page=page)
         opened = bool(res.get("opened"))
         how = "snippet"
