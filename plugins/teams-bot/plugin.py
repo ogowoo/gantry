@@ -332,7 +332,8 @@ class Bot:
                     try:
                         res = await teams.reply_to(
                             c.get("peerName") or c["id"], answer, send=True,
-                            snippet=str(c.get("lastText") or "")[:40])
+                            snippet=str(c.get("lastText") or "")[:40],
+                            conv_id=str(c.get("id") or ""))
                         if res.get("sent"):
                             item["sent"] = True
                             out["replied"] += 1
@@ -518,6 +519,24 @@ def setup(ctx):
             pass
         return await teams.api_search_rows(name)
 
+    async def _api_send_api(request):
+        """直接走 chatsvc API 发消息（绕 UI；显式调用才发）。"""
+        try:
+            body = await request.json()
+        except Exception:                        # noqa: BLE001
+            body = {}
+        conv_id = str(body.get("conv_id") or "")
+        text = str(body.get("text") or "")
+        peer = str(body.get("peer") or "")
+        snippet = str(body.get("snippet") or "")
+        if not conv_id or not text:
+            return {"error": "需要 conv_id 和 text"}
+        page = await teams.teams_open()
+        return await teams.api_send_message(page, conv_id, text, peer=peer,
+                                            snippet=snippet)
+
+    ctx.register_api("POST", "api/send-api", _api_send_api)
+
     async def _api_compose(request):
         """写侧演练：打开会话并输入文本；?send=1 才真的点发送（默认不点）。"""
         try:
@@ -527,10 +546,12 @@ def setup(ctx):
         peer = str(body.get("peer") or "")
         text = str(body.get("text") or "")
         snippet = str(body.get("snippet") or "")
+        conv_id = str(body.get("conv_id") or "")
         send = bool(body.get("send"))
         if not peer or not text:
             return {"error": "需要 peer 和 text"}
-        return await teams.reply_to(peer, text, send=send, snippet=snippet)
+        return await teams.reply_to(peer, text, send=send, snippet=snippet,
+                                    conv_id=conv_id)
 
     async def _api_search_typing(request=None):
         """逐字敲搜索框打开会话（真实按键，触发 autosuggest）。"""

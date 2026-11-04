@@ -92,7 +92,7 @@ class FakeTeams:
         self.opened: list[str] = []
         self.replied: list[tuple] = []
 
-    async def reply_to(self, peer, text, send=False, snippet=""):
+    async def reply_to(self, peer, text, send=False, snippet="", conv_id=""):
         """写侧入口：记录调用；send=True 时模拟发送成功。"""
         self.replied.append((peer, text, send, snippet))
         if not send:
