@@ -77,8 +77,8 @@ class PromptTests(unittest.TestCase):
 
 
 class DecideTests(unittest.TestCase):
-    def test_decide_does_not_create_gantry_session(self):
-        """shim 不能每轮建一个 toolcall-* 会话（实测把侧栏刷满）。"""
+    def test_decide_keeps_a_session_for_deletion(self):
+        """每轮保留 toolcall-* 会话，侧栏删除才能连带回收远端 Copilot 对话。"""
         import asyncio
         from types import SimpleNamespace
 
@@ -86,24 +86,14 @@ class DecideTests(unittest.TestCase):
 
         calls = []
 
-        class _Win:
-            async def __aenter__(self):
-                return (None, None)
+        async def fake_plain(req):
+            calls.append(req)
+            return {"choices": [{"message": {
+                "content": '{"tool_calls":[{"name":"pwsh","arguments":{"command":"git status"}}]}'
+            }}]}
 
-            async def __aexit__(self, *exc):
-                return False
-
-        async def fake_once(prompt, model, make_new=False, **kw):
-            calls.append((prompt, model, make_new))
-            return '{"tool_calls":[{"name":"pwsh","arguments":{"command":"git status"}}]}'
-
-        async def boom(*a, **kw):
-            raise AssertionError("shim 不应调用 plain_completions（会建会话）")
-
-        saved = (b._window, b.agent_chat_once, b.plain_completions, b.ACTIVE_SESSION_ID)
-        b._window = lambda sid, need_page=True: _Win()          # type: ignore[assignment]
-        b.agent_chat_once = fake_once                            # type: ignore[assignment]
-        b.plain_completions = boom                               # type: ignore[assignment]
+        saved = b.plain_completions
+        b.plain_completions = fake_plain                       # type: ignore[assignment]
         try:
             req = SimpleNamespace(
                 model="copilot-auto",
@@ -114,10 +104,11 @@ class DecideTests(unittest.TestCase):
             )
             d = asyncio.new_event_loop().run_until_complete(copilot_tools.decide(req))
             self.assertEqual(d["tool_calls"][0]["function"]["name"], "pwsh")
-            self.assertTrue(calls and calls[0][2] is True, "应新开一轮、不复用对话")
+            self.assertTrue(calls)
+            self.assertTrue(calls[0].session_id.startswith("toolcall-"))
+            self.assertFalse(calls[0].agent_mode)
         finally:
-            (b._window, b.agent_chat_once, b.plain_completions,
-             b.ACTIVE_SESSION_ID) = saved
+            b.plain_completions = saved
 
 
 class RouteTests(unittest.TestCase):
