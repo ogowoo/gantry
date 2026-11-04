@@ -256,6 +256,27 @@ def _load_xiaomi(model_name: str):
     return _XIAOMI
 
 
+def warm() -> dict[str, Any]:
+    """预热引擎：按当前配置加载 RapidOCR / Xiaomi-OCR-0，返回状态（不抛异常）。"""
+    import time
+
+    t0 = time.time()
+    out: dict[str, Any] = {"engine": _CFG.get("engine"), "ok": True}
+    try:
+        if _CFG.get("engine") in ("xiaomi", "auto"):
+            model = str(_CFG.get("xiaomi_model"))
+            _load_xiaomi(model)
+            out["xiaomi"] = "loaded"
+        if _CFG.get("engine") in ("rapidocr", "auto"):
+            _engine()
+            out["rapidocr"] = "loaded"
+    except Exception as exc:                     # noqa: BLE001
+        out["ok"] = False
+        out["error"] = str(exc)[:200]
+    out["seconds"] = round(time.time() - t0, 1)
+    return out
+
+
 def set_xiaomi(bundle: Any) -> None:
     """测试用：注入假的 (processor, model, torch) 三元组。"""
     global _XIAOMI
