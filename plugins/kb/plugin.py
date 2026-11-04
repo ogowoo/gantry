@@ -500,6 +500,10 @@ def setup(ctx) -> None:
             kb_ocr.configure(body)
         return {"ok": True, **kb_ocr.config(),
                 "rapidocr": kb_ocr.available(),
+                "xiaomi": kb_ocr.available_xiaomi(),
+                "effective": kb_ocr.effective_engine(),
+                "hint": "没装就用 python install.py --ocr（RapidOCR）"
+                        " 或 --xiaomi（Xiaomi-OCR-0，需 torch+transformers）",
                 "note": "切换只影响本进程；持久化请改 config.json 的 kb.ocr"}
 
     ctx.register_api("POST", "api/import", _api_import)

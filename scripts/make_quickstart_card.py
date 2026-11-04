@@ -62,12 +62,12 @@ td.k { color: #2563eb; font-weight: 600; width: 42%; padding-right: 12px; }
 # ── 文案：三语 ────────────────────────────────────────────────
 TEXT = {
     "zh": {
-        "title": "CopilotBridge Agent · 快速使用",
+        "title": "Gantry · 快速使用",
         "sub": "Windows + Edge + Python 3.11+ ｜ 从零到第一个任务约 5 分钟",
         "steps": [
             ("安装（4 条命令）", [
-                ("", ["git clone https://github.com/ogowoo/CopilotBridge_Agent.git",
-                      "cd CopilotBridge_Agent",
+                ("", ["git clone https://github.com/ogowoo/gantry.git",
+                      "cd gantry",
                       "python install.py            # 装依赖 + Playwright 浏览器",
                       "copy config.example.json config.json"]),
             ]),
@@ -113,12 +113,12 @@ TEXT = {
         "foot_right": "权限三档：仅可查看 / 工作区内修改（默认） / 完全权限",
     },
     "zh-TW": {
-        "title": "CopilotBridge Agent · 快速上手",
+        "title": "Gantry · 快速上手",
         "sub": "Windows + Edge + Python 3.11+ ｜ 從零到第一個任務約 5 分鐘",
         "steps": [
             ("安裝（4 條指令）", [
-                ("", ["git clone https://github.com/ogowoo/CopilotBridge_Agent.git",
-                      "cd CopilotBridge_Agent",
+                ("", ["git clone https://github.com/ogowoo/gantry.git",
+                      "cd gantry",
                       "python install.py            # 安裝相依套件 + Playwright 瀏覽器",
                       "copy config.example.json config.json"]),
             ]),
@@ -164,12 +164,12 @@ TEXT = {
         "foot_right": "權限三級：僅可檢視 / 工作區內修改（預設） / 完全權限",
     },
     "en": {
-        "title": "CopilotBridge Agent · Quick start",
+        "title": "Gantry · Quick start",
         "sub": "Windows + Edge + Python 3.11+ ｜ zero to first task in about 5 minutes",
         "steps": [
             ("Install (4 commands)", [
-                ("", ["git clone https://github.com/ogowoo/CopilotBridge_Agent.git",
-                      "cd CopilotBridge_Agent",
+                ("", ["git clone https://github.com/ogowoo/gantry.git",
+                      "cd gantry",
                       "python install.py            # deps + Playwright browser",
                       "copy config.example.json config.json"]),
             ]),
