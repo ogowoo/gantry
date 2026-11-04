@@ -685,5 +685,97 @@ class OcrWarmTests(unittest.TestCase):
         self.assertIn("下载失败", res.get("error", ""))
 
 
+class OcrAvailabilityTests(unittest.TestCase):
+    """OCR 是可选依赖：没装 RapidOCR 时要能用 Xiaomi，两个都没装要给安装指引。"""
+
+    def setUp(self):
+        from gantry import kb_ocr
+
+        self.kb_ocr = kb_ocr
+        self._orig_cfg = kb_ocr.config()
+        self._orig_av = kb_ocr.available
+        self._orig_xa = kb_ocr.available_xiaomi
+        self._orig_e = kb_ocr._ENGINE
+        self._orig_x = kb_ocr._XIAOMI
+        kb_ocr.set_engine(None)
+        kb_ocr.set_xiaomi(None)
+
+    def tearDown(self):
+        self.kb_ocr.configure(self._orig_cfg)
+        self.kb_ocr.available = self._orig_av
+        self.kb_ocr.available_xiaomi = self._orig_xa
+        self.kb_ocr.set_engine(self._orig_e)
+        self.kb_ocr.set_xiaomi(self._orig_x)
+
+    def _png(self):
+        from PIL import Image
+
+        buf = io.BytesIO()
+        Image.new("RGB", (60, 30), "white").save(buf, format="PNG")
+        return buf.getvalue()
+
+    def _xiaomi(self):
+        class Proc:
+            def apply_chat_template(self, messages, **kw):
+                class T(list):
+                    @property
+                    def shape(self):
+                        return (1, len(self))
+                return {"input_ids": T([1])}
+
+            def batch_decode(self, new, skip_special_tokens=True):
+                return ["XIAOMI 结果"]
+
+        class Model:
+            def generate(self, **kw):
+                class O:
+                    def __getitem__(self, s):
+                        return [[1]]
+
+                    @property
+                    def shape(self):
+                        return (1, 1)
+                return O()
+
+        class Torch:
+            class inference_mode:
+                def __enter__(self):
+                    return None
+
+                def __exit__(self, *a):
+                    return False
+
+        self.kb_ocr.set_xiaomi((Proc(), Model(), Torch))
+
+    def test_effective_engine(self):
+        self.kb_ocr.available = lambda: True
+        self.kb_ocr.available_xiaomi = lambda: True
+        self.kb_ocr.configure({"engine": "auto"})
+        self.assertEqual(self.kb_ocr.effective_engine(), "auto→rapidocr")
+        self.kb_ocr.available = lambda: False
+        self.assertEqual(self.kb_ocr.effective_engine(), "auto→xiaomi")
+        self.kb_ocr.available_xiaomi = lambda: False
+        self.assertIn("无可用引擎", self.kb_ocr.effective_engine())
+        self.kb_ocr.configure({"engine": "xiaomi"})
+        self.assertEqual(self.kb_ocr.effective_engine(), "xiaomi")
+
+    def test_auto_without_rapidocr_uses_xiaomi(self):
+        self.kb_ocr.available = lambda: False
+        self.kb_ocr.available_xiaomi = lambda: True
+        self.kb_ocr.configure({"engine": "auto"})
+        self._xiaomi()
+        self.assertIn("XIAOMI", self.kb_ocr.ocr_image_bytes(self._png()))
+
+    def test_auto_without_any_engine_actionable(self):
+        self.kb_ocr.available = lambda: False
+        self.kb_ocr.available_xiaomi = lambda: False
+        self.kb_ocr.configure({"engine": "auto"})
+        with self.assertRaises(ing.IngestError) as ctx:
+            self.kb_ocr.ocr_image_bytes(self._png())
+        msg = str(ctx.exception)
+        self.assertIn("pip install rapidocr", msg)
+        self.assertIn("transformers", msg)
+
+
 if __name__ == "__main__":
     unittest.main()

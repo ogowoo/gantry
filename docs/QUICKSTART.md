@@ -26,10 +26,16 @@
 
 ```powershell
 git clone https://github.com/ogowoo/gantry.git
-cd Gantry
+cd gantry
 python install.py                                   # 装依赖 + Playwright 浏览器
+python install.py --ocr                              # 可选：扫描件/图片 OCR（RapidOCR，约 20 MB）
+python install.py --xiaomi                           # 可选：表格/公式解析（Xiaomi-OCR-0，装 torch+transformers，较大）
 copy config.example.json config.json                 # 首次需要
 ```
+
+> **什么都不装也能用**：纯文字知识库（`md/txt/docx/pdf` 文本层）不需要 OCR；
+> `--ocr` 只是给扫描件/截图加能力，`--xiaomi` 再加"表格转 OTSL、公式转 LaTeX"。
+> 装完可在 `/v1/plugins/kb/api/ocr` 看到 `rapidocr` / `xiaomi` / `effective` 三个字段。
 
 ## 3. 登录 Copilot（只做一次）
 

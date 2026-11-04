@@ -53,11 +53,37 @@ def config() -> dict[str, Any]:
 
 
 def available() -> bool:
+    """RapidOCR 是否可用（默认引擎）。"""
     try:
         import rapidocr  # noqa: F401
         return True
     except Exception:                            # noqa: BLE001
         return False
+
+
+def available_xiaomi() -> bool:
+    """Xiaomi-OCR-0 的依赖是否装了（transformers>=5.17 + torch）。"""
+    try:
+        import torch  # noqa: F401
+        import transformers  # noqa: F401
+        return True
+    except Exception:                            # noqa: BLE001
+        return False
+
+
+def effective_engine() -> str:
+    """当前配置下**实际**会用的引擎（auto 时按可用性降级，提前告诉调用方）。"""
+    name = str(_CFG.get("engine") or "rapidocr")
+    if name == "rapidocr":
+        return "rapidocr"
+    if name == "xiaomi":
+        return "xiaomi"
+    # auto：优先 RapidOCR；没有就 Xiaomi；都没有保持 auto（调用时报错）
+    if available():
+        return "auto→rapidocr"
+    if available_xiaomi():
+        return "auto→xiaomi"
+    return "auto(无可用引擎)"
 
 
 def _engine():
@@ -87,6 +113,13 @@ def ocr_image_bytes(data: bytes) -> str:
     """对一张图片做 OCR：按配置用 RapidOCR 或 Xiaomi-OCR-0。"""
     if _CFG.get("engine") == "xiaomi":
         return xiaomi_image_bytes(data)
+    if _CFG.get("engine") == "auto" and not available():
+        if available_xiaomi():
+            return xiaomi_image_bytes(data)
+        raise IngestError(
+            "没有可用的 OCR 引擎：装任一个即可 —— "
+            "`pip install rapidocr`（20 MB，快）或 `pip install -U transformers torch`"
+            "（0.8B VLM，表格/公式更好）")
     try:
         from PIL import Image
         import numpy as np

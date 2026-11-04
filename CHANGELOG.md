@@ -14,6 +14,32 @@
 ### Fixed
 - 
 
+## [11.0.0-preview.61] - 2026-11-05
+
+### Changed
+
+- **旧名清理**：`docs/quickstart-zh/zh-TW/en.png` 与 `docs/QUICKSTART.md` 里的
+  "CopilotBridge Agent" 改为 **Gantry**，clone 地址改为 `github.com/ogowoo/gantry.git`、
+  目录 `cd gantry`；三张卡片已重新生成。
+- **OCR 改成显式可选安装**：新增 `requirements-ocr.txt`（`rapidocr`）与
+  `requirements-ocr-xiaomi.txt`（torch/torchvision/transformers + rapidocr）；
+  `install.py` 支持 `--ocr` / `--xiaomi` / `--all` / `--no-browser`，装完打印能力检查
+  （浏览器 / RapidOCR / Xiaomi 各自 ✓✗ 与下一步命令）。纯文字知识库不需要 OCR。
+
+### Added
+
+- `kb_ocr.available_xiaomi()` / `effective_engine()`：`auto` 在没装 RapidOCR 时**自动改用
+  Xiaomi**；两者都没有时报错直接给两条安装命令。
+- `GET /v1/plugins/kb/api/ocr` 增加 `xiaomi` 与 `effective` 字段；
+  示例：`{"engine":"auto","rapidocr":true,"xiaomi":true,"effective":"auto→rapidocr"}`。
+
+### 实测
+
+- `python install.py --help` 正常；本机 `rapidocr=True`、`xiaomi deps=True`、
+  `auto→rapidocr`。
+- `tests/test_kb_ingest.py` 43 条（新增可用性 3 条：effective/无 rapidocr 走 Xiaomi/两者皆无）；
+  不变量 25 条全绿。
+
 ## [11.0.0-preview.60] - 2026-11-05
 
 ### Changed
