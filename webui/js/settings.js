@@ -4,6 +4,7 @@ import { SETTINGS_GROUPS, SANDBOX_UI, ENUM_LABEL } from './themeboot.js';
 import { CODE_EXT } from './codeux.js';
 import { stepFilterInput } from './steps.js';
 import { readAnimPrefs, applyAnimPrefs, setAnimPref, animPrefLabel, ANIM_RANGES } from './animprefs.js';
+import { openKb, closeKb, kbPick, kbRefresh, kbReindex, kbImportUrl, kbImportText, kbInbox, kbSearch, kbDelete } from './kb.js';
 function renderSandbox(){
  const mode=SANDBOX_UI[sandboxMode]?sandboxMode:'workspace-write';
  const meta=SANDBOX_UI[mode];
@@ -160,6 +161,7 @@ async function renderSettings(){
    <div class="setbtns">
     <button type="button" class="btn ghost" data-act="openManual">📖 ${esc(tr('使用手册'))}</button>
     <button type="button" class="btn ghost" data-act="openPlugins">🧩 ${esc(tr('插件管理'))}</button>
+    <button type="button" class="btn ghost" data-act="openKb">📚 ${esc(tr('知识库'))}</button>
     <button type="button" class="btn ghost" data-act="openPanels">🗂 ${esc(tr('插件面板'))}</button>
     <button type="button" class="btn ghost" data-act="openWsBrowser">📁 ${esc(tr('工作区浏览'))}</button>
     <button type="button" class="btn ghost" data-act="closeSettings" data-arg="memory">💬 ${esc(tr('记忆面板'))}</button>
@@ -344,6 +346,16 @@ const ACTIONS={
  showLastPrompt:()=>showLastPrompt(),
  openSubagent:(el)=>load(el.dataset.arg),
  openPlugins:()=>openPlugins(),
+ openKb:()=>openKb(),
+ closeKb:()=>closeKb(),
+ kbPick:()=>kbPick(),
+ kbRefresh:()=>kbRefresh(),
+ kbReindex:()=>kbReindex(),
+ kbUrl:()=>kbImportUrl(),
+ kbText:()=>kbImportText(),
+ kbInbox:()=>kbInbox(),
+ kbSearch:()=>kbSearch(),
+ kbDelete:(el)=>kbDelete(el.dataset.arg||''),
  openPanels:()=>openPanels(),
  refreshPanels:()=>refreshPanels(),
  closePanels:()=>closePanels(),

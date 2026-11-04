@@ -90,3 +90,35 @@ curl http://127.0.0.1:8765/v1/plugins/kb/api/vector-stats
 | `kb_reindex(force?)` | 增量重建（`force=true` 全量） |
 | `kb_embed(force?)` | 建/更新**向量**索引（语义检索用） |
 | `kb_stats()` | 文档数 / 分块数 / 字符数 / 是否 FTS |
+
+## 导入文档（Word / PDF / Excel / PPT / HTML / URL / 粘贴）
+
+管理页：`/ui/` → ⚙ 设置 → 📚 知识库（拖拽、选文件、URL、粘贴、收件箱、删除、检索测试）。
+接口：
+
+```powershell
+# 文件（Base64）
+curl -X POST http://127.0.0.1:8765/v1/plugins/kb/api/import ^
+  -H "Content-Type: application/json" -d "{\"name\":\"vpn.docx\",\"data_b64\":\"<base64>\"}"
+
+# 网页
+curl -X POST http://127.0.0.1:8765/v1/plugins/kb/api/import ^
+  -H "Content-Type: application/json" -d "{\"url\":\"https://example.com/faq\"}"
+
+# 粘贴文本
+curl -X POST http://127.0.0.1:8765/v1/plugins/kb/api/import ^
+  -H "Content-Type: application/json" -d "{\"text\":\"打印机脱机先重启 spooler\",\"title\":\"打印机\"}"
+
+# 收件箱：把文件丢进 data/kb/inbox/，然后
+curl -X POST http://127.0.0.1:8765/v1/plugins/kb/api/inbox/scan
+
+# 删除
+curl -X POST http://127.0.0.1:8765/v1/plugins/kb/api/delete ^
+  -H "Content-Type: application/json" -d "{\"path\":\"imported/printer.md\"}"
+```
+
+提取全部用 Python 库：`python-docx` / `pypdf` / `openpyxl` / `python-pptx` / `beautifulsoup4`；
+`.doc/.xls/.ppt` 老格式会提示先另存为新格式；扫描版 PDF 没有文本层会明确报错（需先 OCR）。
+落盘位置 `data/kb/imported/<slug>.md`，front-matter 带 `title/category/source/updated`，
+同名按来源覆盖（重复导入不会产生副本）；每次导入都会重建 FTS 与向量索引。
+

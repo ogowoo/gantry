@@ -23,7 +23,11 @@
         "GET api/docs",
         "GET api/semantic",
         "POST api/embed",
-        "GET api/vector-stats"
+        "GET api/vector-stats",
+        "POST api/import",
+        "POST api/delete",
+        "GET api/inbox",
+        "POST api/inbox/scan"
       ],
       "panels": [
         "kb-status"

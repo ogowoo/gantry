@@ -107,6 +107,37 @@ def _sem(ctx):
     return getattr(ctx, "_sem", None)
 
 
+def _after_change(ctx, *, embed: bool = True) -> dict[str, Any]:
+    """文档增删后重建索引（FTS 必做；向量尽力而为），返回统计。"""
+    out: dict[str, Any] = {}
+    try:
+        out["reindex"] = _kb(ctx).reindex()
+    except Exception as exc:                     # noqa: BLE001
+        out["reindex_error"] = str(exc)[:200]
+    sem = _sem(ctx) if embed else None
+    if sem is not None:
+        try:
+            out["embed"] = {k: sem.build().get(k) for k in ("vectorised", "chunks", "added")}
+        except Exception as exc:                 # noqa: BLE001
+            out["embed_error"] = str(exc)[:200]
+    try:
+        out["stats"] = _kb(ctx).stats()
+    except Exception:                            # noqa: BLE001
+        pass
+    return out
+
+
+def _safe_doc_path(kb, rel: str) -> Path:
+    """只允许删知识库目录里的文件（防止 ../ 越界）。"""
+    base = Path(kb.dir).resolve()
+    target = (base / str(rel or "").replace("\\", "/")).resolve()
+    try:
+        target.relative_to(base)
+    except ValueError as exc:
+        raise ValueError(f"只能删除知识库目录内的文件：{target}") from exc
+    return target
+
+
 def _cite(hit: dict[str, Any]) -> str:
     title = str(hit.get("title") or "").strip() or "未命名"
     heading = str(hit.get("heading") or "").strip()
@@ -270,7 +301,101 @@ def setup(ctx) -> None:
             return {"available": False, "config": _emb_cfg(ctx)}
         return {"available": True, "config": _emb_cfg(ctx), **sem.stats()}
 
+    async def _api_import(request):
+        """导入文档：{name, data_b64} 文件 / {url} 网页 / {text, title} 粘贴。"""
+        import base64
+        import binascii
+
+        from gantry import kb_ingest
+
+        try:
+            body = await request.json()
+        except Exception:                        # noqa: BLE001
+            body = {}
+        body = body or {}
+        kb = _kb(ctx)
+        try:
+            if body.get("url"):
+                res = kb_ingest.ingest_url(kb.dir, str(body["url"]))
+            elif body.get("text"):
+                title = str(body.get("title") or "").strip() or "粘贴的文本"
+                text = str(body["text"])
+                path = kb_ingest.save_document(kb.dir, title, text, title=title,
+                                               source="pasted", category="pasted")
+                res = {"path": str(path), "title": title, "chars": len(text)}
+            elif body.get("data_b64"):
+                name = str(body.get("name") or "upload.bin")
+                try:
+                    data = base64.b64decode(str(body["data_b64"]), validate=False)
+                except (binascii.Error, ValueError) as exc:
+                    return {"ok": False, "error": f"data_b64 不是合法 Base64：{exc}"}
+                res = kb_ingest.ingest_bytes(kb.dir, name, data,
+                                             title=str(body.get("title") or ""))
+            else:
+                return {"ok": False, "error": "需要 url / text / data_b64 之一"}
+        except Exception as exc:                 # noqa: BLE001
+            return {"ok": False, "error": str(exc)[:300]}
+        return {"ok": True, **res, **_after_change(ctx)}
+
+    async def _api_delete(request):
+        """删除一篇导入的文档：{path}（相对 data/kb 的路径）。"""
+        try:
+            body = await request.json()
+        except Exception:                        # noqa: BLE001
+            body = {}
+        rel = str((body or {}).get("path") or "")
+        if not rel:
+            return {"ok": False, "error": "需要 path"}
+        kb = _kb(ctx)
+        try:
+            target = _safe_doc_path(kb, rel)
+        except ValueError as exc:
+            return {"ok": False, "error": str(exc)[:200]}
+        if not target.is_file():
+            return {"ok": False, "error": f"文件不存在：{rel}"}
+        try:
+            target.unlink()
+        except Exception as exc:                 # noqa: BLE001
+            return {"ok": False, "error": f"删除失败：{exc}"}
+        return {"ok": True, "deleted": rel, **_after_change(ctx)}
+
+    async def _api_inbox(request):
+        """看收件箱：把文件丢进 data/kb/inbox/，一次扫描即导入。"""
+        kb = _kb(ctx)
+        inbox = Path(kb.dir) / "inbox"
+        inbox.mkdir(parents=True, exist_ok=True)
+        files = sorted(f for f in inbox.iterdir() if f.is_file())
+        return {"dir": str(inbox), "count": len(files),
+                "files": [{"name": f.name, "size": f.stat().st_size} for f in files]}
+
+    async def _api_inbox_scan(request):
+        """导入收件箱里的全部文件，成功后移入 data/kb/inbox/imported/。"""
+        from gantry import kb_ingest
+
+        kb = _kb(ctx)
+        inbox = Path(kb.dir) / "inbox"
+        inbox.mkdir(parents=True, exist_ok=True)
+        done_dir = inbox / "imported"
+        out: list[dict] = []
+        for f in sorted(inbox.iterdir()):
+            if not f.is_file():
+                continue
+            try:
+                res = kb_ingest.ingest_bytes(kb.dir, f.name, f.read_bytes(),
+                                             title=f.stem, source=f"inbox:{f.name}")
+                done_dir.mkdir(exist_ok=True)
+                f.replace(done_dir / f.name)
+                out.append({"ok": True, **res})
+            except Exception as exc:             # noqa: BLE001
+                out.append({"ok": False, "name": f.name, "error": str(exc)[:200]})
+        return {"imported": sum(1 for x in out if x.get("ok")), "items": out,
+                **_after_change(ctx)}
+
     ctx.register_api("GET", "api/semantic", _api_semantic)
+    ctx.register_api("POST", "api/import", _api_import)
+    ctx.register_api("POST", "api/delete", _api_delete)
+    ctx.register_api("GET", "api/inbox", _api_inbox)
+    ctx.register_api("POST", "api/inbox/scan", _api_inbox_scan)
     ctx.register_api("POST", "api/embed", _api_embed)
     ctx.register_api("GET", "api/vector-stats", _api_vector_stats)
 
