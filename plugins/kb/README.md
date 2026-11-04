@@ -25,8 +25,47 @@ curl http://127.0.0.1:8765/v1/plugins/kb/api/docs
 - **打分**：`0.75 × 查询词覆盖率 + 0.25 × bm25 名次`（满分 1.0；只沾一个词约 0.3）；
 - **引用**：每条命中带 `cite`（`《标题》 › 小节`），适合直接写进回答里。
 
-字面匹配的短板是同义改写会漏（"上不了外网"未必命中只写"隧道"的文档）。
-要上向量检索，另写一个 `kb_semantic` 工具（embedding + sqlite-vec），本插件不含。
+## 向量检索（语义召回）
+
+字面匹配会漏同义改写。加上向量层后，`kb_search` 默认 `mode=auto`：**有向量索引就混合检索**，
+否则退回 FTS。混合分 = `w_vec × 余弦 + w_cov × 词面覆盖率`（默认 0.75 / 0.25）——
+纯余弦对"分机 8000""RITM 编号"这类专有串不敏感，词面覆盖率把它拉回来。
+
+实测（本机 12 分块，Qwen3-Embedding-0.6B 1024 维）：
+
+| 查询 | 纯 FTS | 混合 |
+| --- | --- | --- |
+| `公司网络访问不了外部网站` | 1 条弱命中（0.138） | **0.603** 命中《Wi-Fi 802.1X 认证失败 › 症状》 |
+| `企业微信登录不上` | 0 条 | 仍有可解释结果 |
+
+配置（`plugins/kb/plugin.json` 的 `config.embedding`，或 `data/plugins.json`）：
+
+| 键 | 默认 | 说明 |
+| --- | --- | --- |
+| `backend` | `auto` | `auto`=端点可用就用 HTTP，否则退回 FTS；`http` / `hash` / `off` |
+| `base_url` | `http://127.0.0.1:18085/v1` | 任意 OpenAI 兼容 `/embeddings`（llama.cpp `--embeddings`、Ollama、FLM） |
+| `model` | `qwen3-embed` | 本机 `llama-server -m Qwen3-Embedding-0.6B-Q8_0.gguf --embeddings --port 18085` |
+| `dim` | `0` | 0=自动探测 |
+| `w_vec` / `w_cov` | `0.75` / `0.25` | 混合权重 |
+
+`hash` 是**零依赖兜底**（字符 n-gram hashing）：不联网、不下载模型，语义能力弱但确定性强，
+适合离线环境与单测。
+
+建索引与查询：
+
+```powershell
+python scripts/kb.py embed                      # 增量建向量（只算新增分块）
+python scripts/kb.py search "上不了外网" --mode hybrid
+python scripts/kb.py vector-stats
+
+curl -X POST http://127.0.0.1:8765/v1/plugins/kb/api/embed -d "{\"force\":false}"
+curl "http://127.0.0.1:8765/v1/plugins/kb/api/semantic?q=上不了外网&n=3"
+curl http://127.0.0.1:8765/v1/plugins/kb/api/vector-stats
+```
+
+工具：`kb_embed(force)` 建向量；`kb_search(..., mode="fts|vector|hybrid|auto")`。
+向量存在同一个 `data/kb.db` 的 `chunks_vec` 表（`chunk_id/model/dim/vec/at`），
+换模型或维度会自动整体重建，避免混用不同向量空间。
 
 ## 配置（`data/plugins.json` 里 kb.config）
 
@@ -45,4 +84,5 @@ curl http://127.0.0.1:8765/v1/plugins/kb/api/docs
 | --- | --- |
 | `kb_search(query, limit?, min_score?)` | 查库，返回 `{title, heading, path, text, score, cite}` |
 | `kb_reindex(force?)` | 增量重建（`force=true` 全量） |
+| `kb_embed(force?)` | 建/更新**向量**索引（语义检索用） |
 | `kb_stats()` | 文档数 / 分块数 / 字符数 / 是否 FTS |
