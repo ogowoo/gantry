@@ -108,7 +108,8 @@ class LocalChatEngine:
     def __init__(self, path: str, *, n_ctx: int = 4096, n_threads: int = 0,
                  temperature: float = 0.7, max_tokens: int = 2048,
                  idle_unload_seconds: float = 0.0, chat_format: str | None = None,
-                 verbose: bool = False):
+                 verbose: bool = False, max_prompt_tokens: int = 0,
+                 truncate: bool = True):
         self.path = str(path or "")
         self.n_ctx = max(256, int(n_ctx or 4096))
         self.n_threads = int(n_threads or 0)
@@ -117,6 +118,9 @@ class LocalChatEngine:
         self.idle_unload_seconds = float(idle_unload_seconds or 0)
         self.chat_format = chat_format or None
         self.verbose = bool(verbose)
+        # 提示预算：默认留出 max_tokens 给输出；超了按"保 system + 最近消息"裁剪
+        self.max_prompt_tokens = int(max_prompt_tokens or 0)
+        self.truncate = bool(truncate)
         self._llm: Any = None
         self._lock = threading.Lock()
         self._last_used = 0.0
@@ -179,6 +183,69 @@ class LocalChatEngine:
                 "n_ctx": self.n_ctx, "n_threads": self.n_threads}
 
     # ── 生成 ──
+    def _budget(self) -> int:
+        """提示可用的 token 预算（窗口减去输出预留）。"""
+        if self.max_prompt_tokens > 0:
+            return min(self.max_prompt_tokens, self.n_ctx - 64)
+        return max(256, self.n_ctx - min(self.max_tokens, self.n_ctx // 2))
+
+    @staticmethod
+    def _count(llm: Any, messages: list[dict[str, Any]]) -> int:
+        """按模型自己的分词器数 token（每条消息 +4 的模板开销）。"""
+        total = 0
+        for m in messages:
+            text = str(m.get("content") or "")
+            try:
+                total += len(llm.tokenize(text.encode())) + 4
+            except Exception:                    # noqa: BLE001
+                total += len(text) // 2 + 4      # 退化估算：中文约 2 字/token
+        return total
+
+    def _fit(self, llm: Any, messages: list[dict[str, Any]]
+             ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+        """把消息裁到预算内：保 system + 尾部对话；单条过长则截断该条。
+
+        返回 (可用消息, 裁剪信息)。`truncate=False` 时超预算直接报错。
+        """
+        budget = self._budget()
+        before = self._count(llm, messages)
+        info: dict[str, Any] = {"tokens": before, "budget": budget,
+                                "dropped": 0, "truncated": False}
+        if before <= budget:
+            return messages, info
+        if not self.truncate:
+            raise LocalModelError(
+                f"提示 {before} tokens 超过窗口预算 {budget}（n_ctx={self.n_ctx}，"
+                f"输出预留 {self.max_tokens}）。处理：调大 providers.local.n_ctx"
+                f"（每 +4096 约 +165 MB 内存），或缩短任务/清空历史")
+        sys_msgs = [m for m in messages if str(m.get("role")) == "system"][:1]
+        rest = [m for m in messages if str(m.get("role")) != "system"]
+        kept: list[dict[str, Any]] = []
+        for m in reversed(rest):
+            trial = sys_msgs + list(reversed(kept)) + [m]
+            if self._count(llm, trial) <= budget:
+                kept.insert(0, m)
+                continue
+            break
+        dropped = len(rest) - len(kept)
+        fitted = sys_msgs + kept
+        if not kept:                             # 连一条都放不下：截断最后一条
+            last = dict(rest[-1]) if rest else {"role": "user", "content": ""}
+            try:
+                toks = llm.tokenize(str(last.get("content") or "").encode())
+                room = max(32, budget - self._count(llm, sys_msgs) - 8)
+                cut = llm.detokenize(toks[:room])
+                last["content"] = (cut.decode("utf-8", "ignore")
+                                   if isinstance(cut, (bytes, bytearray)) else str(cut))
+            except Exception:                    # noqa: BLE001
+                text = str(last.get("content") or "")
+                last["content"] = text[:max(64, budget * 2)]
+            fitted = sys_msgs + [last]
+            info["truncated"] = True
+        info["dropped"] = dropped
+        info["tokens"] = self._count(llm, fitted)
+        return fitted, info
+
     def _payload(self, messages: list[dict[str, Any]], max_tokens: int | None,
                  temperature: float | None, response_schema: dict[str, Any] | None,
                  stream: bool) -> dict[str, Any]:
@@ -197,6 +264,7 @@ class LocalChatEngine:
              response_schema: dict[str, Any] | None = None) -> dict[str, Any]:
         """同步生成：返回 {content, think, finish_reason, usage}（content 已剥掉 <think>）。"""
         llm = self._ensure()
+        messages, trimmed = self._fit(llm, messages)
         body = self._payload(messages, max_tokens, temperature, response_schema, False)
         with self._lock:                         # llama.cpp 上下文不能并发
             t0 = time.time()
@@ -219,13 +287,15 @@ class LocalChatEngine:
             answer = ""                          # 只有思考、没有正文，交给上层判断
         return {"content": answer, "think": think or think_field,
                 "finish_reason": (out.get("choices") or [{}])[0].get("finish_reason"),
-                "usage": usage, "seconds": round(el, 3), "model": Path(self.path).stem}
+                "usage": usage, "seconds": round(el, 3), "model": Path(self.path).stem,
+                "trimmed": trimmed}
 
     def stream(self, messages: list[dict[str, Any]], *, max_tokens: int | None = None,
                temperature: float | None = None,
                response_schema: dict[str, Any] | None = None) -> Iterator[str]:
         """流式产出**正文**增量（`<think>` 段被过滤，不吐给用户）。"""
         llm = self._ensure()
+        messages, _trimmed = self._fit(llm, messages)
         body = self._payload(messages, max_tokens, temperature, response_schema, True)
         with self._lock:
             t0 = time.time()

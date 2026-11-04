@@ -542,12 +542,14 @@ class LocalProvider(ApiProvider):
         self.eager = bool(cfg.get("eager", False))
         self.engine = LocalChatEngine(
             self.model_path,
-            n_ctx=int(cfg.get("n_ctx") or 4096),
+            n_ctx=int(cfg.get("n_ctx") or 16384),
             n_threads=int(cfg.get("n_threads") or 0),
             max_tokens=int(cfg.get("max_tokens") or 2048),
             temperature=float(cfg.get("temperature", 0.7)),
             idle_unload_seconds=float(cfg.get("idle_unload_seconds") or 0),
-            verbose=bool(cfg.get("verbose", False)))
+            verbose=bool(cfg.get("verbose", False)),
+            max_prompt_tokens=int(cfg.get("max_prompt_tokens") or 0),
+            truncate=bool(cfg.get("truncate", True)))
         self.base_url = self.base_url or "local://in-process"
         self.api_key = self.api_key or "local"
 

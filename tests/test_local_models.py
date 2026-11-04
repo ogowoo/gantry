@@ -41,6 +41,15 @@ class FakeLlama:
     def embed(self, text):
         return [0.5] * FakeLlama.embed_dim
 
+    def tokenize(self, text, **kw):
+        # 1 字符 = 1 token（够用来做裁剪断言）
+        if isinstance(text, (bytes, bytearray)):
+            text = bytes(text).decode("utf-8", "ignore")
+        return [ord(c) for c in str(text)]
+
+    def detokenize(self, tokens, **kw):
+        return "".join(chr(t) for t in tokens).encode("utf-8")
+
 
 class Base(unittest.TestCase):
     def setUp(self):
@@ -236,6 +245,66 @@ class KbLocalEmbedderTests(unittest.TestCase):
         emb = build_embedder({"backend": "local", "model_path": "x.gguf", "dim": 1024})
         self.assertIsInstance(emb, lm.LocalEmbedder)
         self.assertEqual(emb.dim, 1024)
+
+
+class ContextFitTests(Base):
+    """超窗口时必须自己裁剪，不能把 llama.cpp 的 'exceed context window' 抛给用户。"""
+
+    def _engine(self, n_ctx=512, max_tokens=64, truncate=True):
+        return lm.LocalChatEngine(str(self.gguf), n_ctx=n_ctx, max_tokens=max_tokens,
+                                  truncate=truncate)
+
+    def test_short_prompt_untouched(self):
+        eng = self._engine()
+        llm = eng._ensure()
+        msgs = [{"role": "user", "content": "短"}]
+        fitted, info = eng._fit(llm, msgs)
+        self.assertEqual(fitted, msgs)
+        self.assertEqual(info["dropped"], 0)
+        self.assertFalse(info["truncated"])
+
+    def test_drops_oldest_keeps_system_and_tail(self):
+        eng = self._engine(n_ctx=400, max_tokens=32)   # 预算约 368
+        llm = eng._ensure()
+        msgs = [{"role": "system", "content": "SYS"},
+                {"role": "user", "content": "旧" * 400},
+                {"role": "assistant", "content": "旧答"},
+                {"role": "user", "content": "新问题"}]
+        fitted, info = eng._fit(llm, msgs)
+        self.assertGreaterEqual(info["dropped"], 1)
+        self.assertEqual(fitted[0]["content"], "SYS", "system 必须保留")
+        self.assertEqual(fitted[-1]["content"], "新问题", "最近消息必须保留")
+        self.assertLessEqual(info["tokens"], info["budget"])
+
+    def test_single_huge_message_truncated(self):
+        eng = self._engine(n_ctx=300, max_tokens=32)
+        llm = eng._ensure()
+        msgs = [{"role": "user", "content": "长" * 2000}]
+        fitted, info = eng._fit(llm, msgs)
+        self.assertTrue(info["truncated"])
+        self.assertLessEqual(info["tokens"], info["budget"])
+        self.assertLess(len(fitted[0]["content"]), 2000)
+
+    def test_strict_mode_raises_actionable(self):
+        eng = self._engine(n_ctx=300, max_tokens=32, truncate=False)
+        llm = eng._ensure()
+        msgs = [{"role": "user", "content": "长" * 2000}]
+        with self.assertRaises(lm.LocalModelError) as ctx:
+            eng._fit(llm, msgs)
+        msg = str(ctx.exception)
+        self.assertIn("n_ctx", msg)
+        self.assertIn("165 MB", msg, "要给出内存代价")
+
+    def test_chat_reports_trimmed(self):
+        eng = self._engine(n_ctx=400, max_tokens=32)
+        res = eng.chat([{"role": "system", "content": "S"},
+                        {"role": "user", "content": "x" * 900}])
+        self.assertIn("trimmed", res)
+        self.assertLessEqual(res["trimmed"]["tokens"], res["trimmed"]["budget"])
+
+    def test_budget_uses_max_prompt_tokens(self):
+        eng = lm.LocalChatEngine(str(self.gguf), n_ctx=4096, max_prompt_tokens=100)
+        self.assertEqual(eng._budget(), 100)
 
 
 if __name__ == "__main__":

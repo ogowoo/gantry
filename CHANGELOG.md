@@ -14,6 +14,26 @@
 ### Fixed
 - 
 
+## [11.0.0-preview.52] - 2026-11-04
+
+### Fixed
+
+- **进程内模型不再抛 `Requested tokens (10192) exceed context window of 4096`**。
+  `LocalChatEngine` 增加 token 级裁剪（`_fit`）：
+  - 超预算时**保留 system + 最近的对话**，丢弃较早的消息；
+  - 单条消息过长则按 token 截断（用模型自己的 `detokenize`，不会切坏 UTF-8）；
+  - 结果里带 `trimmed: {tokens, budget, dropped, truncated}`，便于观测；
+  - `truncate: false` 时给出**可行动的错误**（带 `n_ctx` 与内存代价），而不是原始 llama.cpp 报错。
+- 本地 provider 默认 `n_ctx` 4096 → **16384**（实测 +4096 窗口约 +165 MB：4096→2536 MB、
+  8192→2701 MB），11k 提示可直接装下。
+
+### 实测
+
+- 17,500 字符（约 1 万 token）提示：修复前直接报错；修复后成功返回，
+  但 **CPU 上要 103.8 秒**（prefill ~96 tok/s）——本地 2B 适合短提示的 RAG 问答，
+  长系统提示的 Agent 任务建议用外部/云端模型。
+- 单测 27 条（`tests/test_local_models.py`，含 6 条裁剪用例）；不变量 25 条全绿。
+
 ## [11.0.0-preview.51] - 2026-11-04
 
 ### Added
