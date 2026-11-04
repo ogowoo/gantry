@@ -252,10 +252,12 @@ def _echo_only(value: str, sent: str) -> bool:
 
 
 _SUGGESTION_ZH = re.compile(
-    r"^(?:改成|换一种|換一種|再提供|提供|帮我|幫忙|帮忙|请|請|试试|試試|测试|測試|"
-    r"再|检查|檢查|查看|换|換|重新|继续|繼續|总结|總結|翻译|翻譯|列出|解释|解釋|写|寫|"
-    r"生成|比较|比較|用|给|給|添加|删除|刪除|优化|優化|简化|簡化|扩展|擴展|"
-    r"继续|繼續|搜索|搜尋|查看|读取|讀取|分析|整理|润色|潤色|改写|改寫|"
+    r"^(?:改成|改为|换一种|換一種|换成|換成|再提供|提供|帮我|幫忙|帮忙|请|請|试试|試試|测试|測試|"
+    r"再|检查|檢查|查看|换|換|重新|继续|繼續|总结|總結|翻译|翻譯|列出|给出|給出|解释|解釋|写|寫|"
+    r"生成|比较|比較|用|给|給|添加|加入|增加|加上|删除|刪除|去掉|移除|保留|优化|優化|简化|簡化|"
+    r"扩展|擴展|搜索|搜尋|读取|讀取|分析|整理|润色|潤色|改写|改寫|让|讓|按|设置|設置|配置|尝试|嘗試|"
+    r"重试|重試|补上|補上|输出|輸出|显示|顯示|打开|打開|关闭|關閉|运行|運行|执行|執行|循环|循環|"
+    r"定时|定時|监控|監控|记录|記錄|导出|匯出|导入|匯入|拆分|合并|合併|精简|精簡|详细|詳細|具体|具體|"
     r"缩短|縮短|补充|補充)"
 )
 _SUGGESTION_JA = re.compile(
@@ -303,8 +305,18 @@ def _strip_plain_suggestion_tail(raw: str) -> str:
     tail = [x for x in lines[cut:] if x.strip()]
     if not 2 <= len(tail) <= 4:
         return raw
-    if sum(1 for x in tail if _looks_like_suggestion(x)) < 2:
-        return raw
+    matched = sum(1 for x in tail if _looks_like_suggestion(x))
+    if matched < 2:
+        # 兜底：Copilot 的建议按钮文字不一定是已知动词开头（“让它…/把…/加入…”）。
+        # 只对“最后一个空行之后 2~4 行、都很短、无句末标点、不是列表”整段剥离；
+        # 正文里的步骤列表通常带 -/*/编号或句号，不会命中。
+        def _short(s: str) -> bool:
+            s = s.strip()
+            return (0 < len(s) <= 40 and s[-1] not in "。！？.!?：:"
+                    and not s.startswith(("-", "*", "•"))
+                    and not s[0].isdigit())
+        if not all(_short(x) for x in tail):
+            return raw
     return "\n".join(lines[:cut]).rstrip()
 
 
