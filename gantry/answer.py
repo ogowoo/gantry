@@ -252,7 +252,8 @@ def _echo_only(value: str, sent: str) -> bool:
 
 
 _SUGGESTION_ZH = re.compile(
-    r"^(?:改成|换一种|換一種|再提供|提供|总结|總結|翻译|翻譯|列出|解释|解釋|写|寫|"
+    r"^(?:改成|换一种|換一種|再提供|提供|帮我|幫忙|帮忙|请|請|试试|試試|测试|測試|"
+    r"再|检查|檢查|查看|换|換|重新|继续|繼續|总结|總結|翻译|翻譯|列出|解释|解釋|写|寫|"
     r"生成|比较|比較|用|给|給|添加|删除|刪除|优化|優化|简化|簡化|扩展|擴展|"
     r"继续|繼續|搜索|搜尋|查看|读取|讀取|分析|整理|润色|潤色|改写|改寫|"
     r"缩短|縮短|补充|補充)"
@@ -265,7 +266,7 @@ _SUGGESTION_JA = re.compile(
 _SUGGESTION_EN = re.compile(
     r"^(?:Make|Write|Translate|Summarize|Explain|Give|Add|Remove|Change|Show|"
     r"List|Compare|Continue|Search|Read|Analyze|Analyse|Provide|Rewrite|Use|"
-    r"Try|Generate|Create|Draft|Shorten|Expand|Improve|Polish)\b",
+    r"Try|Test|Check|Retry|Generate|Create|Draft|Shorten|Expand|Improve|Polish)\b",
     re.I,
 )
 

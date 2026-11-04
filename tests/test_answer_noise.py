@@ -39,5 +39,22 @@ class CleanAnswerTests(unittest.TestCase):
         self.assertIn("sent: str = \"\"", src[i:i + 200])
 
 
+class SuggestionTailTests(unittest.TestCase):
+    def test_teams_reply_suggestions_stripped(self):
+        """实测 Teams 回复尾巴混进了 Copilot 的建议按钮文字。"""
+        from gantry.bridge import strip_suggestion_tail
+        raw = (
+            "收到，这是一次 Teams 自动回复测试。\n"
+            "如果你能看到这条回复，说明自动回复功能当前正常。\n"
+            "如需进一步验证，请再发送一条不同内容的测试。\n"
+            "若结果异常，请截图报错信息并联系 IT 服务台协助排查。\n\n"
+            "再测试一次自动回复\n帮我检查自动回复内容\n给我一版更简短的回复"
+        )
+        out = strip_suggestion_tail(raw)
+        self.assertNotIn("再测试一次自动回复", out)
+        self.assertNotIn("帮我检查自动回复内容", out)
+        self.assertIn("自动回复功能当前正常", out)
+
+
 if __name__ == "__main__":
     unittest.main()
