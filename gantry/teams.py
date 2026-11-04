@@ -19,7 +19,9 @@ Bot 注册、公网回调）。这里要的是"同租户、本机、零授权"�
 from __future__ import annotations
 
 import asyncio
+import base64
 import hashlib
+import html as _html
 import json
 import re
 import time
@@ -1845,6 +1847,10 @@ async def api_hook_capture(page=None, reload: bool = True,
         except Exception:                        # noqa: BLE001
             resps = []
         for r in resps or []:
+            # 只认 Teams 域的 authz：Copilot/m365 页也会发 authz，抓到它的
+            # token 去发 Teams 消息会 403（not a member of roster，实测）。
+            if "teams." not in str(r.get("url") or "").lower():
+                continue
             body = str(r.get("body") or "")
             m = re.search(r'"skypeToken"\s*:\s*"([^"]+)"', body)
             if m:
@@ -2279,18 +2285,35 @@ async def api_storage(page) -> dict[str, Any]:
 
 
 async def api_token(page) -> dict[str, Any]:
-    """从页面里换出 chatsvc 用的令牌（同源 fetch，自动带 cookie）。"""
+    """从页面里换出 chatsvc 用的令牌（同源 fetch，自动带 cookie）。
+
+    Teams 新版页面在 `teams.cloud.microsoft`，旧实现硬编码
+    `teams.microsoft.com/api/authsvc` 会跨域失败（TypeError: Failed to fetch）。
+    先试 `location.origin`，再退回旧域名。
+    """
     return await page.evaluate("""async () => {
-      try {
-        const r = await fetch('https://teams.microsoft.com/api/authsvc/v1.0/authz',
-                              {method: 'POST', credentials: 'include',
-                               headers: {'Content-Type': 'application/json'}, body: '{}'});
-        const j = await r.json().catch(() => ({}));
-        const t = (j && j.tokens) || {};
-        return {status: r.status, region: j.region || '',
-                skype: t.skypeToken || '', hasIce: !!(t.iceToken || ''),
-                keys: Object.keys(t)};
-      } catch (e) { return {error: String(e)}; }
+      const bases = [location.origin, 'https://teams.microsoft.com'];
+      let last = {error: 'no authz endpoint'};
+      for (const base of bases) {
+        try {
+          const r = await fetch(base + '/api/authsvc/v1.0/authz',
+                                {method: 'POST', credentials: 'include',
+                                 headers: {'Content-Type': 'application/json'},
+                                 body: '{}'});
+          const j = await r.json().catch(() => ({}));
+          const t = (j && j.tokens) || {};
+          if (t.skypeToken) {
+            return {status: r.status, region: j.region || '',
+                    skype: t.skypeToken, hasIce: !!(t.iceToken || ''),
+                    keys: Object.keys(t), base};
+          }
+          last = {status: r.status, region: j.region || '', skype: '',
+                  keys: Object.keys(t), base};
+        } catch (e) {
+          last = {error: String(e), base};
+        }
+      }
+      return last;
     }""")
 
 
@@ -2346,6 +2369,165 @@ async def api_messages(page, conv_id: str, limit: int = 20) -> dict[str, Any]:
         return {ok: r.ok, status: r.status, count: msgs.length, messages: msgs};
       } catch (e) { return {ok: false, error: String(e)}; }
     }""", {"base": API_CHATSVC, "token": tok["skype"], "id": conv_id, "limit": limit})
+
+
+def _jwt_claims(tok: str) -> dict[str, Any]:
+    """只读解码 JWT payload（排查 token 身份用，不验签）。"""
+    try:
+        part = str(tok or "").split(".")[1]
+        part += "=" * (-len(part) % 4)
+        data = json.loads(base64.urlsafe_b64decode(part))
+        keep = ("oid", "sub", "upn", "preferred_username", "tid", "aud",
+                "scp", "roles", "ver")
+        return {k: data.get(k) for k in keep if k in data}
+    except Exception:                            # noqa: BLE001
+        return {}
+
+
+async def _ensure_skype_token(page) -> str:
+    """拿 chatsvc 用的 skypeToken；优先缓存，其次 authz，最后抓一次响应。"""
+    skype = str(_CAPTURED.get("skype") or "")
+    if skype:
+        return skype
+    try:
+        tok = await api_token(page)
+        skype = str(tok.get("skype") or "")
+    except Exception:                            # noqa: BLE001
+        skype = ""
+    if skype:
+        _CAPTURED["skype"] = skype
+        return skype
+    try:
+        await api_hook_capture(page=None, reload=True, seconds=45)
+    except Exception:                            # noqa: BLE001
+        pass
+    return str(_CAPTURED.get("skype") or "")
+
+
+async def _resolve_conversation_id(page, conv_id: str, peer: str, token: str,
+                                   snippet: str = "") -> tuple[str, dict[str, Any]]:
+    """用 chatsvc 的 conversations 列表校正 id（IndexedDB 的 id 可能是 thread id）。"""
+    out = await page.evaluate("""async ({origin, token}) => {
+      try {
+        const r = await fetch(origin + '/api/chatsvc/emea/v1/users/ME/conversations'
+                              + '?view=msnp24Equivalent&pageSize=50',
+          {credentials: 'include',
+           headers: {'X-Skypetoken': token, 'Accept': 'application/json'}});
+        const text = await r.text();
+        let j = {};
+        try { j = JSON.parse(text); } catch (e) { }
+        return {ok: r.ok, status: r.status, body: text.slice(0, 400),
+                conversations: (j.conversations || []).map(c => ({
+                  id: c.id || '',
+                  type: c.type || '',
+                  threadType: (c.threadProperties || {}).threadType || '',
+                  topic: (c.threadProperties || {}).topic || '',
+                  lastFrom: ((c.lastMessage || {}).imdisplayname
+                             || (c.lastMessage || {}).fromDisplayName || ''),
+                  last: ((c.lastMessage || {}).content || '').slice(0, 240)
+                }))};
+      } catch (e) { return {ok: false, error: String(e)}; }
+    }""", {"origin": "https://teams.cloud.microsoft", "token": token})
+    convs = out.get("conversations") or []
+    # 1) id 完全一致
+    for c in convs:
+        if c.get("id") == conv_id:
+            return conv_id, {"how": "same-id", "status": out.get("status")}
+    p = (peer or "").strip().lower()
+    tokens = [t for t in re.split(r"[^a-z0-9]+", p) if len(t) > 1]
+    frag = " ".join((snippet or "").split())[:16].lower()
+
+    def _plain(s: str) -> str:
+        return " ".join(re.sub(r"<[^>]+>", " ", str(s or "")).split()).lower()
+
+    def peer_ok(c: dict[str, Any]) -> bool:
+        hay = _plain(str(c.get("topic") or "") + " " + str(c.get("lastFrom") or ""))
+        return bool(tokens) and all(t in hay for t in tokens)
+    # 2) peer + 最后消息片段（最稳，能区分同名/会议）
+    if tokens and frag:
+        for c in convs:
+            if peer_ok(c) and frag in _plain(c.get("last")):
+                return str(c.get("id") or conv_id), {
+                    "how": "peer+frag", "status": out.get("status"),
+                    "topic": c.get("topic")}
+    # 3) peer 且不是会议
+    for c in convs:
+        if peer_ok(c) and "meeting" not in str(c.get("type") or "").lower() \
+                and "meeting" not in str(c.get("threadType") or "").lower() \
+                and "会面" not in str(c.get("topic") or ""):
+            return str(c.get("id") or conv_id), {
+                "how": "peer-1to1", "status": out.get("status"), "topic": c.get("topic")}
+    # 没把握就不猜：交给 UI 回退，宁可慢也不要发错会话
+    return conv_id, {"how": "not-found", "status": out.get("status"),
+                     "count": len(convs), "head": out.get("body")}
+
+
+async def api_send_message(page, conv_id: str, text: str,
+                           peer: str = "", snippet: str = "") -> dict[str, Any]:
+    """用 chatsvc API 直接发消息（完全绕开 UI）。
+
+    conversation id 来自 IndexedDB 的 lastMessage 所属会话（cycle 里已经有）。
+    关键：chatsvc 要 **`X-Skypetoken` 头**，不是 `Authorization: Bearer`；
+    同源 `/api/chatsvc/emea/...` 才能 200（实测 401 都是认证方式不对）。
+    """
+    page = page or await teams_open()
+    skype = await _ensure_skype_token(page)
+    if not skype:
+        return {"ok": False, "error": "拿不到 skypetoken"}
+    page = teams_page or page
+    claims = _jwt_claims(skype)
+    conv_id, resolved = await _resolve_conversation_id(page, conv_id, peer, skype, snippet)
+    if resolved.get("how") == "not-found":
+        return {"ok": False, "error": "无法确认可发送的会话 id",
+                "resolved": resolved, "claims": claims}
+    body_text = _html.escape(str(text or "")).replace("\r\n", "\n").replace("\n", "<br>")
+    body_html = f"<p>{body_text}</p>"
+    client_id = str(int(time.time() * 1000))
+    result = await page.evaluate("""async ({origin, token, id, html, client}) => {
+      const urls = [
+        origin + '/api/chatsvc/emea/v1/users/ME/conversations/'
+               + encodeURIComponent(id) + '/messages',
+        'https://chatsvcagg.teams.microsoft.com/v1/users/ME/conversations/'
+               + encodeURIComponent(id) + '/messages'
+      ];
+      let last = {ok: false, error: 'no endpoint'};
+      const attempts = [];
+      for (const url of urls) {
+        try {
+          const r = await fetch(url, {
+            method: 'POST',
+            credentials: 'include',
+            headers: {'X-Skypetoken': token,
+                      'Content-Type': 'application/json',
+                      'Accept': 'application/json'},
+            body: JSON.stringify({
+              content: html,
+              messagetype: 'RichText/Html',
+              contenttype: 'text',
+              clientmessageid: client,
+              imdisplayname: '',
+              properties: {importance: '', subject: '', title: '',
+                           links: '[]', files: '[]'}
+            })
+          });
+          const text = await r.text();
+          let j = {};
+          try { j = JSON.parse(text); } catch (e) { }
+          last = {ok: r.ok, status: r.status, id: (j.id || j.sequenceId || ''),
+                  body: text.slice(0, 500), url: url.slice(0, 80)};
+          attempts.push(last);
+          if (r.ok) return {...last, attempts, pageUrl: location.href};
+        } catch (e) {
+          last = {ok: false, error: String(e), url: url.slice(0, 80)};
+          attempts.push(last);
+        }
+      }
+      return {...last, attempts, pageUrl: location.href};
+    }""", {"origin": "https://teams.cloud.microsoft", "token": skype,
+            "id": conv_id, "html": body_html, "client": client_id})
+    result["claims"] = claims
+    result["resolved"] = resolved
+    return result
 
 
 async def api_probe() -> dict[str, Any]:
@@ -3274,13 +3456,27 @@ async def _leave_chat(page) -> None:
 
 
 async def reply_to(peer: str, text: str, send: bool = False,
-                   snippet: str = "") -> dict[str, Any]:
+                   snippet: str = "", conv_id: str = "") -> dict[str, Any]:
     """打开 peer 的会话并准备回复（send=False 只输入并清空，绝不发送）。
 
     `snippet` = 该会话最后一条消息的片段：优先用它搜索（命中的是聊天），
     没有再用人名搜（人名可能命中联系人名片）。
+    `conv_id` = IndexedDB 里的会话 id：send=True 时优先直接走 chatsvc API，
+    完全不碰 UI（不会偏到搜索页/旧文件）。
     """
     page = await teams_open()
+    api_res: dict[str, Any] | None = None
+    if send and conv_id:
+        try:
+            api_res = await api_send_message(page, conv_id, text, peer=peer,
+                                             snippet=snippet)
+            if api_res.get("ok"):
+                return {"opened": True, "how": "api", "sent": True,
+                        "id": api_res.get("id"), "status": api_res.get("status")}
+            _b.log(f"reply_to API 发送失败（回退 UI）：{api_res.get('status')} {api_res.get('body')}")
+        except Exception as exc:                 # noqa: BLE001
+            api_res = {"ok": False, "error": str(exc)[:300]}
+            _b.log(f"reply_to API 发送异常（回退 UI）：{str(exc)[:160]}")
     opened = False
     how = ""
     # 第一优先：记忆里的会话在 @ 后会排到列表顶部，直接点行，避免搜索偏页
@@ -3319,7 +3515,8 @@ async def reply_to(peer: str, text: str, send: bool = False,
     res = await compose_text(text, page=page, send=send)
     if send and res.get("sent"):
         await _leave_chat(page)
-    return {"opened": True, "how": how, "header": (head or "")[:50], **res}
+    return {"opened": True, "how": how, "header": (head or "")[:50], **res,
+            **({"api": api_res} if api_res is not None else {})}
 
 
 async def probe(dump_dir: Path | None = None, max_html: int = 200_000) -> dict[str, Any]:
