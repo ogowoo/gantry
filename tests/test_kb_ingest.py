@@ -312,5 +312,101 @@ class PluginImportTests(unittest.TestCase):
         self.assertTrue((inbox / "imported" / "note.md").exists())
 
 
+class _FakeOcr:
+    """RapidOCR 3.x 形状：返回带 .txts 的对象。"""
+
+    class _Out:
+        def __init__(self, txts):
+            self.txts = txts
+
+    def __init__(self, lines):
+        self.lines = lines
+        self.calls = 0
+
+    def __call__(self, arr):
+        self.calls += 1
+        return _FakeOcr._Out(list(self.lines))
+
+
+class OcrTests(unittest.TestCase):
+    def setUp(self):
+        from gantry import kb_ocr
+
+        self.kb_ocr = kb_ocr
+        self._orig = kb_ocr._ENGINE
+        kb_ocr.set_engine(None)
+
+    def tearDown(self):
+        self.kb_ocr.set_engine(self._orig)
+
+    def _png(self) -> bytes:
+        from PIL import Image
+
+        buf = io.BytesIO()
+        Image.new("RGB", (40, 20), "white").save(buf, format="PNG")
+        return buf.getvalue()
+
+    def test_png_goes_through_ocr(self):
+        self.kb_ocr.set_engine(_FakeOcr(["打印机脱机", "重启 spooler"]))
+        text = ing.extract_text("scan.png", self._png())
+        self.assertIn("打印机脱机", text)
+        self.assertIn("重启 spooler", text)
+
+    def test_ocr_empty_result_reports(self):
+        self.kb_ocr.set_engine(_FakeOcr([]))
+        with self.assertRaises(ing.IngestError) as ctx:
+            ing.extract_text("blank.png", self._png())
+        self.assertIn("没有识别出文字", str(ctx.exception))
+
+    def test_missing_engine_actionable(self):
+        """没装 rapidocr 时：报错要给出 pip install。"""
+        self.kb_ocr.set_engine(None)
+        import builtins
+
+        real_import = builtins.__import__
+
+        def fake_import(name, *a, **k):
+            if name == "rapidocr":
+                raise ImportError("no module")
+            return real_import(name, *a, **k)
+
+        builtins.__import__ = fake_import
+        try:
+            with self.assertRaises(ing.IngestError) as ctx:
+                self.kb_ocr.ocr_image_bytes(self._png())
+        finally:
+            builtins.__import__ = real_import
+        self.assertIn("pip install rapidocr", str(ctx.exception))
+
+    def test_scanned_pdf_falls_back_to_ocr(self):
+        """PDF 没有文本层时，逐页取内嵌图交给 OCR。"""
+        from fpdf import FPDF
+        from PIL import Image
+
+        tmp = Path(tempfile.mkdtemp(prefix="ocr_pdf_"))
+        try:
+            png = tmp / "page.png"
+            Image.new("RGB", (200, 60), "white").save(png, format="PNG")
+            pdf = FPDF()
+            pdf.add_page()
+            pdf.image(str(png), x=10, y=10, w=120)
+            data = bytes(pdf.output())
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+        self.kb_ocr.set_engine(_FakeOcr(["扫描页文字"]))
+        text = ing.extract_text("scan.pdf", data)
+        self.assertIn("扫描页文字", text)
+        self.assertIn("OCR", text)
+
+    def test_text_pdf_does_not_ocr(self):
+        """有文本层的 PDF 不该触发 OCR。"""
+        engine = _FakeOcr(["不该出现"])
+        self.kb_ocr.set_engine(engine)
+        text = ing.extract_text("guide.pdf", make_pdf())
+        self.assertIn("VPN troubleshooting", text)
+        self.assertEqual(engine.calls, 0)
+
+
 if __name__ == "__main__":
     unittest.main()

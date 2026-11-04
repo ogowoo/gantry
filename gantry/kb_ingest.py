@@ -38,6 +38,7 @@ UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
 
 TEXT_EXTS = {".md", ".markdown", ".txt", ".csv", ".tsv", ".log", ".json", ".yaml", ".yml"}
 HTML_EXTS = {".html", ".htm", ".xhtml"}
+IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".bmp", ".webp", ".tif", ".tiff"}
 
 
 class IngestError(RuntimeError):
@@ -162,8 +163,10 @@ def _pdf_text(data: bytes) -> str:
             out.append(f"## 第 {i} 页")
             out.append(text.strip())
     if not out:
-        raise IngestError("这个 PDF 没有可提取的文本层（多半是扫描件）："
-                          "先用 OCR 转成文本，或导出成 Word 再导入")
+        # 扫描件：交给 OCR（没装 rapidocr 时由 kb_ocr 给出 pip install 提示）
+        from .kb_ocr import ocr_pdf_bytes
+
+        return ocr_pdf_bytes(data)
     return "\n\n".join(out)
 
 
@@ -187,10 +190,14 @@ def extract_text(name: str, data: bytes) -> str:
             text = _pptx_text(data)
         elif ext == ".pdf":
             text = _pdf_text(data)
+        elif ext in IMAGE_EXTS:
+            from .kb_ocr import ocr_image_bytes
+
+            text = ocr_image_bytes(data)
         else:
             raise IngestError(
                 f"不支持的格式 {ext or '(无扩展名)'}：支持 "
-                f"{sorted(TEXT_EXTS | HTML_EXTS | {'.docx', '.xlsx', '.pptx', '.pdf'})}；"
+                f"{sorted(TEXT_EXTS | HTML_EXTS | IMAGE_EXTS | {'.docx', '.xlsx', '.pptx', '.pdf'})}；"
                 "老格式 .doc/.xls/.ppt 请先另存为 .docx/.xlsx/.pptx")
     except IngestError:
         raise

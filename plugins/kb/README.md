@@ -118,6 +118,7 @@ curl -X POST http://127.0.0.1:8765/v1/plugins/kb/api/delete ^
 ```
 
 提取全部用 Python 库：`python-docx` / `pypdf` / `openpyxl` / `python-pptx` / `beautifulsoup4`；
+**扫描版 PDF 与图片**走 RapidOCR（ONNX、CPU、PP-OCRv6 模型，`pip install rapidocr`，首次运行自动下模型）；
 `.doc/.xls/.ppt` 老格式会提示先另存为新格式；扫描版 PDF 没有文本层会明确报错（需先 OCR）。
 落盘位置 `data/kb/imported/<slug>.md`，front-matter 带 `title/category/source/updated`，
 同名按来源覆盖（重复导入不会产生副本）；每次导入都会重建 FTS 与向量索引。

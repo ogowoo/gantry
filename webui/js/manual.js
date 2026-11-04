@@ -47,7 +47,7 @@ function openTask(){
  const t=document.getElementById('task'); if(t){t.value='';t.focus()}
 }
 
-document.addEventListener('keydown',e=>{if(e.key==='Escape'){closeDlg();closeLive();gmClose(null);closeManual();closePlugins();closeWs();closePanels();try{closeSettings()}catch(_){}}});
+document.addEventListener('keydown',e=>{if(e.key==='Escape'){closeDlg();closeLive();gmClose(null);closeManual();closePlugins();closeWs();closePanels();try{closeSettings()}catch(_){}try{closeKb()}catch(_){}}});
 
 /* 把独立的「步骤时间线」卡片并入实时面板标签页（像 DSH 那样一个面板看全部）。
    直接搬 DOM 节点：筛选下拉、导出按钮、每步的展开/收起全部照旧，不重写渲染逻辑。 */
