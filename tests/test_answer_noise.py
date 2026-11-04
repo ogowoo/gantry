@@ -55,6 +55,21 @@ class SuggestionTailTests(unittest.TestCase):
         self.assertNotIn("帮我检查自动回复内容", out)
         self.assertIn("自动回复功能当前正常", out)
 
+    def test_code_answer_suggestions_stripped(self):
+        """代码块后面的“让它/改成/加入”三条建议也要剥掉。"""
+        from gantry.bridge import strip_suggestion_tail
+        raw = (
+            "如果是无限循环执行某个命令，可以用这一行：\n"
+            "```powershell\nwhile ($true) { <Your-Command>; Start-Sleep -Seconds 60 }\n```\n"
+            "把 <Your-Command> 替换成实际命令，例如：\n"
+            "```powershell\nwhile ($true) { Get-Date; Start-Sleep -Seconds 60 }\n```\n\n"
+            "让它循环执行指定脚本\n改成按次数自动循环\n加入错误重试机制"
+        )
+        out = strip_suggestion_tail(raw)
+        self.assertNotIn("让它循环执行指定脚本", out)
+        self.assertNotIn("加入错误重试机制", out)
+        self.assertIn("Start-Sleep", out)
+
 
 if __name__ == "__main__":
     unittest.main()
