@@ -308,6 +308,21 @@ function exportChatMarkdown(){
 /* ── 消息编辑 / 删除（只改本地历史）────────────────────────────────
    诚实语义：已发给网页 Copilot 的内容无法撤回；提供商会话会同步内存上下文
    （后端 sync_provider_history_message），否则模型下一回合仍看到旧文本。 */
+/* 把一条消息存进知识库（不经过模型；想先让模型整理就用 /kb 命令 + kb_add 工具）。 */
+async function kbSaveMsg(btn){
+ const el=btn&&btn.closest?btn.closest('.msg'):null;
+ if(!el){return}
+ const text=String(el.dataset.raw||'').trim();
+ if(!text){toast(tr('这条消息没有可保存的文本'),'err');return}
+ const first=text.split('\n').map(x=>x.trim()).find(Boolean)||tr('会话片段');
+ const title=first.replace(/^#+\s*/,'').slice(0,40);
+ try{
+  const r=await api('/v1/plugins/kb/api/import',{method:'POST',
+   headers:{'Content-Type':'application/json'},body:JSON.stringify({text,title})});
+  if(r&&r.ok===false)throw new Error(r.error||'导入失败');
+  toast(tr('已存入知识库：')+(r.title||title),'ok');
+ }catch(e){toast(tr('存入失败：')+((e&&(e.text||e.message))||e),'err',6000)}
+}
 async function editMsg(btn){
  const wrap=btn.closest('.msg');const id=wrap&&wrap.dataset.mid;
  if(!id){toast(tr('这条消息还没有落库，无法编辑'),'err');return}
@@ -482,4 +497,4 @@ document.addEventListener('click',e=>{let m=document.getElementById('moreMenu');
 const THEMES=[["auto","跟随系统"],["","深色"],["amber","琥珀"],["jade","墨玉"],["light","浅色"],["solarized","护眼米"],["mint","薄荷"]];
 const THEME_IDS=THEMES.map(x=>x[0]);
 
-export { mountTimelineIntoTab, syncComposer, liveTab, expandLive, closeLive, showPromptView, continueAgent, autoGrowFollowup, sendFollowup, awaitFollowupReply, updateChannelUI, refreshQueue, editQueueItem, removeQueueItem, thumbsHtml, renderThumbs, removeAttachment, attachPasteHandler, lastSavedAssistant, renderLiveBubble, updateLiveBubble, exportChatMarkdown, editMsg, delMsg, toggleGlobalSearch, gsInput, runGlobalSearch, jumpToMessage, injectMessage, setTaskMode, runTask, waitSessionReady, toggleMore, THEMES, THEME_IDS };
+export { mountTimelineIntoTab, syncComposer, liveTab, expandLive, closeLive, showPromptView, continueAgent, autoGrowFollowup, sendFollowup, awaitFollowupReply, updateChannelUI, refreshQueue, editQueueItem, removeQueueItem, thumbsHtml, renderThumbs, removeAttachment, attachPasteHandler, lastSavedAssistant, renderLiveBubble, updateLiveBubble, exportChatMarkdown, editMsg, delMsg, kbSaveMsg, toggleGlobalSearch, gsInput, runGlobalSearch, jumpToMessage, injectMessage, setTaskMode, runTask, waitSessionReady, toggleMore, THEMES, THEME_IDS };

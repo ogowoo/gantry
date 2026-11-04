@@ -149,6 +149,16 @@ const SLASH_COMMANDS=[
  {id:'audit',label:'audit',aliases:['audit','审计','对抗审计','review'],
   desc:'对抗式审计：多名审计员 + 裁判核验，循环到只剩小问题',
   run:(arg)=>{auditNow(arg)}},
+ {id:'kb',label:'kb',aliases:['kb','知识库','入库'],
+  desc:'把这段内容/附件整理后存入知识库（模型整理 → kb_add 入库）',
+  run:(arg)=>{
+   const t=document.getElementById('task');if(!t)return;
+   const body=String(arg||'').trim();
+   t.value=(body?body+'\n\n':'')+
+    '[存入知识库] 请先把我上面的内容（文字/链接/附件里的文件）整理成一条知识库条目：'+
+    '去掉寒暄与重复、按要点分条、补一个准确的小标题；然后调用 kb_add 工具入库'+
+    '（文本用 text+title；文件用 paths；网页用 url）。完成后只回一句"已入库：<标题>"。';
+   t.focus();toast(tr('已填入入库指令，确认后发送'),'ok')}},
  {id:'agent',label:'agent',aliases:['agent','执行'],
   desc:'切到 Agent 执行模式',run:()=>{setTaskMode('agent');toast(tr('已切到 Agent 执行'),'ok')}},
  {id:'chat',label:'chat',aliases:['chat','对话'],

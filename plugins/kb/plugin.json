@@ -14,7 +14,8 @@
         "kb_search",
         "kb_reindex",
         "kb_stats",
-        "kb_embed"
+        "kb_embed",
+        "kb_add"
       ],
       "api": [
         "GET api/search",
@@ -27,7 +28,9 @@
         "POST api/import",
         "POST api/delete",
         "GET api/inbox",
-        "POST api/inbox/scan"
+        "POST api/inbox/scan",
+        "GET api/ocr",
+        "POST api/ocr"
       ],
       "panels": [
         "kb-status"
@@ -48,6 +51,10 @@
         "model_path": "E:/models/gguf/Qwen3-Embedding-0.6B-Q8_0.gguf",
         "n_ctx": 2048,
         "n_threads": 8
+      },
+      "ocr": {
+        "engine": "rapidocr",
+        "xiaomi_model": "SeerRay-Lab/Xiaomi-OCR-0"
       }
     }
   }

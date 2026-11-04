@@ -62,7 +62,8 @@ function msgEl(role,content,ts,opts){
  // 编辑/删除：只对库里有 id 的消息显示（乐观显示的临时消息没有 id）
  const mid=(opts.id!==undefined&&opts.id!==null)
    ?`<button class="msg-icon" title="编辑这条消息（只改本地历史）" data-act="editMsg">✎</button>`+
-    `<button class="msg-icon del" title="删除这条消息（只改本地历史）" data-act="delMsg">🗑</button>`:'';
+    `<button class="msg-icon del" title="删除这条消息（只改本地历史）" data-act="delMsg">🗑</button>`+
+    `<button class="msg-icon" title="${esc(tr('存入知识库'))}" data-act="kbSaveMsg">📚</button>`:'';
  e.innerHTML=`<div class="msg-av">${esc(String(who).charAt(0))}</div>`+
   `<div class="msg-main"><div class="msg-head"><span class="msg-role">${esc(who)}</span>`+
   (t?`<span class="msg-time">${t}</span>`:'')+
