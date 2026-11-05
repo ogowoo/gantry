@@ -14,6 +14,26 @@
 ### Fixed
 - 
 
+## [11.0.0-preview.63] - 2026-11-05
+
+### Added
+
+- **文档补"四种 embedding 后端的依赖成本"对比**（`docs/QUICKSTART.md` 第 11 节、
+  `plugins/kb/README.md`、README），给出实测数字：
+  - `hash`：0 包 / 0 MB；
+  - `http`：Python 侧 0 包，代价是外部 `--embeddings` 服务；
+  - `fastembed`：1 包 + ~10 依赖 ≈ **190 MB**（sympy 66 · numpy 50 · onnxruntime 39 ·
+    pillow 15 · tokenizers 8 · hf-hub 5…）+ 模型 **91 MB**，纯 wheel 无需编译；
+  - `local`（llama-cpp-python）：**25 MB** 轮子 + 一个 GGUF（bge-small 50-90 MB /
+    Qwen3-Embedding-0.6B Q8 610 MB），已在跑 `providers.local` 时**不新增任何包**。
+  并说明"依赖最少选 hash/http、要单进程不编译选 fastembed、已有 llama-cpp 选 local"。
+
+### 实测
+
+- 体积按 `importlib.metadata` 的文件清单求和（非估算）：fastembed 链路合计 190.1 MB，
+  llama-cpp-python 25.1 MB；本机变更后向量 `vectorised=23/23`、模型
+  `fastembed:BAAI/bge-small-zh-v1.5`（512 维）。
+
 ## [11.0.0-preview.62] - 2026-11-05
 
 ### Added
