@@ -1028,15 +1028,23 @@ async def answer_markdown(plain: str = "") -> str:
             return ""
         js = """(args) => {
           const first = args[0], last = args[1] || args[0];
-          // Copilot 给回答容器一个稳定 testid；优先用它，别在整页里猜"最深的 div"，
-          // 否则回答下方的建议按钮/工具条很容易被一起卷进来。
+          // 只取回答正文：Copilot 用 data-testid="markdown-reply" 包住正文，
+          // chat-suggestion 按钮在它外面。之前取 copilot-message-div 会把建议一起带走。
+          const inside = (el) => {
+            const t = el.textContent || '';
+            return t.includes(first) && t.includes(last);
+          };
           let best = null;
-          const explicit = [...document.querySelectorAll('[data-testid="copilot-message-div"]')]
-            .filter(el => {
-              const t = el.textContent || '';
-              return t.includes(first) && t.includes(last);
-            });
-          if (explicit.length) best = explicit[explicit.length - 1];
+          // 用首行定位即可：last 可能来自被建议按钮污染的纯文本，markdown-reply
+          // 里没有它，会导致明明有正文却匹配失败。
+          const replies = [...document.querySelectorAll('[data-testid="markdown-reply"]')]
+            .filter(el => ((el.textContent || '').includes(first)));
+          if (replies.length) best = replies[replies.length - 1];
+          if (!best) {
+            const cards = [...document.querySelectorAll('[data-testid="copilot-message-div"]')]
+              .filter(el => ((el.textContent || '').includes(first)));
+            if (cards.length) best = cards[cards.length - 1];
+          }
           if (!best) {
             const cands = document.querySelectorAll('article,section,div,main,[role="main"],[role="group"]');
             for (const el of cands) {
