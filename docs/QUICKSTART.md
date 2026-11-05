@@ -220,6 +220,41 @@ python start.py
 - 提示会按 `n_ctx` 自动裁剪（保 system + 最近对话），推理模型的 `<think>` 会被剥掉；
 - 解耦：删掉 `providers.local` 或改指外部 `base_url`，其它都不用动。
 
+### 13.1 IT 支持小模型：Qwen3-4B（进程内，不用 Ollama）
+
+Qwen3-4B-Instruct-2507 适合中文 IT 帮助台；GGUF 约 2.5 GB，16 GB 内存的机器可跑：
+
+```powershell
+# GGUF 从 Hugging Face 镜像下载（示例文件名）
+curl.exe -L -o data/models/Qwen3-4B-Instruct-2507-Q4_K_M.gguf ^
+  "https://hf-mirror.com/unsloth/Qwen3-4B-Instruct-2507-GGUF/resolve/main/Qwen3-4B-Instruct-2507-Q4_K_M.gguf"
+```
+
+`config.json`：
+
+```json
+"providers": {
+  "local": {
+    "backend": "local",
+    "models": ["qwen3-4b"],
+    "model_path": "data/models/Qwen3-4B-Instruct-2507-Q4_K_M.gguf",
+    "n_ctx": 8192, "n_threads": 8,
+    "max_tokens": 1024, "temperature": 0.3
+  }
+}
+```
+
+模型 id 为 `local/qwen3-4b`。Windows 上 `llama-cpp-python` 可直接用预编译 wheel
+（Python 3.14 对应 `py3-none-win_amd64.whl`），不需要本地编译；然后：
+
+```powershell
+curl -X POST http://127.0.0.1:8765/v1/plugins/teams-bot/api/settings ^
+  -H "Content-Type: application/json" ^
+  -d "{\"model\":\"local/qwen3-4b\",\"agent_mode\":false}"
+```
+
+Teams 机器人会走本地模型，不再依赖 Copilot 网页。
+
 ## 14. 插件（按需启用）
 
 `/ui/` → ⚙ → 🧩 插件管理，或 `data/plugins.json`。常用：
