@@ -91,10 +91,14 @@ class FakeTeams:
         self.sent: list[str] = []
         self.opened: list[str] = []
         self.replied: list[tuple] = []
+        self.last_expected = None
+        self.last_strict = None
 
-    async def reply_to(self, peer, text, send=False, snippet="", conv_id=""):
+    async def reply_to(self, peer, text, send=False, snippet="", conv_id="", **kwargs):
         """写侧入口：记录调用；send=True 时模拟发送成功。"""
         self.replied.append((peer, text, send, snippet))
+        self.last_expected = kwargs.get("expected")
+        self.last_strict = kwargs.get("strict")
         if not send:
             return {"opened": True, "sent": False, "sendButton": True}
         self.sent.append(text)
@@ -132,6 +136,8 @@ class BotTestCase(unittest.TestCase):
     def run_cycle(self, **cfg):
         cfg.setdefault("enabled", True)
         cfg.setdefault("mention_tokens", ["@Gantry"])
+        cfg.setdefault("outbox_path", ":memory:")
+        cfg.setdefault("kb_synthesize", False)   # 单测不调模型；synthesis 单独测
         bot = plugin.Bot(FakeCtx(**cfg))
         return asyncio.new_event_loop().run_until_complete(bot.cycle())
 
@@ -191,7 +197,8 @@ class DirectTests(BotTestCase):
         self.kb.hits = [{"title": "T", "heading": "", "score": 0.9, "path": "t.md",
                          "text": "答案"}]
         self.fake.conversations = [conv(dm(), "@Gantry 旧消息", last_id="old", unread=False)]
-        ctx = FakeCtx(enabled=True, dry_run=True, mention_tokens=["@Gantry"])
+        ctx = FakeCtx(enabled=True, dry_run=True, mention_tokens=["@Gantry"],
+                      kb_synthesize=False)
         bot = plugin.Bot(ctx)
         loop = asyncio.new_event_loop()
         first = loop.run_until_complete(bot.cycle())     # 首次基线：已读跳过
@@ -205,7 +212,8 @@ class DirectTests(BotTestCase):
         self.kb.hits = [{"title": "T", "heading": "", "score": 0.9, "path": "t.md",
                          "text": "答案"}]
         self.fake.conversations = [conv(dm(), "@Gantry 问题", last_id="same")]
-        ctx = FakeCtx(enabled=True, dry_run=True, mention_tokens=["@Gantry"])
+        ctx = FakeCtx(enabled=True, dry_run=True, mention_tokens=["@Gantry"],
+                      kb_synthesize=False)
         bot = plugin.Bot(ctx)
         loop = asyncio.new_event_loop()
         first = loop.run_until_complete(bot.cycle())
@@ -228,10 +236,33 @@ class AnswerTests(BotTestCase):
     def test_kb_hit_source(self):
         self.kb.hits = [{"title": "VPN 连不上", "heading": "排查", "score": 0.7,
                          "path": "vpn.md", "text": "换热点。"}]
-        bot = plugin.Bot(FakeCtx())
+        bot = plugin.Bot(FakeCtx(kb_synthesize=False))
         text, source = asyncio.new_event_loop().run_until_complete(bot.answer("VPN 连不上"))
         self.assertTrue(source.startswith("kb:"))
         self.assertIn("换热点", text)
+
+    def test_kb_hit_uses_model_synthesis(self):
+        """命中文档时应让模型组织回答，而不是整段抄资料。"""
+        self.kb.hits = [{"title": "GD 问题", "heading": "排查", "score": 0.8,
+                         "path": "gd.md", "text": "先检查网络，再重启客户端。"}]
+        called = {}
+
+        async def fake_answer(self_, question, hits=None):
+            called["hits"] = hits
+            return "先确认网络，然后重启 GD 客户端。"
+
+        orig = plugin.Bot._agent_answer
+        plugin.Bot._agent_answer = fake_answer
+        try:
+            bot = plugin.Bot(FakeCtx(kb_synthesize=True, fallback_agent=True))
+            text, source = asyncio.new_event_loop().run_until_complete(
+                bot.answer("我 GD 用不了了"))
+        finally:
+            plugin.Bot._agent_answer = orig
+        self.assertTrue(text.startswith("先确认网络"))
+        self.assertIn("来源：", text)
+        self.assertTrue(source.startswith("model+kb:"))
+        self.assertTrue(called["hits"])
 
     def test_unknown_without_agent(self):
         self.fake.conversations = [conv(dm(), "@Gantry 火星怎么去")]
@@ -286,6 +317,52 @@ class SendGatingTests(BotTestCase):
         self.assertEqual(peer, "Lynn Ling - Example")
         self.assertTrue(send)
         self.assertIn("Gantry", snippet)
+        # P0：发送前必须带上完整身份核验上下文，且严格模式不许回退 UI
+        self.assertEqual(self.fake.last_expected["conv_id"], dm())
+        self.assertEqual(self.fake.last_expected["peer"], "Lynn Ling - Example")
+        self.assertTrue(self.fake.last_strict)
+        self.assertEqual(self.fake.last_expected["message_id"], "m1")
+
+
+class ConcurrencyAndIdempotencyTests(BotTestCase):
+    def test_cycle_is_not_reentrant(self):
+        bot = plugin.Bot(FakeCtx(enabled=True, outbox_path=":memory:"))
+        loop = asyncio.new_event_loop()
+        loop.run_until_complete(bot._lock.acquire())
+        try:
+            out = loop.run_until_complete(bot.cycle())
+        finally:
+            bot._lock.release()
+        self.assertEqual(out.get("skipped"), "busy")
+
+    def test_duplicate_after_restart_is_not_sent_again(self):
+        import tempfile
+
+        self.kb.hits = [{"title": "T", "heading": "", "score": 0.9, "path": "t.md",
+                         "text": "答案"}]
+        self.fake.conversations = [conv(dm(), "@Gantry 问题", last_id="same-msg")]
+        with tempfile.TemporaryDirectory() as td:
+            path = str(Path(td) / "sends.db")
+            cfg = dict(enabled=True, dry_run=False, send_enabled=True,
+                       mention_tokens=["@Gantry"], outbox_path=path,
+                       kb_synthesize=False)
+            loop = asyncio.new_event_loop()
+            ctx1, ctx2 = FakeCtx(**cfg), FakeCtx(**cfg)
+            try:
+                first = loop.run_until_complete(plugin.Bot(ctx1).cycle())
+                self.assertEqual(first["replied"], 1)
+                self.assertEqual(len(self.fake.sent), 1)
+                # 模拟重启：新 Bot、新 seen，但幂等箱还在
+                second = loop.run_until_complete(plugin.Bot(ctx2).cycle())
+            finally:
+                for c in (ctx1, ctx2):
+                    ob = getattr(c, "_teams_outbox", None)
+                    if ob is not None:
+                        ob.close()
+            self.assertEqual(second["replied"], 0)
+            self.assertEqual(len(self.fake.sent), 1, "重启后不能重复发送同一条")
+            self.assertTrue(any(s.get("why") == "duplicate"
+                                for s in second.get("skipped", [])))
 
 
 class OverrideTests(BotTestCase):

@@ -319,7 +319,13 @@ def _strip_plain_suggestion_tail(raw: str) -> str:
 
         def _short(s: str) -> bool:
             s = s.strip()
-            return (0 < len(s) <= 40 and s[-1] not in "。！？.!?：:"
+            end_ok = s[-1] not in "。！？.!?：:" if s else False
+            # 建议按钮也可能是问句（"Global Desktop 网页也打不开怎么办"）。
+            # 只有在已经命中至少一条建议句式时才走到这里，误删风险可控。
+            question_ok = bool(re.search(
+                r"(怎么办|怎么|如何|为什么|是否|能不能|可不可以|有没有|要不要|"
+                r"哪里|什么时候|多少|谁|哪些)[？?]?$", s))
+            return (0 < len(s) <= 40 and (end_ok or question_ok)
                     and not s.startswith(("-", "*", "•"))
                     and not s[0].isdigit())
         if not all(_short(x) for x in tail):

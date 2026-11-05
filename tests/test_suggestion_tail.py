@@ -41,6 +41,20 @@ class StripSuggestionTests(unittest.TestCase):
                 "Give me three alternatives")
         self.assertEqual(strip_suggestion_tail(text), "It is 42.")
 
+    def test_question_form_and_prompt_tail_stripped(self):
+        """实测 Teams GD 答案尾巴：一条"提供…" + 一条建议问句。"""
+        text = (
+            "先试一下自助修复：\n"
+            "登录 Global Desktop 网页。\n"
+            "如果还是不行，请把报错截图发给 Local IT。\n\n"
+            "提供一下报错截图和应用名称\n"
+            "Global Desktop 网页也打不开怎么办"
+        )
+        out = strip_suggestion_tail(text)
+        self.assertNotIn("提供一下报错截图", out)
+        self.assertNotIn("网页也打不开怎么办", out)
+        self.assertIn("登录 Global Desktop 网页", out)
+
     def test_plain_numbered_list_untouched(self):
         text = "步骤如下：\n\n1. 读取文件\n2. 修改配置\n3. 运行测试"
         self.assertEqual(strip_suggestion_tail(text), text)

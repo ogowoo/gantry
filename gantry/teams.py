@@ -114,7 +114,85 @@ class TeamsError(RuntimeError):
     pass
 
 
+class TeamsBusyError(TeamsError):
+    """Teams 页面正被另一条发送/轮询流程占用（统一互斥锁超时）。"""
+
+
 teams_page = None
+
+# 所有会改共享 Teams 页面的操作（打开会话/输入/发送/回退 UI）都串行化。
+# 读 IndexedDB 可以并发；一旦要动页面，就必须拿这把锁。
+_PAGE_LOCK = asyncio.Lock()
+PAGE_LOCK_TIMEOUT = 45.0
+
+
+async def acquire_page_lock(timeout: float | None = None) -> None:
+    """拿页面锁；超时抛 TeamsBusyError（调用方转成"忙，稍后再试"）。"""
+    limit = PAGE_LOCK_TIMEOUT if timeout is None else float(timeout)
+    try:
+        await asyncio.wait_for(_PAGE_LOCK.acquire(), timeout=max(0.1, limit))
+    except asyncio.TimeoutError as exc:
+        raise TeamsBusyError("Teams 页面正忙（另一条发送/轮询未结束），请稍后再试") from exc
+
+
+def release_page_lock() -> None:
+    try:
+        if _PAGE_LOCK.locked():
+            _PAGE_LOCK.release()
+    except RuntimeError:
+        pass
+
+
+def page_lock_stats() -> dict[str, Any]:
+    return {"locked": bool(_PAGE_LOCK.locked()), "timeout": PAGE_LOCK_TIMEOUT}
+
+
+def _norm_identity(text: str) -> str:
+    return re.sub(r"\s+", " ", str(text or "")).strip().casefold()
+
+
+def _plain_text(raw: str) -> str:
+    return _norm_identity(_html.unescape(re.sub(r"<[^>]+>", " ", str(raw or ""))))
+
+
+def verify_conversation_identity(conv: dict[str, Any] | None,
+                                 expected: dict[str, Any] | None) -> dict[str, Any]:
+    """发送前核验 conversation_id、标题、对端身份。
+
+    `expected` 可包含：conv_id / peer / peer_guid / topic / snippet。
+    任一已知字段不一致都返回 ok=False；调用方必须停止发送。
+    """
+    exp = dict(expected or {})
+    if not exp:
+        return {"ok": True, "errors": []}
+    if conv is None:
+        return {"ok": False, "errors": ["会话记录不存在"]}
+    errors: list[str] = []
+    got_id = str(conv.get("id") or "")
+    want_id = str(exp.get("conv_id") or "")
+    if want_id and got_id != want_id:
+        errors.append(f"conversation_id 不一致：期望 {want_id[:32]}，实际 {got_id[:32]}")
+    topic = _norm_identity(conv.get("topic") or "")
+    want_topic = _norm_identity(exp.get("topic") or "")
+    if want_topic and topic != want_topic:
+        errors.append(f"会话标题不一致：期望「{exp.get('topic')}」，实际「{conv.get('topic')}」")
+    want_peer = _norm_identity(exp.get("peer") or "")
+    peer_guid = _norm_identity(exp.get("peer_guid") or "")
+    if peer_guid:
+        if peer_guid not in got_id.casefold():
+            errors.append("对端 GUID 不在 conversation_id 里")
+    elif want_peer:
+        hay = " ".join([topic, _norm_identity(conv.get("lastFrom") or ""),
+                        _norm_identity(conv.get("topic") or "")])
+        if want_peer not in hay:
+            errors.append(f"对端身份不一致：期望「{exp.get('peer')}」")
+    snippet = _plain_text(exp.get("snippet") or "")
+    if snippet:
+        last = _plain_text(conv.get("last") or "")
+        # 只比较前 20 个字符：消息可能被 HTML 截断，但开头足以定位
+        if last and snippet[:20] not in last:
+            errors.append("最后一条消息内容不一致（会话可能已切换）")
+    return {"ok": not errors, "errors": errors, "conversation": conv}
 
 
 # ── 网页客户端内部接口（只读部分）──────────────────────────────────────────
@@ -2405,8 +2483,14 @@ async def _ensure_skype_token(page) -> str:
 
 
 async def _resolve_conversation_id(page, conv_id: str, peer: str, token: str,
-                                   snippet: str = "") -> tuple[str, dict[str, Any]]:
-    """用 chatsvc 的 conversations 列表校正 id（IndexedDB 的 id 可能是 thread id）。"""
+                                   snippet: str = "", *,
+                                   expected: dict[str, Any] | None = None
+                                   ) -> tuple[str, dict[str, Any]]:
+    """用 chatsvc 的 conversations 列表校正/核验 id。
+
+    有 `expected` 时走**严格模式**：只接受 id 完全一致且身份核验通过的会话；
+    绝不用 peer/snippet 模糊匹配到另一个 id（发错会话比不发更严重）。
+    """
     out = await page.evaluate("""async ({origin, token}) => {
       try {
         const r = await fetch(origin + '/api/chatsvc/emea/v1/users/ME/conversations'
@@ -2429,10 +2513,21 @@ async def _resolve_conversation_id(page, conv_id: str, peer: str, token: str,
       } catch (e) { return {ok: false, error: String(e)}; }
     }""", {"origin": "https://teams.cloud.microsoft", "token": token})
     convs = out.get("conversations") or []
+    exact = next((c for c in convs if c.get("id") == conv_id), None)
+    if expected:
+        if exact is None:
+            return conv_id, {"how": "not-found", "status": out.get("status"),
+                             "count": len(convs),
+                             "verification": {"ok": False,
+                                              "errors": ["会话 id 不在可发送列表里"]}}
+        verification = verify_conversation_identity(exact, expected)
+        return conv_id, {"how": "exact", "status": out.get("status"),
+                         "conversation": exact, "verification": verification}
     # 1) id 完全一致
     for c in convs:
         if c.get("id") == conv_id:
-            return conv_id, {"how": "same-id", "status": out.get("status")}
+            return conv_id, {"how": "same-id", "status": out.get("status"),
+                             "conversation": c}
     p = (peer or "").strip().lower()
     tokens = [t for t in re.split(r"[^a-z0-9]+", p) if len(t) > 1]
     frag = " ".join((snippet or "").split())[:16].lower()
@@ -2449,40 +2544,73 @@ async def _resolve_conversation_id(page, conv_id: str, peer: str, token: str,
             if peer_ok(c) and frag in _plain(c.get("last")):
                 return str(c.get("id") or conv_id), {
                     "how": "peer+frag", "status": out.get("status"),
-                    "topic": c.get("topic")}
+                    "topic": c.get("topic"), "conversation": c}
     # 3) peer 且不是会议
     for c in convs:
         if peer_ok(c) and "meeting" not in str(c.get("type") or "").lower() \
                 and "meeting" not in str(c.get("threadType") or "").lower() \
                 and "会面" not in str(c.get("topic") or ""):
             return str(c.get("id") or conv_id), {
-                "how": "peer-1to1", "status": out.get("status"), "topic": c.get("topic")}
+                "how": "peer-1to1", "status": out.get("status"), "topic": c.get("topic"),
+                "conversation": c}
     # 没把握就不猜：交给 UI 回退，宁可慢也不要发错会话
     return conv_id, {"how": "not-found", "status": out.get("status"),
                      "count": len(convs), "head": out.get("body")}
 
 
 async def api_send_message(page, conv_id: str, text: str,
-                           peer: str = "", snippet: str = "") -> dict[str, Any]:
+                           peer: str = "", snippet: str = "", *,
+                           expected: dict[str, Any] | None = None,
+                           lock: bool = True) -> dict[str, Any]:
     """用 chatsvc API 直接发消息（完全绕开 UI）。
 
-    conversation id 来自 IndexedDB 的 lastMessage 所属会话（cycle 里已经有）。
+    有 `expected` 时先做**严格身份核验**（id/标题/对端/最后消息），任一不一致直接
+    `reason=identity_mismatch` 返回，绝不发送，也不会回退到 UI 猜会话。
+
     关键：chatsvc 要 **`X-Skypetoken` 头**，不是 `Authorization: Bearer`；
     同源 `/api/chatsvc/emea/...` 才能 200（实测 401 都是认证方式不对）。
     """
+    if lock:
+        await acquire_page_lock()
+        try:
+            return await _api_send_message(page, conv_id, text, peer=peer,
+                                           snippet=snippet, expected=expected)
+        finally:
+            release_page_lock()
+    return await _api_send_message(page, conv_id, text, peer=peer,
+                                   snippet=snippet, expected=expected)
+
+
+async def _api_send_message(page, conv_id: str, text: str, *,
+                            peer: str = "", snippet: str = "",
+                            expected: dict[str, Any] | None = None) -> dict[str, Any]:
     page = page or await teams_open()
     skype = await _ensure_skype_token(page)
     if not skype:
         return {"ok": False, "error": "拿不到 skypetoken"}
     page = teams_page or page
     claims = _jwt_claims(skype)
-    conv_id, resolved = await _resolve_conversation_id(page, conv_id, peer, skype, snippet)
+    conv_id, resolved = await _resolve_conversation_id(
+        page, conv_id, peer, skype, snippet, expected=expected)
+    verification = resolved.get("verification") or {"ok": True, "errors": []}
+    if expected and (resolved.get("how") != "exact" or not verification.get("ok")):
+        reason = "，".join(verification.get("errors") or ["会话 id 不在可发送列表里"])
+        return {"ok": False, "reason": "identity_mismatch",
+                "error": "发送前校验失败，已停止发送：" + reason,
+                "verification": verification, "resolved": resolved, "claims": claims}
     if resolved.get("how") == "not-found":
         return {"ok": False, "error": "无法确认可发送的会话 id",
                 "resolved": resolved, "claims": claims}
     body_text = _html.escape(str(text or "")).replace("\r\n", "\n").replace("\n", "<br>")
     body_html = f"<p>{body_text}</p>"
-    client_id = str(int(time.time() * 1000))
+    # clientmessageid 稳定化：同一 (conv,message) 的自动重试在服务端也尽量去重
+    seed = ""
+    if expected:
+        seed = f"{conv_id}|{expected.get('message_id') or ''}|{text or ''}"
+    if seed:
+        client_id = "gantry-" + hashlib.sha1(seed.encode("utf-8")).hexdigest()[:24]
+    else:
+        client_id = str(int(time.time() * 1000))
     result = await page.evaluate("""async ({origin, token, id, html, client}) => {
       const urls = [
         origin + '/api/chatsvc/emea/v1/users/ME/conversations/'
@@ -3179,6 +3307,14 @@ async def recent_messages(limit: int = 30, my_name: str = "",
 
 async def send_message(text: str) -> None:
     """在当前会话的输入框里发一条消息（Enter 发送）。"""
+    await acquire_page_lock()
+    try:
+        await _send_message_unlocked(text)
+    finally:
+        release_page_lock()
+
+
+async def _send_message_unlocked(text: str) -> None:
     body = (text or "").strip()
     if not body:
         raise TeamsError("消息内容为空")
@@ -3379,7 +3515,16 @@ async def compose_text(text: str, page=None, send: bool = False) -> dict[str, An
     """在当前会话输入框里输入文本；send=True 时点发送按钮，否则只输入并清空。
 
     发送必须显式 `send=True`（插件侧还有 dry_run/send_enabled 两道闸）。
+    与后台轮询/手动回复共用同一把页面锁。
     """
+    await acquire_page_lock()
+    try:
+        return await _compose_text_unlocked(text, page=page, send=send)
+    finally:
+        release_page_lock()
+
+
+async def _compose_text_unlocked(text: str, page=None, send: bool = False) -> dict[str, Any]:
     body = (text or "").strip()
     page = page or await teams_open()
     out: dict[str, Any] = {"len": len(body), "sent": False}
@@ -3455,27 +3600,78 @@ async def _leave_chat(page) -> None:
         pass
 
 
+def _title_matches(head: str, expected: dict[str, Any] | None, peer: str = "") -> tuple[bool, str]:
+    """校验打开的会话标题是否匹配期望的 topic/peer。"""
+    exp = dict(expected or {})
+    h = _norm_identity(head)
+    topic = _norm_identity(exp.get("topic") or "")
+    who = _norm_identity(exp.get("peer") or peer or "")
+    if not h and (topic or who):
+        return False, "会话标题为空，无法核验目标会话"
+    if topic:
+        if topic not in h and h not in topic:
+            return False, f"标题不一致：期望「{exp.get('topic')}」，实际「{head}」"
+    if who:
+        # 完整名字匹配；不用前 8 个字符（会误判同名会话）
+        if who not in h:
+            return False, f"对端不一致：期望「{exp.get('peer') or peer}」，实际「{head}」"
+    return True, ""
+
+
 async def reply_to(peer: str, text: str, send: bool = False,
-                   snippet: str = "", conv_id: str = "") -> dict[str, Any]:
+                   snippet: str = "", conv_id: str = "", *,
+                   expected: dict[str, Any] | None = None,
+                   strict: bool = False) -> dict[str, Any]:
     """打开 peer 的会话并准备回复（send=False 只输入并清空，绝不发送）。
 
     `snippet` = 该会话最后一条消息的片段：优先用它搜索（命中的是聊天），
     没有再用人名搜（人名可能命中联系人名片）。
-    `conv_id` = IndexedDB 里的会话 id：send=True 时优先直接走 chatsvc API，
-    完全不碰 UI（不会偏到搜索页/旧文件）。
+    `conv_id` = IndexedDB 里的会话 id：send=True 时优先直接走 chatsvc API。
+    `expected` = 发送前核验上下文（conv_id/peer/peer_guid/topic/snippet），
+    任一不一致都会停止发送；`strict=True` 时 API 不可用也不回退 UI。
+    所有 UI 操作与后台轮询共用同一把页面锁。
     """
+    await acquire_page_lock()
+    try:
+        return await _reply_to_unlocked(peer, text, send=send, snippet=snippet,
+                                        conv_id=conv_id, expected=expected,
+                                        strict=strict)
+    finally:
+        release_page_lock()
+
+
+async def _reply_to_unlocked(peer: str, text: str, send: bool = False,
+                             snippet: str = "", conv_id: str = "",
+                             expected: dict[str, Any] | None = None,
+                             strict: bool = False) -> dict[str, Any]:
     page = await teams_open()
     api_res: dict[str, Any] | None = None
     if send and conv_id:
         try:
             api_res = await api_send_message(page, conv_id, text, peer=peer,
-                                             snippet=snippet)
+                                             snippet=snippet, expected=expected,
+                                             lock=False)
             if api_res.get("ok"):
                 return {"opened": True, "how": "api", "sent": True,
                         "id": api_res.get("id"), "status": api_res.get("status")}
+            if api_res.get("reason") == "identity_mismatch":
+                return {"opened": False, "sent": False,
+                        "reason": "identity_mismatch",
+                        "error": api_res.get("error") or "发送前身份校验失败",
+                        "verification": api_res.get("verification")}
+            if strict or conv_id:
+                # 给了 conv_id 就必须按 conv_id 发；API 不可用时 UI 无法核对 id，
+                # 回退可能发错会话，因此严格停止。
+                return {"opened": False, "sent": False,
+                        "reason": "strict_no_ui_fallback",
+                        "error": api_res.get("error") or "API 发送失败，严格模式不退回 UI"}
             _b.log(f"reply_to API 发送失败（回退 UI）：{api_res.get('status')} {api_res.get('body')}")
         except Exception as exc:                 # noqa: BLE001
             api_res = {"ok": False, "error": str(exc)[:300]}
+            if strict or conv_id:
+                return {"opened": False, "sent": False,
+                        "reason": "strict_no_ui_fallback",
+                        "error": f"API 发送异常，严格模式不退回 UI：{str(exc)[:160]}"}
             _b.log(f"reply_to API 发送异常（回退 UI）：{str(exc)[:160]}")
     opened = False
     how = ""
@@ -3501,18 +3697,13 @@ async def reply_to(peer: str, text: str, send: bool = False,
     if not opened:
         return {"opened": False, "error": f"打不开会话: {peer}"}
     head = await header_title(page)
-    # 最后一道校验：打开的会话标题必须包含 peer。否则宁可报错，也不能把回复
+    # 最后一道校验：打开的会话标题必须包含 peer/topic。否则宁可报错，也不能把回复
     # 发进别的群（实测同一个消息片段会命中多个会话，曾打开成 "AI GROUP Chat"）。
-    if peer and head and peer.lower()[:8] not in head.lower():
-        # snippet 命中了别的会话：回列表按人名再试一次，仍不对就报错
-        await _goto_chat_home(page)
-        if await open_chat(peer):
-            how = "name"
-            head = await header_title(page)
-        if not head or peer.lower()[:8] not in head.lower():
-            return {"opened": False, "how": how, "header": (head or "")[:50],
-                    "error": f"打开的是「{(head or '')[:40]}」，不是「{peer}」"}
-    res = await compose_text(text, page=page, send=send)
+    ok, why = _title_matches(head, expected, peer)
+    if not ok:
+        return {"opened": False, "how": how, "header": (head or "")[:50],
+                "reason": "identity_mismatch", "error": why}
+    res = await _compose_text_unlocked(text, page=page, send=send)
     if send and res.get("sent"):
         await _leave_chat(page)
     return {"opened": True, "how": how, "header": (head or "")[:50], **res,
