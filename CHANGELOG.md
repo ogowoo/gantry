@@ -14,6 +14,28 @@
 ### Fixed
 - 
 
+## [11.0.0-preview.71] - 2026-11-05
+
+### Fixed
+
+- **未登录不再"干等 300 秒"**：`teams_open()` 以前只靠 `login_wall` 选择器判定登录墙，
+  Teams 登录页在 `login.microsoftonline.com` 下、选择器又随版本变，表现为"界面一直没准备好"，
+  300s 才报错。新增 `_login_wall_hint()`：URL 域名 / 页面文本（sign in、登录、使用其他帐户…）
+  / 选择器三重判定，**约 10s 内**抛 `TeamsAuthRequired`，随后按 `auth_backoff` 退避。
+- `open_teams_for_login()` 用同一判定，`logged_in` 不再误报 true。
+
+### Added
+
+- `scripts/login_teams.py`：把 Teams 标签 `bring_to_front()`，每 10s 查一次登录状态，
+  `--timeout` 默认 900s（MFA 慢可放宽）；`POST api/open-teams` 返回
+  `{ok,url,title,logged_in,hint}`。
+
+### 实测
+
+- 未登录时：`login_teams.py` 打印登录页 URL + 等待提示；`idb-watch` **秒级**返回
+  `auth=expired`（此前 300s 超时）。
+- `tests/test_teams_bot.py` 32 条通过；全套 1581（skipped=1）OK；不变量 25 条全绿。
+
 ## [11.0.0-preview.70] - 2026-11-05
 
 ### Added

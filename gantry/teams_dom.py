@@ -510,16 +510,45 @@ async def open_teams_for_login(wait: float = 8.0) -> dict[str, Any]:
         title = await page.title()
     except Exception:                            # noqa: BLE001
         pass
-    logged_in = False
+    hint = await _login_wall_hint(page)
+    cur_url = ""
     try:
-        logged_in = not await _first_visible(page, "login_wall")
+        cur_url = (page.url or "").lower()
     except Exception:                            # noqa: BLE001
-        logged_in = False
+        cur_url = ""
+    logged_in = not hint
     return {"ok": True, "url": (page.url or "")[:200], "title": title[:120],
             "logged_in": logged_in,
             "hint": "" if logged_in else
-                    "浏览器窗口已切到前台：在这个窗口里登录 Teams（MFA 慢就慢慢来），"
-                    "登录完成后机器人会自动恢复（每 20s 轮询一次）"}
+                    f"浏览器窗口已切到前台（当前在登录页）：在这个窗口里登录 Teams"
+                    f"（MFA 慢就慢慢来），登录完成后机器人会自动恢复；当前 URL: {cur_url[:120]}"}
+
+
+async def _login_wall_hint(page) -> str:
+    """判断是否停在登录页；返回命中的证据（空串=没检测到）。"""
+    try:
+        url = (page.url or "").lower()
+    except Exception:                            # noqa: BLE001
+        url = ""
+    if any(k in url for k in ("login.microsoftonline.com", "login.live.com", "adfs",
+                              "login.microsoft.com", "/oauth2/authorize")):
+        return f"url={url[:80]}"
+    try:
+        if await _first_visible(page, "login_wall"):
+            return "login_wall"
+    except Exception:                            # noqa: BLE001
+        pass
+    text = ""
+    try:
+        text = (await page.inner_text("body"))[:600].lower()
+    except Exception:                            # noqa: BLE001
+        text = ""
+    for k in ("sign in to your account", "use another account", "使用其他帐户",
+              "使用另一个账户", "登录到你的帐户", "登录到你的账户", "输入密码",
+              "sign in", "登录"):
+        if k in text:
+            return f"text={k}"
+    return ""
 
 
 async def teams_open(timeout: float = 300.0, force_reload: bool = False) -> Any:
@@ -573,6 +602,15 @@ async def teams_open(timeout: float = 300.0, force_reload: bool = False) -> Any:
             # 真的就绪：会话项或输入框已经出现
             if await _warm_ready(teams_page):
                 return teams_page
+            # 未登录的页面在 teams 域名下、选择器又不稳定：用文本/URL 兜底快速识别，
+            # 别让机器人白等满 timeout（实测 300s 才报"界面没准备好"）
+            if time.monotonic() - (deadline - timeout) > 10:
+                hint = await _login_wall_hint(teams_page)
+                if hint:
+                    await diagnostics("teams_login_wall_fast")
+                    raise TeamsAuthRequired(
+                        f"Teams 停在登录页（{hint}）：先在自动化浏览器里登录一次 Teams"
+                        "（可用 python scripts/login_teams.py）")
             # 首次运行/大版本更新后会停在"We're setting things up for you…"：
             # 这不是错误，只能等（实测几分钟），但要让人从日志看出来在等什么
             if not warming_logged:
