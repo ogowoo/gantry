@@ -124,6 +124,7 @@ teams_page = None
 # 读 IndexedDB 可以并发；一旦要动页面，就必须拿这把锁。
 _PAGE_LOCK = asyncio.Lock()
 PAGE_LOCK_TIMEOUT = 45.0
+REPLY_TIMEOUT = 120.0
 
 
 async def acquire_page_lock(timeout: float | None = None) -> None:
@@ -2467,8 +2468,12 @@ def _jwt_claims(tok: str) -> dict[str, Any]:
         return {}
 
 
-async def _ensure_skype_token(page) -> str:
-    """拿 chatsvc 用的 skypeToken；优先缓存，其次 authz，最后抓一次响应。"""
+async def _ensure_skype_token(page, *, capture: bool = False) -> str:
+    """拿 chatsvc 用的 skypeToken；优先缓存，其次 authz。
+
+    `capture=True` 才会重载页面抓 token（诊断用）；发送路径默认不抓：
+    重载/装钩子可能几十秒，会把 Teams 发送卡死（实测 120s 超时）。
+    """
     skype = str(_CAPTURED.get("skype") or "")
     if skype:
         return skype
@@ -2480,6 +2485,8 @@ async def _ensure_skype_token(page) -> str:
     if skype:
         _CAPTURED["skype"] = skype
         return skype
+    if not capture:
+        return ""
     try:
         await api_hook_capture(page=None, reload=True, seconds=45)
     except Exception:                            # noqa: BLE001
@@ -2614,7 +2621,8 @@ async def _api_send_message(page, conv_id: str, text: str, *,
     page = page or await teams_open()
     skype = await _ensure_skype_token(page)
     if not skype:
-        return {"ok": False, "error": "拿不到 skypetoken"}
+        return {"ok": False, "reason": "api_unavailable",
+                "error": "拿不到 skypetoken（发送路径不重载页面抓 token，改走 UI）"}
     page = teams_page or page
     claims = _jwt_claims(skype)
     conv_id, resolved = await _resolve_conversation_id(
@@ -2948,9 +2956,14 @@ async def close_extra_gantry_tabs() -> dict[str, Any]:
 async def teams_open(timeout: float = 300.0, force_reload: bool = False) -> Any:
     """打开/复用 Teams 标签页，等到主界面出现。SSO 已在共享 ctx 里，通常只需几秒。"""
     global teams_page
-    # ctx 是懒启动的：先确保浏览器起来，否则 _b.ctx 还是 None
+    # ctx 是懒启动的：先确保浏览器起来，否则 _b.ctx 还是 None。
+    # 注意：不能等 Copilot 就绪——Copilot 区域被 blocked 时 Teams 也要能用。
     try:
-        await _b.ensure_browser_ready()
+        _raw = getattr(_b, "ENSURE_BROWSER_RAW", None)
+        if callable(_raw):
+            await _raw()
+        else:
+            await _b.ensure_browser_ready()
     except Exception as exc:                    # noqa: BLE001
         raise TeamsError(f"启动浏览器失败：{exc}") from exc
     ctx = _b.ctx
@@ -3777,9 +3790,16 @@ async def reply_to(peer: str, text: str, send: bool = False,
     """
     await acquire_page_lock()
     try:
-        return await _reply_to_unlocked(peer, text, send=send, snippet=snippet,
-                                        conv_id=conv_id, expected=expected,
-                                        strict=strict)
+        try:
+            return await asyncio.wait_for(
+                _reply_to_unlocked(peer, text, send=send, snippet=snippet,
+                                   conv_id=conv_id, expected=expected,
+                                   strict=strict),
+                timeout=REPLY_TIMEOUT)
+        except asyncio.TimeoutError:
+            _b.log(f"reply_to 超时（>{REPLY_TIMEOUT:.0f}s），已取消并释放页面锁")
+            return {"opened": False, "sent": False, "reason": "timeout",
+                    "error": f"发送超时（>{REPLY_TIMEOUT:.0f}s），已取消"}
     finally:
         release_page_lock()
 
@@ -3788,7 +3808,26 @@ async def _reply_to_unlocked(peer: str, text: str, send: bool = False,
                              snippet: str = "", conv_id: str = "",
                              expected: dict[str, Any] | None = None,
                              strict: bool = False) -> dict[str, Any]:
-    page = await teams_open()
+    # 当前已经停在目标会话时走最快路径：不再抓 token/搜索/按行打开。
+    # 这能避开 Teams 页面偶发卡死导致的 120s 超时。
+    page = None
+    if teams_page is not None and not teams_page.is_closed():
+        try:
+            page = teams_page
+        except Exception:                        # noqa: BLE001
+            page = None
+    if page is None or "teams." not in (page.url or ""):
+        page = await teams_open()
+    if send and expected:
+        try:
+            head = await asyncio.wait_for(header_title(page), timeout=5)
+        except Exception:                        # noqa: BLE001
+            head = ""
+        if head and _title_matches(head, expected, peer)[0]:
+            res = await _compose_text_unlocked(text, page=page, send=send)
+            if send and res.get("sent"):
+                await _leave_chat(page)
+            return {"opened": True, "how": "current", "header": head[:50], **res}
     api_res: dict[str, Any] | None = None
     if send and conv_id:
         try:
@@ -3804,14 +3843,15 @@ async def _reply_to_unlocked(peer: str, text: str, send: bool = False,
                         "error": api_res.get("error") or "发送前身份校验失败",
                         "verification": api_res.get("verification")}
             not_found = (api_res.get("resolved") or {}).get("how") == "not-found"
+            unavailable = api_res.get("reason") == "api_unavailable"
             if strict or conv_id:
                 # 有些 1:1（例如自己的另一个账号/旧会话）不在 chatsvc 列表里，
-                # 但 UI 仍能打开。此时允许回退 UI，但必须用标题/对端做核验；
+                # 或暂时没有 skypetoken；此时允许回退 UI，但必须用标题/对端核验。
                 # 真正的身份不一致（identity_mismatch）上面已经直接拒绝。
                 expected_known = bool((expected or {}).get("peer") or
                                       (expected or {}).get("topic"))
-                if not_found and expected_known:
-                    _b.log("API 列表找不到会话，回退 UI（仍校验标题/对端）")
+                if (not_found or unavailable) and expected_known:
+                    _b.log("API 不可用/找不到会话，回退 UI（仍校验标题/对端）")
                 else:
                     return {"opened": False, "sent": False,
                             "reason": "strict_no_ui_fallback",

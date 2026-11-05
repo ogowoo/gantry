@@ -939,6 +939,36 @@ def setup(ctx):
         """只读：查看 Teams 标签页，确认是否重复开标签。"""
         return await teams.teams_tabs()
 
+    async def _api_all_tabs(request=None):
+        """只读：列出浏览器里所有标签页（排障 Teams 打开卡住时用）。"""
+        from gantry import bridge as b
+
+        out = []
+        try:
+            pages = list(b.ctx.pages) if b.ctx is not None else []
+        except Exception:                        # noqa: BLE001
+            pages = []
+        for i, p in enumerate(pages):
+            try:
+                if p.is_closed():
+                    continue
+                out.append({"index": i, "url": (p.url or "")[:160],
+                            "title": ((await p.title()) or "")[:100]})
+            except Exception:                    # noqa: BLE001
+                continue
+        return {"count": len(out), "tabs": out}
+
+    async def _api_open_teams(request=None):
+        """后台打开 Teams 标签（不阻塞 HTTP），用于排障/登录。"""
+        timeout = 300.0
+        try:
+            q = getattr(request, "query_params", {}) or {}
+            timeout = float(q.get("timeout") or 300)
+        except Exception:                        # noqa: BLE001
+            pass
+        asyncio.create_task(teams.teams_open(timeout=timeout))
+        return {"started": True, "timeout": timeout}
+
     async def _api_tabs_cleanup(request=None):
         """关掉 Gantry 自开的多余 Teams 标签（不碰用户自己的 Chat 标签）。"""
         return await teams.close_extra_gantry_tabs()
@@ -980,6 +1010,8 @@ def setup(ctx):
     ctx.register_api("GET", "api/idb-watch", _api_idb_watch)
     ctx.register_api("GET", "api/resolve", _api_resolve)
     ctx.register_api("GET", "api/tabs", _api_tabs)
+    ctx.register_api("GET", "api/all-tabs", _api_all_tabs)
+    ctx.register_api("POST", "api/open-teams", _api_open_teams)
     ctx.register_api("POST", "api/tabs/cleanup", _api_tabs_cleanup)
     ctx.register_api("GET", "api/open-search", _api_open_search)
     ctx.register_api("GET", "api/search-probe", _api_search_probe)
