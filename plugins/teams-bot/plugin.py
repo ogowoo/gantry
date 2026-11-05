@@ -494,6 +494,15 @@ class Bot:
                     continue
                 _seen_ids.add(cid)
                 convs.append(c)
+            # 白名单：`chats` 非空时只处理标题/对端名匹配的会话（否则会扫全部未读）
+            allow = [str(x).strip().lower() for x in (_cfg(self.ctx, "chats") or []) if str(x).strip()]
+            if allow:
+                def _hit(c: dict[str, Any]) -> bool:
+                    hay = f"{c.get('peerName') or ''} {c.get('topic') or ''}".lower()
+                    return any(a in hay for a in allow)
+                before = len(convs)
+                convs = [c for c in convs if _hit(c)]
+                out["filtered"] = before - len(convs)
             out["scanned"] = len(convs)
             for c in convs:
                 cid = str(c.get("id") or "")
@@ -1056,6 +1065,30 @@ def setup(ctx):
             page, cid, peer, token, snippet, expected=expected)
         return {"conv_id": cid, "resolved": resolved, "page_url": page.url}
 
+    async def _api_messages(request=None):
+        """只读：按 conv_id 读会话消息（服务端真值，用于核对发送）。"""
+        cid, limit = "", 20
+        try:
+            q = getattr(request, "query_params", {}) or {}
+            cid = str(q.get("id") or "")
+            limit = int(q.get("limit") or 20)
+        except Exception:                        # noqa: BLE001
+            pass
+        if not cid:
+            return {"ok": False, "error": "需要 ?id=conversation_id"}
+        page = await teams.teams_open()
+        return await teams.api_messages(page, cid, max(1, min(limit, 50)))
+
+    async def _api_reload_teams(request=None):
+        """只读：重新加载 Teams 页面并返回 probe（同步 IDB/DOM 用）。"""
+        page = await teams.teams_open()
+        try:
+            await page.reload(wait_until="domcontentloaded", timeout=60000)
+        except Exception as exc:                 # noqa: BLE001
+            return {"ok": False, "error": str(exc)[:200]}
+        await asyncio.sleep(4)
+        return {"ok": True, "url": page.url}
+
     async def _api_tabs(request=None):
         """只读：查看 Teams 标签页，确认是否重复开标签。"""
         return await teams.teams_tabs()
@@ -1136,6 +1169,8 @@ def setup(ctx):
     ctx.register_api("GET", "api/idb-watch", _api_idb_watch)
     ctx.register_api("POST", "api/open-teams", _api_open_teams)
     ctx.register_api("GET", "api/resolve", _api_resolve)
+    ctx.register_api("GET", "api/messages", _api_messages)
+    ctx.register_api("POST", "api/reload-teams", _api_reload_teams)
     ctx.register_api("GET", "api/tabs", _api_tabs)
     ctx.register_api("GET", "api/all-tabs", _api_all_tabs)
     ctx.register_api("POST", "api/tabs/cleanup", _api_tabs_cleanup)

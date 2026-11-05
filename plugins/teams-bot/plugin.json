@@ -54,7 +54,9 @@
         "POST api/compose",
         "GET api/search-rows",
         "GET api/answer",
-        "POST api/open-teams"
+        "POST api/open-teams",
+        "GET api/messages",
+        "POST api/reload-teams"
       ]
     },
     "config": {

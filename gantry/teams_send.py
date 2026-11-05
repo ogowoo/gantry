@@ -84,9 +84,28 @@ async def _compose_text_unlocked(text: str, page=None, send: bool = False) -> di
     if send and btn is not None:
         try:
             await btn.click()
-            await asyncio.sleep(1.5)
-            out["sent"] = True
-            return out
+            await asyncio.sleep(1.2)
+            # 校验：输入框空了才说明 Teams 真的收下了这条消息。
+            # （以前点完就当成功，实测有过"点了没反应但返回 sent=true"）
+            left = ""
+            try:
+                left = (await box.inner_text() or "").strip()
+            except Exception:                    # noqa: BLE001
+                left = ""
+            if not left:
+                out["sent"] = True
+                return out
+            await page.keyboard.press("Enter")   # 兜底：Enter 再试一次
+            await asyncio.sleep(1.2)
+            try:
+                left = (await box.inner_text() or "").strip()
+            except Exception:                    # noqa: BLE001
+                left = ""
+            if not left:
+                out["sent"] = True
+                out["via"] = "enter"
+                return out
+            out["error"] = "点了发送但输入框还有内容（可能未发出）"
         except Exception as exc:                 # noqa: BLE001
             out["error"] = f"点发送失败: {str(exc)[:120]}"
     # 不发送：清空输入框（避免留下草稿）
