@@ -80,12 +80,13 @@
 .sess:hover .sess-more{opacity:1}
 .sess-more:hover{color:var(--text);background:var(--menu-hover)}
 /* 会话行菜单：复用 .codemenu 的定位于浮层，但规格对齐顶部/对话条 .menuList；
-   宽度按内容自适应，不套 .codemenu 的 min-width:170px。 */
-.sessmenu{width:max-content;min-width:0;max-width:calc(100vw - 16px);
+   宽度按内容自适应。选择器带 .codemenu 提高优先级，避免被后面的
+   `.codemenu{min-width:170px}` / `.codemenu .cmitem` 覆盖。 */
+.codemenu.sessmenu{width:max-content;min-width:0;max-width:calc(100vw - 16px);
   background:var(--panel2);border-radius:10px;padding:6px;gap:4px;
   box-shadow:0 14px 40px var(--menu-shadow)}
-.sessmenu .cmitem{padding:8px 10px;border-radius:7px;font-size:13px}
-.sessmenu .cmitem.danger{color:var(--danger-text)}
+.codemenu.sessmenu .cmitem{padding:8px 10px;border-radius:7px;font-size:13px}
+.codemenu.sessmenu .cmitem.danger{color:var(--danger-text)}
 .stepfilter{font-size:11.5px;padding:1px 4px;margin-right:6px;max-width:150px}
 /* 对话区的"正在生成"气泡：虚线 + 弱化，明确是临时内容 */
 .msg.live .msg-main{border-style:dashed;background:transparent}
