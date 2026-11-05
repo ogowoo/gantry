@@ -79,8 +79,10 @@
   font-size:13px;line-height:1;padding:1px 5px;border-radius:6px;opacity:0;transition:opacity .12s}
 .sess:hover .sess-more{opacity:1}
 .sess-more:hover{color:var(--text);background:var(--menu-hover)}
-/* 会话行菜单：复用 .codemenu 的定位于浮层，但规格对齐顶部/对话条 .menuList */
-.sessmenu{min-width:200px;background:var(--panel2);border-radius:10px;padding:6px;gap:4px;
+/* 会话行菜单：复用 .codemenu 的定位于浮层，但规格对齐顶部/对话条 .menuList；
+   宽度按内容自适应，不套 .codemenu 的 min-width:170px。 */
+.sessmenu{width:max-content;min-width:0;max-width:calc(100vw - 16px);
+  background:var(--panel2);border-radius:10px;padding:6px;gap:4px;
   box-shadow:0 14px 40px var(--menu-shadow)}
 .sessmenu .cmitem{padding:8px 10px;border-radius:7px;font-size:13px}
 .sessmenu .cmitem.danger{color:var(--danger-text)}
