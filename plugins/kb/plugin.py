@@ -191,6 +191,7 @@ def setup(ctx) -> None:
         chosen = str(mode or "auto").lower()
         sem = _sem(ctx) if chosen in ("auto", "vector", "hybrid") else None
         backend = "fts5-trigram"
+        hits: list[dict] = []
         if sem is not None and chosen in ("auto", "hybrid"):
             e = _emb_cfg(ctx)
             st = sem.stats()
@@ -208,8 +209,10 @@ def setup(ctx) -> None:
         elif sem is not None and chosen == "vector":
             hits = sem.search(q, n * 2)
             backend = f"vector({sem.embedder.name})"
-        else:
+        # 向量没建好 / 混合检索 0 命中时退回 FTS；否则 hits 未赋值会 500
+        if not hits and chosen != "vector":
             hits = kb.search(q, max(1, min(n * 3, 30)))
+            backend = "fts5-trigram"
         if threshold > 0:
             hits = [h for h in hits if float(h.get("score") or 0) >= threshold]
         hits = hits[:n]
