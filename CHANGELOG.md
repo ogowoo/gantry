@@ -14,6 +14,20 @@
 ### Fixed
 - 
 
+## [11.0.0-preview.68] - 2026-11-05
+
+### Changed
+
+- **P3 · 单条回答有超时**：`answer_timeout_seconds`（默认 60s）包住整条回答链路
+  （KB 检索 + 模型回退）；超时返回兜底文案（`reply_when_unknown` 开）并记 `source=timeout`，
+  不再让一次卡住的模型调用把整轮拖死。
+- **发送前标题校验**：`header_title` 等待 `5s → 2s`（身份校验仍保留，只是更快失败）。
+
+### 实测
+
+- `tests/test_teams_bot.py` 31 条（新增 answer 超时 1 条）；全套 1580（skipped=1）OK；
+  不变量 25 条全绿。
+
 ## [11.0.0-preview.67] - 2026-11-05
 
 ### Fixed

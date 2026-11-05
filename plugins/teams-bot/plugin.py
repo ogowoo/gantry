@@ -297,6 +297,17 @@ class Bot:
     # ── 回答 ──
     async def answer(self, question: str) -> tuple[str, str]:
         """返回 (回复文本, 来源说明) —— 来源给日志/接口看，不进回复正文。"""
+        timeout = float(_cfg(self.ctx, "answer_timeout_seconds") or 60)
+        try:
+            return await asyncio.wait_for(self._answer_inner(question), timeout=timeout)
+        except asyncio.TimeoutError:
+            self._last_error = f"回答超时（>{timeout:.0f}s）"
+            self.ctx.log(f"回答超时（{timeout:.0f}s）：{question[:40]}")
+            if bool(_cfg(self.ctx, "reply_when_unknown")):
+                return UNKNOWN_TEXT, "timeout"
+            return "", "timeout"
+
+    async def _answer_inner(self, question: str) -> tuple[str, str]:
         from gantry.teams_logic import build_kb_answer, pick_hits
 
         try:

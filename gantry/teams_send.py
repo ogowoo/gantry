@@ -221,7 +221,7 @@ async def _reply_to_unlocked(peer: str, text: str, send: bool = False,
         page = await teams_open()
     if send and expected:
         try:
-            head = await asyncio.wait_for(header_title(page), timeout=5)
+            head = await asyncio.wait_for(header_title(page), timeout=2)
         except Exception:                        # noqa: BLE001
             head = ""
         if head and _title_matches(head, expected, peer)[0]:

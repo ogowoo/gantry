@@ -533,5 +533,27 @@ class WatermarkAndAuthTests(BotTestCase):
         self.assertGreater(out2.get("retry_in") or 0, 0)
 
 
+class AnswerTimeoutTests(BotTestCase):
+    def test_answer_timeout_returns_fallback(self):
+        async def slow(_self, _q):
+            await asyncio.sleep(5)
+            return ("慢答案", "model")
+
+        orig = plugin.Bot._answer_inner
+        plugin.Bot._answer_inner = slow
+        try:
+            ctx = FakeCtx(enabled=True, mention_tokens=["@Gantry"], dry_run=True,
+                          outbox_path=":memory:", kb_synthesize=False,
+                          answer_timeout_seconds=0.05, reply_when_unknown=True,
+                          fallback_agent=True)
+            bot = plugin.Bot(ctx)
+            text, source = asyncio.new_event_loop().run_until_complete(
+                bot.answer("@Gantry 慢问题"))
+        finally:
+            plugin.Bot._answer_inner = orig
+        self.assertEqual(source, "timeout")
+        self.assertTrue(text)
+
+
 if __name__ == "__main__":
     unittest.main()
