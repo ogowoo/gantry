@@ -275,12 +275,49 @@ _QUESTION_WORDS = ("怎么办", "怎么", "如何", "为什么", "是否", "能�
                    "可不可以", "有没有", "要不要", "哪里", "哪个",
                    "什么时候", "多少", "谁", "哪些")
 
+# 明确的"改写/补充"类建议按钮，不包含"关闭/重启"这种正常操作步骤
+_REWRITE_SUGGESTION = re.compile(
+    r"^(?:把|將|改成|改为|换一种|換一種|换成|換成|再提供|补充|補充|说明|說明|解释|解釋|"
+    r"总结|總結|缩短|縮短|扩展|擴展|润色|潤色|翻译|翻譯|改写|改寫|重写|重寫|"
+    r"列出|给出|給出|生成|用一句话|让它|讓它|加入|增加|去掉|简化|簡化|优化|優化|"
+    r"展开|展開|详细|詳細|比较|比較)")
+
+
+def _strip_trailing_suggestion_suffix(raw: str) -> str:
+    """去掉末尾连续 2~4 行"改写/补充"类建议（不依赖空行分隔）。"""
+    text = str(raw or "").rstrip()
+    if not text:
+        return raw
+    lines = text.splitlines()
+    n = 0
+    for line in reversed(lines):
+        s = line.strip()
+        if not s:
+            break
+        if (len(s) <= 40 and s[-1] not in "。！？.!?：:"
+                and not s.startswith(("-", "*", "•"))
+                and not s[0].isdigit()
+                and _REWRITE_SUGGESTION.match(s)):
+            n += 1
+            continue
+        break
+    if n >= 2 and n < len(lines):
+        return "\n".join(lines[:-n]).rstrip()
+    return raw
+
 
 def _is_question_tail(line: str) -> bool:
-    """像建议按钮的问句（"如何查看版本？" / "iPhone 下载哪个版本？"）。"""
+    """像建议按钮的问句（"如何查看版本？"/"iPhone 下载哪个版本？"）。
+
+    Copilot 的建议按钮不一定会带问号（"如何确认邮箱已完成同步"），
+    所以没有句末标点也算；带句号的正常陈述不算。
+    """
     s = str(line or "").strip()
-    return (0 < len(s) <= 60 and s[-1] in "？?"
-            and any(w in s for w in _QUESTION_WORDS))
+    if not (0 < len(s) <= 60):
+        return False
+    if not any(w in s for w in _QUESTION_WORDS):
+        return False
+    return s[-1] in "？?" or s[-1] not in "。！!."
 
 
 def _looks_like_suggestion(line: str) -> bool:
@@ -297,6 +334,39 @@ def _looks_like_suggestion(line: str) -> bool:
     if s[-1] in "。！？.!?":
         return False
     return False
+
+
+def _strip_trailing_question_suffix(raw: str) -> str:
+    """去掉正文末尾 1~4 行"建议问句"，即使它们和正文之间没有空行。
+
+    Copilot 的 suggestion 按钮被 innerText/markdown 读成普通行时，常常没有
+    空行分隔（实测：正文最后一步后直接跟"怎么确认邮箱已同步完成？"）。
+    只剥**连续问句后缀**，且要求前面还有正文，避免把纯问答正文删光。
+    """
+    text = str(raw or "").rstrip()
+    if not text:
+        return raw
+    lines = text.splitlines()
+    n = 0
+    for line in reversed(lines):
+        s = line.strip()
+        if not s:
+            break
+        if _is_question_tail(s):
+            n += 1
+            continue
+        break
+    if 0 < n <= 4 and n < len(lines):
+        # 混合尾巴里问句前面可能还有一行短建议（"我的手机是 Android 版本"）
+        while n < len(lines) and n < 4:
+            prev = lines[-n - 1].strip()
+            if not prev or prev.startswith(("-", "*", "•")) or prev[0].isdigit():
+                break
+            if len(prev) > 40 or prev[-1] in "。！!？?：:" or _is_question_tail(prev):
+                break
+            n += 1
+        return "\n".join(lines[:-n]).rstrip()
+    return raw
 
 
 def _strip_plain_suggestion_tail(raw: str) -> str:
@@ -367,7 +437,9 @@ def strip_suggestion_tail(text: str) -> str:
     raw = text or ""
     body = raw.strip()
     if not body.startswith("{"):
-        return _strip_plain_suggestion_tail(raw)
+        cleaned = _strip_trailing_question_suffix(raw)
+        cleaned = _strip_trailing_suggestion_suffix(cleaned)
+        return _strip_plain_suggestion_tail(cleaned)
     try:
         _obj, end = json.JSONDecoder().raw_decode(body)
     except Exception:

@@ -221,6 +221,16 @@ class DirectTests(BotTestCase):
         self.assertEqual(len(first["would"]), 1)
         self.assertEqual(second["would"], [], "同一条消息不该回两次")
 
+    def test_non_chat_last_message_ignored(self):
+        """最后一条是系统事件（加成员等）时不能拿来回答。"""
+        c = conv(dm(), "@Gantry 问题")
+        c["lastType"] = "ThreadActivity/AddMember"
+        self.fake.conversations = [c]
+        out = self.run_cycle(dry_run=True)
+        self.assertEqual(out["would"], [])
+        self.assertTrue(any("非聊天消息" in str(s.get("why"))
+                            for s in out["skipped"]))
+
     def test_max_replies_per_cycle(self):
         self.kb.hits = [{"title": "T", "heading": "", "score": 0.9, "path": "t.md",
                          "text": "答案"}]
