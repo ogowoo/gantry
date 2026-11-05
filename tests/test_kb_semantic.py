@@ -18,7 +18,8 @@ sys.path.insert(0, str(ROOT))
 
 from gantry.kb import KnowledgeBase  # noqa: E402
 from gantry.kb_semantic import (  # noqa: E402
-    HashEmbedder, HttpEmbedder, SemanticIndex, _cosine, build_embedder,
+    FastEmbedEmbedder, HashEmbedder, HttpEmbedder, SemanticIndex, _cosine,
+    build_embedder,
 )
 
 VPN = """---
@@ -79,6 +80,41 @@ class EmbedderChoiceTests(unittest.TestCase):
         emb = build_embedder({"backend": "hash", "dim": 128})
         self.assertIsInstance(emb, HashEmbedder)
         self.assertEqual(emb.dim, 128)
+
+    def test_fastembed_config(self):
+        emb = build_embedder({"backend": "fastembed", "model": "m",
+                              "cache_dir": "c", "dim": 0})
+        self.assertIsInstance(emb, FastEmbedEmbedder)
+        self.assertEqual(emb.name, "fastembed:m")
+        self.assertEqual(emb.cache_dir, "c")
+
+    def test_fastembed_embed_with_fake_module(self):
+        """不加载真模型：注入假 fastembed，验证 embed()/dim 推断。"""
+        import sys
+        import types
+
+        class FakeTextEmbedding:
+            def __init__(self, **kwargs):
+                self.kwargs = kwargs
+
+            def embed(self, texts):
+                return [[1.0, 2.0, 3.0] for _ in texts]
+
+        mod = types.ModuleType("fastembed")
+        mod.TextEmbedding = FakeTextEmbedding
+        old = sys.modules.get("fastembed")
+        sys.modules["fastembed"] = mod
+        try:
+            emb = FastEmbedEmbedder(model="fake", dim=0, local_files_only=True)
+            vecs = emb.embed(["a", "b"])
+            self.assertEqual(emb.dim, 3)
+            self.assertEqual(len(vecs), 2)
+            self.assertEqual(vecs[0], [1.0, 2.0, 3.0])
+        finally:
+            if old is None:
+                sys.modules.pop("fastembed", None)
+            else:
+                sys.modules["fastembed"] = old
 
     def test_http_forced_no_probe(self):
         emb = build_embedder({"backend": "http", "base_url": "http://127.0.0.1:9/v1",

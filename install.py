@@ -1,10 +1,11 @@
-"""安装脚本：基础依赖 + Playwright 浏览器；OCR 为可选（--ocr / --xiaomi / --all）。
+"""安装脚本：基础依赖 + Playwright 浏览器；OCR/embedding 为可选。
 
 用法：
     python install.py                 # 基础（服务 + 浏览器自动化）
     python install.py --ocr           # 额外装 RapidOCR（扫描件/图片，20 MB）
     python install.py --xiaomi        # 额外装 Xiaomi-OCR-0 依赖（torch/transformers，较大）
-    python install.py --all           # 基础 + Xiaomi（已含 rapidocr）
+    python install.py --embed         # 额外装进程内 embedding（知识库语义检索，约 50 MB）
+    python install.py --all           # 基础 + Xiaomi + embedding
     python install.py --no-browser    # 跳过 Playwright 浏览器下载（离线/已有浏览器）
 """
 from __future__ import annotations
@@ -38,7 +39,10 @@ def main() -> int:
                     help="额外安装 RapidOCR（扫描件/图片 OCR，约 20 MB 模型）")
     ap.add_argument("--xiaomi", action="store_true",
                     help="额外安装 Xiaomi-OCR-0 依赖（torch + transformers，用于表格/公式解析）")
-    ap.add_argument("--all", action="store_true", help="= --xiaomi（已含 rapidocr）")
+    ap.add_argument("--embed", action="store_true",
+                    help="额外安装进程内 embedding（fastembed，知识库语义检索）")
+    ap.add_argument("--all", action="store_true",
+                    help="= --xiaomi + --embed（已含 rapidocr）")
     ap.add_argument("--no-browser", action="store_true", help="跳过 Playwright 浏览器下载")
     args = ap.parse_args()
 
@@ -47,16 +51,20 @@ def main() -> int:
         pip("-r", str(BASE / "requirements-ocr-xiaomi.txt"))
     elif args.ocr:
         pip("-r", str(BASE / "requirements-ocr.txt"))
+    if args.embed or args.all:
+        pip("-r", str(BASE / "requirements-embed.txt"))
 
     if not args.no_browser:
         subprocess.check_call([sys.executable, "-m", "playwright", "install", "chromium"])
 
     ocr_ok = has("rapidocr")
     xiaomi_ok = has("torch") and has("transformers")
+    embed_ok = has("fastembed")
     print("\n安装完成。能力检查：")
     print(f"  Playwright 浏览器: {'已跳过' if args.no_browser else '已安装'}")
     print(f"  RapidOCR（扫描件/图片）: {'✓' if ocr_ok else '✗  需要时执行 python install.py --ocr'}")
     print(f"  Xiaomi-OCR-0（表格/公式）: {'✓' if xiaomi_ok else '✗  需要时执行 python install.py --xiaomi'}")
+    print(f"  进程内 embedding（知识库语义）: {'✓' if embed_ok else '✗  需要时执行 python install.py --embed'}")
     print("\n下一步：python start.py" + ("" if ocr_ok else "   （纯文字知识库不需要 OCR，可先跳过）"))
     if shutil.which("python") is None:
         print("提示：命令里的 python 若不可用，请用实际解释器路径。")
