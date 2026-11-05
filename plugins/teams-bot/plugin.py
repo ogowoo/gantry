@@ -46,7 +46,9 @@ _DEFAULTS: dict[str, Any] = {
     "mention_tokens": ["@Gantry"],
     "my_name": "",
     "kb_first": True,
-    "kb_min_score": 0.35,
+    "kb_min_score": 0.5,
+    # 命中还必须覆盖至少这么多查询词（纯向量相似但词面无关的不算）
+    "kb_min_coverage": 0.34,
     "kb_max_chars": 1200,
     "kb_synthesize": True,        # 知识库命中后让模型组织成"回答"，而不是整段抄资料
     "reply_when_unknown": True,
@@ -318,7 +320,9 @@ class Bot:
         except Exception as exc:                 # noqa: BLE001
             hits = []
             self.ctx.log(f"知识库检索失败（继续走模型）: {exc}")
-        good = pick_hits(hits, float(_cfg(self.ctx, "kb_min_score"))) \
+        good = pick_hits(hits, float(_cfg(self.ctx, "kb_min_score")),
+                         query=question,
+                         min_coverage=float(_cfg(self.ctx, "kb_min_coverage") or 0)) \
             if bool(_cfg(self.ctx, "kb_first")) else []
         if good:
             # 命中文档 ≠ 可读回答：整段抄资料会让人感觉"没有智能"。

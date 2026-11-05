@@ -14,6 +14,24 @@
 ### Fixed
 - 
 
+## [11.0.0-preview.73] - 2026-11-05
+
+### Fixed
+
+- **知识库误答**：P1 测试时"@Gantry P1 队列测试，收到请忽略"命中了
+  《wifi》文档（混合分 0.35 太松），把无关内容当答案发了出去。现在：
+  - `kb_min_score` 默认 **0.35 → 0.5**；
+  - 新增 `kb_min_coverage`（默认 **0.34**）：命中文档必须覆盖至少 1/3 的查询词
+    （中文 2-gram + 英文词，去停用词），纯向量相似但词面无关的不算命中；
+  - `teams_logic.pick_hits(hits, min_score, query, min_coverage)` 向后兼容：
+    只传阈值时行为不变。
+
+### 实测
+
+- `@Gantry P1 队列测试，收到请忽略` → 不再命中 KB（走未知兜底文案）；
+- `@Gantry VPN 连不上怎么办` → 仍命中 `kb:VPN 连不上怎么办`。
+- 测试：新增 `CoverageGateTests`（5 条）；全套 **1587**（skipped=1）OK；不变量 25 条全绿。
+
 ## [11.0.0-preview.72] - 2026-11-05
 
 ### Fixed

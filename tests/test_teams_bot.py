@@ -140,6 +140,7 @@ class BotTestCase(unittest.TestCase):
         cfg.setdefault("mention_tokens", ["@Gantry"])
         cfg.setdefault("outbox_path", ":memory:")
         cfg.setdefault("kb_synthesize", False)   # 单测不调模型；synthesis 单独测
+        cfg.setdefault("kb_min_coverage", 0)     # 覆盖率门槛另有单测，别干扰机制用例
         bot = plugin.Bot(FakeCtx(**cfg))
 
         async def _run():
@@ -207,7 +208,7 @@ class DirectTests(BotTestCase):
                          "text": "答案"}]
         self.fake.conversations = [conv(dm(), "@Gantry 旧消息", last_id="old", unread=False)]
         ctx = FakeCtx(enabled=True, dry_run=True, mention_tokens=["@Gantry"],
-                      kb_synthesize=False)
+                      kb_synthesize=False, kb_min_coverage=0)
         bot = plugin.Bot(ctx)
         loop = asyncio.new_event_loop()
         first = loop.run_until_complete(bot.cycle())     # 首次基线：已读跳过
@@ -222,7 +223,7 @@ class DirectTests(BotTestCase):
                          "text": "答案"}]
         self.fake.conversations = [conv(dm(), "@Gantry 问题", last_id="same")]
         ctx = FakeCtx(enabled=True, dry_run=True, mention_tokens=["@Gantry"],
-                      kb_synthesize=False)
+                      kb_synthesize=False, kb_min_coverage=0)
         bot = plugin.Bot(ctx)
         loop = asyncio.new_event_loop()
         first = loop.run_until_complete(bot.cycle())
@@ -255,7 +256,7 @@ class AnswerTests(BotTestCase):
     def test_kb_hit_source(self):
         self.kb.hits = [{"title": "VPN 连不上", "heading": "排查", "score": 0.7,
                          "path": "vpn.md", "text": "换热点。"}]
-        bot = plugin.Bot(FakeCtx(kb_synthesize=False))
+        bot = plugin.Bot(FakeCtx(kb_synthesize=False, kb_min_coverage=0))
         text, source = asyncio.new_event_loop().run_until_complete(bot.answer("VPN 连不上"))
         self.assertTrue(source.startswith("kb:"))
         self.assertIn("换热点", text)
@@ -273,7 +274,7 @@ class AnswerTests(BotTestCase):
         orig = plugin.Bot._agent_answer
         plugin.Bot._agent_answer = fake_answer
         try:
-            bot = plugin.Bot(FakeCtx(kb_synthesize=True, fallback_agent=True))
+            bot = plugin.Bot(FakeCtx(kb_synthesize=True, fallback_agent=True, kb_min_coverage=0))
             text, source = asyncio.new_event_loop().run_until_complete(
                 bot.answer("我 GD 用不了了"))
         finally:
@@ -365,7 +366,7 @@ class ConcurrencyAndIdempotencyTests(BotTestCase):
             path = str(Path(td) / "sends.db")
             cfg = dict(enabled=True, dry_run=False, send_enabled=True,
                        mention_tokens=["@Gantry"], outbox_path=path,
-                       kb_synthesize=False)
+                       kb_synthesize=False, kb_min_coverage=0)
             loop = asyncio.new_event_loop()
             ctx1, ctx2 = FakeCtx(**cfg), FakeCtx(**cfg)
             bot1, bot2 = plugin.Bot(ctx1), plugin.Bot(ctx2)
@@ -456,7 +457,7 @@ class BotRetrievalTests(BotTestCase):
 
     def _answer(self, question, sem):
         ctx = FakeCtx(enabled=True, kb_first=True, fallback_agent=False,
-                      reply_when_unknown=False)
+                      reply_when_unknown=False, kb_min_coverage=0)
         ctx._sem = sem
         bot = plugin.Bot(ctx)
         return asyncio.new_event_loop().run_until_complete(bot.answer(question))
@@ -498,7 +499,7 @@ class WatermarkAndAuthTests(BotTestCase):
         self.fake.conversations = [conv(dm(), "@Gantry 问题")]
         self.kb.hits = []
         ctx = FakeCtx(enabled=True, mention_tokens=["@Gantry"], dry_run=True,
-                      outbox_path=":memory:", kb_synthesize=False)
+                      outbox_path=":memory:", kb_synthesize=False, kb_min_coverage=0)
         bot = plugin.Bot(ctx)
         loop = asyncio.new_event_loop()
         try:

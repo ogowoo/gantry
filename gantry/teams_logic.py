@@ -131,9 +131,52 @@ def msg_key(author: str, text: str, ordinal: int) -> str:
     return hashlib.sha1(f"{author}|{text}|{ordinal}".encode()).hexdigest()[:16]
 
 
-def pick_hits(hits: list[dict[str, Any]], min_score: float = 0.35) -> list[dict[str, Any]]:
-    """按阈值筛知识库命中（bm25 转成的分数，0~1）。"""
+_STOP = {"的", "了", "是", "我", "你", "他", "在", "和", "就", "都", "也", "有", "吗",
+         "呢", "啊", "怎么", "如何", "什么", "可以", "需要", "一下", "请问", "这个", "那个",
+         "the", "a", "an", "is", "are", "to", "of", "and", "or", "in", "on", "for"}
+
+
+def query_terms(query: str) -> list[str]:
+    """把问题切成用于词面覆盖检查的词（中文 2-gram + 英文单词，去停用词）。"""
+    import re as _re
+
+    q = str(query or "").lower()
+    terms: list[str] = []
+    for part in _re.split(r"[^0-9a-zA-Z\u4e00-\u9fff]+", q):
+        if not part:
+            continue
+        if _re.search(r"[\u4e00-\u9fff]", part):
+            if len(part) == 1:
+                terms.append(part)
+            else:
+                terms.extend(part[i:i + 2] for i in range(len(part) - 1))
+        else:
+            terms.append(part)
+    out: list[str] = []
+    for t in terms:
+        if t in _STOP or len(t) < 2 and t not in ("vpn", "ip", "dns"):
+            continue
+        if t not in out:
+            out.append(t)
+    return out
+
+
+def coverage(query: str, hit: dict[str, Any]) -> float:
+    """命中文档对查询词的覆盖率（0~1）：标题/小节/正文里出现了多少查询词。"""
+    terms = query_terms(query)
+    if not terms:
+        return 0.0
+    hay = " ".join(str(hit.get(k) or "") for k in ("title", "heading", "text")).lower()
+    hit_terms = [t for t in terms if t in hay]
+    return len(hit_terms) / len(terms)
+
+
+def pick_hits(hits: list[dict[str, Any]], min_score: float = 0.5,
+              query: str = "", min_coverage: float = 0.0) -> list[dict[str, Any]]:
+    """按阈值筛知识库命中（分数 0~1；给了 query/min_coverage 时再做词面覆盖检查）。"""
     out = [h for h in (hits or []) if float(h.get("score") or 0) >= float(min_score)]
+    if query and min_coverage > 0:
+        out = [h for h in out if coverage(query, h) >= float(min_coverage)]
     out.sort(key=lambda h: -float(h.get("score") or 0))
     return out
 
