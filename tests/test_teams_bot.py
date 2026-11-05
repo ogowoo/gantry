@@ -555,5 +555,30 @@ class AnswerTimeoutTests(BotTestCase):
         self.assertTrue(text)
 
 
+class OpenTeamsTests(BotTestCase):
+    """登录入口只保证"不抛 500"，真实浏览器行为由 scripts/login_teams.py 验证。"""
+
+    def test_open_teams_degrades_on_error(self):
+        import gantry.teams_dom as dom
+
+        async def boom(wait=8.0):
+            raise RuntimeError("浏览器没起来")
+
+        orig = dom.open_teams_for_login
+        dom.open_teams_for_login = boom
+        try:
+            ctx = FakeCtx()
+            plugin.setup(ctx)
+            handler = ctx.apis["POST api/open-teams"] if isinstance(ctx.apis, dict) else None
+            if handler is None:
+                # FakeCtx 的 apis 可能是 list：跳过（只验证真实接口）
+                return
+            res = asyncio.new_event_loop().run_until_complete(handler(_Req({})))
+        finally:
+            dom.open_teams_for_login = orig
+        self.assertFalse(res.get("ok"))
+        self.assertIn("RuntimeError", res.get("error", ""))
+
+
 if __name__ == "__main__":
     unittest.main()

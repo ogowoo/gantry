@@ -202,3 +202,30 @@ curl -X POST http://127.0.0.1:8765/v1/plugins/teams-bot/api/compose `
 检索走 `gantry.kb_semantic.hybrid`（0.75×余弦 + 0.25×词面覆盖率），与 kb 插件、CLI 完全一致；
 向量没建好时自动退回 FTS，不会报错。阈值用 `kb_min_score`（默认 0.35；混合分一般 0.5+，
 觉得太宽松可提到 0.45~0.5）。
+
+## 登录 Teams（含 MFA）
+
+机器人用的是**自动化浏览器里已登录的 Teams 会话**。如果 `api/status` 显示
+`session.auth=expired`，或 `api/idb-watch` 返回 `{"ok":false,"auth":"expired"}`，
+说明需要在这个浏览器里登录一次（MFA 慢没关系，登录态会一直保留在 `EdgeProfile/`）。
+
+```powershell
+python scripts/login_teams.py            # 把窗口带到前台，最多等 15 分钟
+python scripts/login_teams.py --timeout 1800   # MFA 特别慢就放宽
+```
+
+它做的事：调 `POST /v1/plugins/teams-bot/api/open-teams` 把 Teams 标签**切到前台**，
+然后每 10s 查一次 `api/idb-watch`，登录成功就退出。期间**不要关窗口、不用重启服务**。
+
+也可以手动调接口：
+
+```powershell
+curl -X POST http://127.0.0.1:8765/v1/plugins/teams-bot/api/open-teams ^
+  -H "Content-Type: application/json" -d "{\"wait\": 8}"
+# {"ok":true,"url":"https://teams.cloud.microsoft/v2/","title":"Microsoft Teams","logged_in":false,"hint":"..."}
+```
+
+常见现象：**"Teams 页面不弹出"** —— 因为机器人会复用 `current_page()`（可能停在
+Copilot 的登录墙），并不会自己弹新窗口。用上面的命令会显式把标签导航到 Teams 并
+`bring_to_front()`。登录成功后，下一轮 cycle 会自己把 `session.auth` 变回 `ok`。
+

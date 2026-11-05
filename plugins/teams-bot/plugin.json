@@ -53,7 +53,8 @@
         "GET api/search-typing",
         "POST api/compose",
         "GET api/search-rows",
-        "GET api/answer"
+        "GET api/answer",
+        "POST api/open-teams"
       ]
     },
     "config": {
