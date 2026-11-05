@@ -159,6 +159,31 @@ async def ensure_browser(wait_seconds: float = 240) -> bool:
     return bool(BOOT["copilot_ready"])
 
 
+async def ensure_browser_raw(wait_seconds: float = 90) -> bool:
+    """只等浏览器上下文/页面可用，**不等 Copilot 就绪**。
+
+    Teams 自动化不需要 Copilot；Copilot 被区域限制成 blocked 时，等
+    `ensure_browser` 会白等 240s，Teams 页面打不开、发送一直超时。
+    """
+    if b.ctx is not None and b.current_page() is not None:
+        return True
+    async with BOOT["lock"]:
+        if b.ctx is not None and b.current_page() is not None:
+            return True
+        task = BOOT.get("task")
+        if task is None or task.done():
+            BOOT["task"] = asyncio.create_task(boot_browser())
+    deadline = time.monotonic() + max(5.0, float(wait_seconds))
+    while time.monotonic() < deadline:
+        try:
+            if b.ctx is not None and b.current_page() is not None:
+                return True
+        except Exception:                        # noqa: BLE001
+            pass
+        await asyncio.sleep(0.5)
+    return b.ctx is not None
+
+
 @asynccontextmanager
 async def lifespan(app):
     # 按需启动（默认）：启动时不碰浏览器——没有 Copilot 也能用 WebUI 与提供商模型。
@@ -212,6 +237,7 @@ async def lifespan(app):
 
 
 b.ENSURE_BROWSER = ensure_browser   # 桥接层按需拉起浏览器的入口
+b.ENSURE_BROWSER_RAW = ensure_browser_raw  # Teams 等不依赖 Copilot 的入口
 
 async def periodic_suspend_resume():
     """限流挂起的会话：窗口到点后自动继续（受 agent.auto_resume 控制）。
