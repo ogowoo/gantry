@@ -162,6 +162,20 @@ embedding 来源三选一（`config.json` 的 `kb.embedding.backend`）：
 | `hash` | 零依赖字符 n-gram 兜底（语义弱，离线可用） | 无 |
 | `off` | 关闭向量，只走 FTS | 无 |
 
+### 四种 embedding 后端怎么选（依赖成本）
+
+| backend | 新增 pip 包 | 安装体积 | 模型 | 质量 | CPU 速度 | 备注 |
+|---|---|---|---|---|---|---|
+| `hash` | **0** | **0 MB** | 无 | 弱（字符 n-gram，只能兜底） | 极快 | 纯标准库，离线可用，适合"先跑起来" |
+| `http` | **0** | 0 MB | 外部服务自带 | 取决于外部模型 | 取决于外部 | 本机零依赖，但要另跑 llama.cpp `--embeddings` / Ollama / FLM |
+| `fastembed`（上游默认） | 1 个包 + 约 10 个依赖 | **约 190 MB**（sympy 66 · numpy 50 · onnxruntime 39 · pillow 15 · tokenizers 8 · hf-hub 5…）+ 模型 **91 MB** | `BAAI/bge-small-zh-v1.5`（512 维，中文专精） | 好 | 快（ONNX，纯 wheel 不用编译） | 一个进程跑完，装的是预编译轮子 |
+| `local`（llama-cpp-python） | 1 个包（原生轮子约 25 MB） | **约 25 MB** + 一个 GGUF：bge-small 约 50-90 MB / Qwen3-Embedding-0.6B Q8 **610 MB** | 任意 embedding GGUF | 最好（Qwen3 类，1024 维） | 中（0.04-0.1 s/条，CPU） | 已经在跑 `providers.local` 的话**不新增任何包**，只多一个模型文件 |
+
+- 想**依赖最少**：`hash`（0）或 `http`（Python 侧 0，代价是多一个外部进程）。
+- 想**一个进程+不装编译器**：`fastembed`（numpy/pillow 等通常已因别的原因装好，实际新增往往更小）。
+- 已经在用进程内聊天模型（llama-cpp 已装）：`local` 最省体积，直接复用一个 GGUF。
+- 换模型后第一次 `kb_embed` / `kb_search` 会**整体重建**向量（按 `model` 分区），不会混用向量空间。
+
 ## 12. 从旧版升级（CopilotBridge → Gantry）
 
 `data/`（含 `kb.db`、`EdgeProfile/`、会话库）与 `config.json` 都沿用，不需要重建环境。
