@@ -55,6 +55,7 @@ _DEFAULTS: dict[str, Any] = {
     "model": "copilot-auto",
     "max_replies_per_cycle": 2,
     "seen_limit": 300,
+    "send_timeout_seconds": 120,
     "outbox_path": "data/teams-bot-sends.db",
     "outbox_lease_seconds": 300,
 }
@@ -338,6 +339,7 @@ class Bot:
             max_replies = int(_cfg(self.ctx, "max_replies_per_cycle") or 2)
             dry = bool(_cfg(self.ctx, "dry_run"))
             send_ok = (not dry) and bool(_cfg(self.ctx, "send_enabled"))
+            send_timeout = max(10.0, float(_cfg(self.ctx, "send_timeout_seconds") or 120))
             seen = self.seen()
             last_ids = dict(self.ctx.state.get("last_ids") or {})
             out: dict[str, Any] = {"at": time.strftime("%H:%M:%S"), "source":
@@ -460,10 +462,12 @@ class Bot:
                             "message_id": mid,
                         }
                         try:
-                            res = await teams.reply_to(
-                                c.get("peerName") or c["id"], answer, send=True,
-                                snippet=str(c.get("lastText") or "")[:40],
-                                conv_id=cid, expected=expected, strict=True)
+                            res = await asyncio.wait_for(
+                                teams.reply_to(
+                                    c.get("peerName") or c["id"], answer, send=True,
+                                    snippet=str(c.get("lastText") or "")[:40],
+                                    conv_id=cid, expected=expected, strict=True),
+                                timeout=send_timeout)
                             if res.get("sent"):
                                 item["sent"] = True
                                 out["replied"] += 1
@@ -474,6 +478,11 @@ class Bot:
                                 self.outbox().mark_failed(
                                     cid, mid, item["error"],
                                     unknown=(res.get("reason") != "identity_mismatch"))
+                        except asyncio.TimeoutError:
+                            item["error"] = f"发送超时（>{send_timeout:.0f}s）"
+                            out["skipped"].append({"id": cid[:24], "why": "发送超时"})
+                            self.outbox().mark_failed(cid, mid, item["error"],
+                                                      unknown=True)
                         except Exception as exc:     # noqa: BLE001
                             item["error"] = str(exc)[:160]
                             self.outbox().mark_failed(cid, mid, item["error"],
