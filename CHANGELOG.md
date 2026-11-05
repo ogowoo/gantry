@@ -14,6 +14,30 @@
 ### Fixed
 - 
 
+## [11.0.0-preview.65] - 2026-11-05
+
+### Changed
+
+- **`gantry/teams.py` 解耦第 1 阶段**（3964 → 3432 行）：
+  - 新增 `gantry/teams_common.py`（90 行）：`TEAMS_URL`、页面互斥锁
+    （`_PAGE_LOCK`/`PAGE_LOCK_TIMEOUT`/`REPLY_TIMEOUT`/acquire/release/stats）、
+    `TeamsError`/`TeamsBusyError`、身份归一化（`_norm_identity`/`_plain_text`/
+    `verify_conversation_identity`）；
+  - 新增 `gantry/teams_idb.py`（364 行）：`api_idb_watch` / `api_idb_record` /
+    `api_idb_conversations` / `api_idb_enumerate` / `api_idb_probe`，
+    用函数内惰性 `from .teams import teams_open` 避免循环依赖；
+  - `teams.py` 反向 `from .teams_common import ...` / `from .teams_idb import ...`
+    保持所有对外名字不变（插件、测试、脚本零改动）。
+
+  后续阶段（未做）：`teams_api`（authz/chatsvc/令牌抓取）、`teams_probe`（排障抓包）、
+  `teams_dom` + `teams_send`（DOM 自动化与发送），最终 `teams.py` 只剩 façade。
+
+### 实测
+
+- 全套 1576（skipped=1）OK；不变量 25 条全绿；teams 相关 89 条测试通过。
+- `from gantry import teams` 后 `teams.api_idb_watch.__module__ == "gantry.teams_idb"`，
+  `teams.acquire_page_lock.__module__ == "gantry.teams_common"`。
+
 ## [11.0.0-preview.64] - 2026-11-05
 
 ### Fixed
