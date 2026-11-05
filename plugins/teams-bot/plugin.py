@@ -30,6 +30,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import time
 from typing import Any
 
@@ -47,12 +48,15 @@ _DEFAULTS: dict[str, Any] = {
     "kb_first": True,
     "kb_min_score": 0.35,
     "kb_max_chars": 1200,
+    "kb_synthesize": True,        # 知识库命中后让模型组织成"回答"，而不是整段抄资料
     "reply_when_unknown": True,
     "fallback_agent": True,
     "agent_mode": False,
     "model": "copilot-auto",
     "max_replies_per_cycle": 2,
     "seen_limit": 300,
+    "outbox_path": "data/teams-bot-sends.db",
+    "outbox_lease_seconds": 300,
 }
 
 UNKNOWN_TEXT = ("知识库里暂时没有这个问题，我先记下来。"
@@ -129,6 +133,23 @@ class Bot:
         self._last_error = ""
         self._last_kb = 0.0
         self._lock = asyncio.Lock()
+        self._cycle_started = 0.0
+
+    # ── 发送幂等箱（持久化，重启后仍能防重复）──
+    def outbox(self):
+        ob = getattr(self.ctx, "_teams_outbox", None)
+        if ob is None:
+            from pathlib import Path
+
+            from gantry.teams_outbox import SendOutbox
+
+            path = str(_cfg(self.ctx, "outbox_path") or "data/teams-bot-sends.db")
+            if path != ":memory:" and not Path(path).is_absolute():
+                path = str(_root(self.ctx) / path)
+            ob = SendOutbox(path, lease_seconds=float(
+                _cfg(self.ctx, "outbox_lease_seconds") or 300))
+            self.ctx._teams_outbox = ob
+        return ob
 
     # ── 状态 ──
     def seen(self) -> list[str]:
@@ -162,6 +183,8 @@ class Bot:
             "model": cfg["model"],
             "kb": _kb(self.ctx).stats(),
             "seen": len(self.seen()),
+            "busy": bool(self._lock.locked()),
+            "outbox": self.outbox().stats(),
             **self.stats(),
             "last_cycle": self._last_cycle,
         }
@@ -179,6 +202,21 @@ class Bot:
         good = pick_hits(hits, float(_cfg(self.ctx, "kb_min_score"))) \
             if bool(_cfg(self.ctx, "kb_first")) else []
         if good:
+            # 命中文档 ≠ 可读回答：整段抄资料会让人感觉"没有智能"。
+            # 优先让模型依据资料组织成针对问题的步骤；模型挂了再退回原文摘录。
+            if bool(_cfg(self.ctx, "kb_synthesize")) and \
+                    bool(_cfg(self.ctx, "fallback_agent")):
+                try:
+                    text = await self._agent_answer(question, good)
+                    if text:
+                        label = "；".join(dict.fromkeys(
+                            f"《{h.get('title')}》" +
+                            (f" › {h['heading']}" if h.get("heading") else "")
+                            for h in good[:2]))
+                        return f"{text}\n\n来源：{label}", f"model+kb:{good[0].get('title')}"
+                except Exception as exc:         # noqa: BLE001
+                    self._last_error = f"知识库回答生成失败（退回摘录）: {exc}"
+                    self.ctx.log(f"知识库回答生成失败（退回摘录）: {exc}")
             text = build_kb_answer(question, good, int(_cfg(self.ctx, "kb_max_chars")))
             if text:
                 return text, f"kb:{good[0].get('title')}"
@@ -213,8 +251,10 @@ class Bot:
                 "规则：\n"
                 "1. 优先依据下面的《参考资料》回答；资料里没有的部分，用你的一般知识补充，"
                 "但不要编造具体网址、分机号或内部流程。\n"
-                "2. 回答用中文、口语化、分步骤，控制在 6 行以内。\n"
-                "3. 不要提到「参考资料」这个词，也不要说自己是 AI。\n\n"
+                "2. 不要整段复制/粘贴参考资料，要用自己的话针对问题给出可操作步骤；"
+                "资料与问题无关时不要硬套，直接按一般 IT 知识回答并说明需要核实。\n"
+                "3. 回答用中文、口语化、分步骤，控制在 6 行以内。\n"
+                "4. 不要提到「参考资料」这个词，也不要说自己是 AI。\n\n"
                 f"《参考资料》\n{context}\n\n"
                 f"同事的问题：{question}"
             )
@@ -260,9 +300,14 @@ class Bot:
     async def cycle(self) -> dict[str, Any]:
         from gantry import teams
         from gantry.teams_logic import (extract_question, has_mention, is_direct_id,
-                                        mention_names, normalise_text, strip_mentions)
+                                        mention_names, normalise_text, peer_guid,
+                                        strip_mentions)
 
+        if self._lock.locked():
+            return {"at": time.strftime("%H:%M:%S"), "skipped": "busy",
+                    "error": "上一轮轮询/手动运行还没结束"}
         async with self._lock:
+            self._cycle_started = time.time()
             if not bool(_cfg(self.ctx, "enabled")):
                 return {"skipped": "disabled"}
             tokens = list(_cfg(self.ctx, "mention_tokens") or [])
@@ -359,19 +404,51 @@ class Bot:
                     continue
                 item = {"chat": (c.get("peerName") or c["id"][:24]), "question": q[:120],
                         "source": source, "sent": False, "text": answer[:400]}
+                # 幂等键：会话 + 触发回复的那条消息。Teams 的 lastId 就是消息 id；
+                # 没有 lastId 时用时间+文本哈希兜底（重启后仍稳定）。
+                mid = str(c.get("lastId") or "").strip()
+                if not mid:
+                    mid = "fallback:" + hashlib.sha1(
+                        f"{c.get('lastAt')}|{c.get('lastText')}".encode("utf-8")
+                    ).hexdigest()[:16]
                 if send_ok:
-                    try:
-                        res = await teams.reply_to(
-                            c.get("peerName") or c["id"], answer, send=True,
-                            snippet=str(c.get("lastText") or "")[:40],
-                            conv_id=str(c.get("id") or ""))
-                        if res.get("sent"):
-                            item["sent"] = True
-                            out["replied"] += 1
-                        else:
-                            item["error"] = (res.get("error") or "发送未完成")[:160]
-                    except Exception as exc:     # noqa: BLE001
-                        item["error"] = str(exc)[:160]
+                    reservation = self.outbox().reserve(
+                        cid, mid, text=q, reply=answer)
+                    item["idempotency"] = reservation.get("action")
+                    if not reservation.get("send"):
+                        item["error"] = str(reservation.get("error") or
+                                             "幂等箱拒绝发送")[:160]
+                        out["skipped"].append({"id": cid[:24],
+                                               "why": reservation.get("action")})
+                    else:
+                        expected = {
+                            "conv_id": cid,
+                            "peer": c.get("peerName") or "",
+                            "peer_guid": c.get("peerGuid") or peer_guid(
+                                cid, str(watch.get("skypeTenant") or "")),
+                            "topic": c.get("topic") or "",
+                            "snippet": str(c.get("lastText") or ""),
+                            "message_id": mid,
+                        }
+                        try:
+                            res = await teams.reply_to(
+                                c.get("peerName") or c["id"], answer, send=True,
+                                snippet=str(c.get("lastText") or "")[:40],
+                                conv_id=cid, expected=expected, strict=True)
+                            if res.get("sent"):
+                                item["sent"] = True
+                                out["replied"] += 1
+                                self.outbox().mark_sent(cid, mid)
+                            else:
+                                item["error"] = (res.get("error") or
+                                                 "发送未完成")[:160]
+                                self.outbox().mark_failed(
+                                    cid, mid, item["error"],
+                                    unknown=(res.get("reason") != "identity_mismatch"))
+                        except Exception as exc:     # noqa: BLE001
+                            item["error"] = str(exc)[:160]
+                            self.outbox().mark_failed(cid, mid, item["error"],
+                                                      unknown=True)
                 out["would"].append(item)
                 out["handled"] += 1
                 seen.append(key)
@@ -381,9 +458,11 @@ class Bot:
                                     + (1 if item["sent"] else 0))
                 self.ctx.log(f"Teams[{source}] {item['chat']}: {q[:40]}")
             self._last_cycle = out
-            self.ctx.save_state(last_ids=last_ids)
-            self.ctx.state["cycles"] = int(self.ctx.state.get("cycles") or 0) + 1
-            self.ctx.state["last_cycle_at"] = time.strftime("%Y-%m-%d %H:%M:%S")
+            cycles = int(self.ctx.state.get("cycles") or 0) + 1
+            at = time.strftime("%Y-%m-%d %H:%M:%S")
+            self.ctx.state["cycles"] = cycles
+            self.ctx.state["last_cycle_at"] = at
+            self.ctx.save_state(last_ids=last_ids, cycles=cycles, last_cycle_at=at)
             if out["errors"]:
                 self._last_error = out["errors"][-1]
             return out
@@ -443,17 +522,28 @@ def setup(ctx):
     async def _teams_status() -> dict:
         return bot.status()
 
-    async def _teams_reply(chat: str = "", text: str = "", force: bool = False) -> dict:
+    async def _teams_reply(chat: str = "", text: str = "", force: bool = False,
+                           message_id: str = "") -> dict:
         if not (text or "").strip():
             return {"ok": False, "error": "text 不能为空"}
-        if chat:
-            if not await teams.open_chat(chat):
-                return {"ok": False, "error": f"找不到会话: {chat}"}
         if bool(_cfg(ctx, "dry_run")) and not force:
             return {"ok": False, "error": "dry_run=true（加 force=true 才会真发）"}
+        if not chat:
+            # 当前会话：send_message 自身持有页面锁；没有会话标题可核验
+            try:
+                await teams.send_message(text)
+                return {"ok": True, "chat": "(当前会话)", "sent": True}
+            except Exception as exc:             # noqa: BLE001
+                return {"ok": False, "error": str(exc)[:200]}
+        # 打开 + 校验标题 + 输入/发送在同一个页面锁里完成，避免中途被轮询插队
+        expected = {"peer": chat}
+        if message_id:
+            expected["message_id"] = message_id
         try:
-            await teams.send_message(text)
-            return {"ok": True, "chat": chat or "(当前会话)"}
+            res = await teams.reply_to(chat, text, send=True, expected=expected,
+                                       strict=False)
+            ok = bool(res.get("sent"))
+            return {"ok": ok, **res}
         except Exception as exc:                 # noqa: BLE001
             return {"ok": False, "error": str(exc)[:200]}
 
@@ -478,7 +568,8 @@ def setup(ctx):
     ctx.register_tool("teams_reply", _teams_reply,
                       "在 Teams 指定会话里发一条消息（dry_run 下需 force=true）",
                       {"chat": "会话标题片段（空=当前会话）", "text": "内容",
-                       "force": "绕过 dry_run"})
+                       "force": "绕过 dry_run",
+                       "message_id": "（可选）幂等键里的消息 id"})
     ctx.register_tool("teams_probe", _teams_probe,
                       "校准用：dump Teams 页面命中的选择器/会话/消息，写 data/teams-probe/", {})
     # 说明：kb_search / kb_reindex 由独立的 `kb` 插件提供（同一份 gantry.kb 实现），
@@ -512,7 +603,8 @@ def setup(ctx):
             body = {}
         return await _teams_reply(chat=str(body.get("chat") or ""),
                                   text=str(body.get("text") or ""),
-                                  force=bool(body.get("force")))
+                                  force=bool(body.get("force")),
+                                  message_id=str(body.get("message_id") or ""))
 
     async def _api_probe(request=None):
         return await _teams_probe()
@@ -574,9 +666,19 @@ def setup(ctx):
         snippet = str(body.get("snippet") or "")
         if not conv_id or not text:
             return {"error": "需要 conv_id 和 text"}
+        if not (peer or str(body.get("topic") or "") or str(body.get("peer_guid") or "")):
+            return {"error": "发送前核验需要 peer / topic / peer_guid 至少一项"}
+        expected = {
+            "conv_id": conv_id,
+            "peer": peer,
+            "peer_guid": str(body.get("peer_guid") or ""),
+            "topic": str(body.get("topic") or ""),
+            "snippet": snippet,
+            "message_id": str(body.get("message_id") or ""),
+        }
         page = await teams.teams_open()
         return await teams.api_send_message(page, conv_id, text, peer=peer,
-                                            snippet=snippet)
+                                            snippet=snippet, expected=expected)
 
     ctx.register_api("POST", "api/send-api", _api_send_api)
 
@@ -593,8 +695,17 @@ def setup(ctx):
         send = bool(body.get("send"))
         if not peer or not text:
             return {"error": "需要 peer 和 text"}
+        expected = {
+            "conv_id": conv_id,
+            "peer": peer,
+            "peer_guid": str(body.get("peer_guid") or ""),
+            "topic": str(body.get("topic") or ""),
+            "snippet": snippet,
+            "message_id": str(body.get("message_id") or ""),
+        }
         return await teams.reply_to(peer, text, send=send, snippet=snippet,
-                                    conv_id=conv_id)
+                                    conv_id=conv_id, expected=expected,
+                                    strict=bool(body.get("strict")))
 
     async def _api_search_typing(request=None):
         """逐字敲搜索框打开会话（真实按键，触发 autosuggest）。"""
@@ -770,7 +881,7 @@ def setup(ctx):
         for k in ("enabled", "dry_run", "send_enabled", "source", "chats",
                   "mention_tokens", "my_name", "model", "interval_seconds",
                   "kb_min_score", "fallback_agent", "agent_mode", "only_direct",
-                  "only_unread"):
+                  "only_unread", "kb_synthesize"):
             if k in body:
                 overrides[k] = body[k]
         ctx.save_state(overrides=overrides)
@@ -819,7 +930,7 @@ def setup(ctx):
                         "hint": "知识库优先；默认 dry_run，不会真发消息"})
 
     try:
-        bot._task = asyncio.ensure_future(bot.loop())
+        bot._task = asyncio.get_running_loop().create_task(bot.loop())
     except RuntimeError:
         bot._task = None
         ctx.log("teams-bot: 无事件循环，轮询未启动（工具/接口仍可用）")
@@ -840,5 +951,11 @@ def teardown(ctx):
     if kb is not None:
         try:
             kb.close()
+        except Exception:                        # noqa: BLE001
+            pass
+    ob = getattr(ctx, "_teams_outbox", None)
+    if ob is not None:
+        try:
+            ob.close()
         except Exception:                        # noqa: BLE001
             pass

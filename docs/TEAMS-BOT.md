@@ -174,18 +174,30 @@ curl -X POST http://127.0.0.1:8765/v1/plugins/teams-bot/api/compose `
      -d "{\"enabled\":true,\"dry_run\":true,\"send_enabled\":false,\"kb_first\":true,\"fallback_agent\":false,\"my_name\":\"Walt Liang - DSV\"}"
    ```
 
-   - `kb_first: true` → 命中知识库就直接用资料拼答案（带出处），**不调模型**，快且不编造；
+   - `kb_first: true` → 命中知识库后让模型**依据资料组织回答**（带出处），避免整段抄文档；
+     模型不可用时退回原文摘录。想恢复"完全不调模型"可设 `kb_synthesize: false`；
    - `fallback_agent: false` → 没命中就不硬编（配合 `reply_when_unknown` 决定要不要回"转人工"）。
 
 4. **单条验证**（不发送、不用等有人 @）：
 
    ```powershell
    curl "http://127.0.0.1:8765/v1/plugins/teams-bot/api/answer?q=VPN%%20连不上怎么办"
-   # → {"text":"根据本地知识库：…","source":"kb:《VPN 连不上怎么办》","would_reply":true}
+   # → {"text":"…","source":"model+kb:《VPN 连不上怎么办》","would_reply":true}
    ```
 
 5. **看整轮**：`POST api/run` 后看 `GET api/status` 的 `last_cycle.would[]`（dry_run 下不发送）。
 6. **真要发**：`{"dry_run": false, "send_enabled": true}`（两个都要开）。
+
+## 发送安全（P0）
+
+- 后台轮询、手动 `api/run`、`teams_reply`、`api/compose` 共用 `gantry.teams` 的页面互斥锁；
+  `cycle()` 非重入：上一轮未结束时 `api/run` 返回 `skipped=busy`，不会排队叠加。
+- 每条自动回复发送前核对 `conversation_id`、会话标题、对端 `peer_guid`/显示名和触发消息片段；
+  任一不一致返回 `reason=identity_mismatch`，**不发送**。给了 `conv_id` 时 API 失败也不回退 UI
+  （UI 无法核对 id，回退可能发错会话）。
+- 幂等箱 `data/teams-bot-sends.db` 以 `(conversation_id, message_id)` 为主键记录
+  `reserved / sent / failed`；重启、超时、重复轮询都不会重发。`reserved` 超过租约或
+  `failed` 视为"结果未知"，默认不自动重试，需人工确认。
 
 检索走 `gantry.kb_semantic.hybrid`（0.75×余弦 + 0.25×词面覆盖率），与 kb 插件、CLI 完全一致；
 向量没建好时自动退回 FTS，不会报错。阈值用 `kb_min_score`（默认 0.35；混合分一般 0.5+，
