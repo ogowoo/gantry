@@ -209,6 +209,27 @@ class KbPluginTests(unittest.TestCase):
         self.assertEqual(res["backend"], "fts5-trigram", "没有向量层时 auto 应退回词面检索")
         self.assertTrue(res["hits"])
 
+    def test_auto_falls_back_to_fts_when_vector_not_built(self):
+        """向量层存在但还没建索引时，不能因为 hits 未赋值而 500。"""
+        class FakeSem:
+            class embedder:
+                name = "fake"
+
+            def stats(self):
+                return {"vectorised": 0, "chunks": 0}
+
+            def build(self, force=False):
+                return {"vectorised": 0, "chunks": 0}
+
+            def hybrid(self, *a, **k):
+                raise AssertionError("向量索引为空时不应调用 hybrid")
+
+        self.ctx._sem = FakeSem()
+        plugin.setup(self.ctx)
+        res = self.run_coro(self.ctx.tools["kb_search"]("VPN 连不上", 3))
+        self.assertGreater(res["count"], 0)
+        self.assertEqual(res["backend"], "fts5-trigram")
+
 
 if __name__ == "__main__":
     unittest.main()
