@@ -55,7 +55,7 @@ from .teams_dom import (  # noqa: F401  （对外名字保持不变）
     _existing_teams_page,
     teams_tabs,
     close_extra_gantry_tabs,
-    teams_open,
+    open_teams_for_login, teams_open,
     chat_participants,
     chat_kind,
     list_chats,

@@ -1080,15 +1080,20 @@ def setup(ctx):
         return {"count": len(out), "tabs": out}
 
     async def _api_open_teams(request=None):
-        """后台打开 Teams 标签（不阻塞 HTTP），用于排障/登录。"""
-        timeout = 300.0
+        """打开/聚焦 Teams 标签页并返回登录状态（不抛错；供人工过 MFA 用）。"""
+        wait = 8.0
         try:
-            q = getattr(request, "query_params", {}) or {}
-            timeout = float(q.get("timeout") or 300)
+            body = await request.json()
+            wait = float((body or {}).get("wait") or 8.0)
         except Exception:                        # noqa: BLE001
             pass
-        asyncio.create_task(teams.teams_open(timeout=timeout))
-        return {"started": True, "timeout": timeout}
+        try:
+            # 直接取子模块实现：不依赖 façade 是否已随热重载更新
+            from gantry.teams_dom import open_teams_for_login
+
+            return await open_teams_for_login(wait=max(2.0, min(wait, 60.0)))
+        except Exception as exc:                 # noqa: BLE001
+            return {"ok": False, "error": f"{type(exc).__name__}: {str(exc)[:240]}"}
 
     async def _api_tabs_cleanup(request=None):
         """关掉 Gantry 自开的多余 Teams 标签（不碰用户自己的 Chat 标签）。"""
@@ -1129,10 +1134,10 @@ def setup(ctx):
     ctx.register_api("GET", "api/idb-convs", _api_idb_convs)
     ctx.register_api("GET", "api/idb-record", _api_idb_record)
     ctx.register_api("GET", "api/idb-watch", _api_idb_watch)
+    ctx.register_api("POST", "api/open-teams", _api_open_teams)
     ctx.register_api("GET", "api/resolve", _api_resolve)
     ctx.register_api("GET", "api/tabs", _api_tabs)
     ctx.register_api("GET", "api/all-tabs", _api_all_tabs)
-    ctx.register_api("POST", "api/open-teams", _api_open_teams)
     ctx.register_api("POST", "api/tabs/cleanup", _api_tabs_cleanup)
     ctx.register_api("GET", "api/open-search", _api_open_search)
     ctx.register_api("GET", "api/search-probe", _api_search_probe)

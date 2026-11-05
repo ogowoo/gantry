@@ -457,6 +457,71 @@ async def close_extra_gantry_tabs() -> dict[str, Any]:
     return {"closed": closed, "kept": (keep.url or "")[:100],
             "title": ((await keep.title()) or "")[:100]}
 
+async def open_teams_for_login(wait: float = 8.0) -> dict[str, Any]:
+    """打开/聚焦 Teams 标签页并返回登录状态（不抛登录异常，供人工登录用）。
+
+    返回 {ok, url, title, logged_in, hint}：`logged_in=False` 表示停在登录墙，
+    窗口已经带到前台，用户可以直接在上面过 MFA。
+    """
+    from . import bridge as _br
+    from .browser import ensure_browser_ready
+
+    page = None
+    try:
+        page = _br.current_page()
+    except Exception:                            # noqa: BLE001
+        page = None
+    ctx = getattr(_br, "ctx", None)
+    if page is None and ctx is not None:
+        page = await _existing_teams_page(ctx)
+    if page is None:
+        await ensure_browser_ready()             # 按需拉起持久化 Edge 上下文
+        ctx = getattr(_br, "ctx", None)
+        if ctx is not None:
+            page = await _existing_teams_page(ctx)
+        if page is None:
+            page = _br.current_page()
+        if page is None and ctx is not None:
+            try:
+                page = await ctx.new_page()
+            except Exception as exc:             # noqa: BLE001
+                return {"ok": False, "url": "", "title": "", "logged_in": False,
+                        "error": f"打不开浏览器标签：{str(exc)[:160]}"}
+    try:
+        url = page.url or ""
+    except Exception:                            # noqa: BLE001
+        url = ""
+    if not ("teams.cloud.microsoft" in url or "teams.microsoft.com" in url):
+        try:
+            await page.goto(TEAMS_URL, wait_until="domcontentloaded", timeout=60000)
+        except Exception as exc:                 # noqa: BLE001
+            return {"ok": False, "url": url, "title": "", "logged_in": False,
+                    "error": f"打开 Teams 失败：{str(exc)[:160]}"}
+    try:
+        await page.bring_to_front()
+    except Exception:                            # noqa: BLE001
+        pass
+    try:
+        await asyncio.sleep(max(1.0, wait))
+    except Exception:                            # noqa: BLE001
+        pass
+    title = ""
+    try:
+        title = await page.title()
+    except Exception:                            # noqa: BLE001
+        pass
+    logged_in = False
+    try:
+        logged_in = not await _first_visible(page, "login_wall")
+    except Exception:                            # noqa: BLE001
+        logged_in = False
+    return {"ok": True, "url": (page.url or "")[:200], "title": title[:120],
+            "logged_in": logged_in,
+            "hint": "" if logged_in else
+                    "浏览器窗口已切到前台：在这个窗口里登录 Teams（MFA 慢就慢慢来），"
+                    "登录完成后机器人会自动恢复（每 20s 轮询一次）"}
+
+
 async def teams_open(timeout: float = 300.0, force_reload: bool = False) -> Any:
     """打开/复用 Teams 标签页，等到主界面出现。SSO 已在共享 ctx 里，通常只需几秒。"""
     global teams_page

@@ -14,6 +14,27 @@
 ### Fixed
 - 
 
+## [11.0.0-preview.70] - 2026-11-05
+
+### Added
+
+- **Teams 登录入口**（解决"Teams 页面不弹出、MFA 慢"）：
+  - `teams_dom.open_teams_for_login(wait)`：显式把 Teams 标签导航到 `teams.cloud.microsoft/v2`
+    并 `bring_to_front()`，返回 `{ok,url,title,logged_in,hint}`，**不抛登录异常**；
+  - `POST /v1/plugins/teams-bot/api/open-teams`：同一能力的 HTTP 接口；
+  - `scripts/login_teams.py`：调到前台后每 10s 查一次 `api/idb-watch`，登录成功自动退出，
+    `--timeout` 可放宽（MFA 慢时不催）。
+- `docs/TEAMS-BOT.md` 增「登录 Teams（含 MFA）」章节，解释"为什么不弹窗"（复用
+  `current_page()`，可能停在 Copilot 登录墙）与手动/脚本两种做法。
+
+### 实测
+
+- `python scripts/login_teams.py --timeout 45` → 返回
+  `{"ok":true,"url":"https://teams.cloud.microsoft/v2/","title":"Microsoft Teams","logged_in":true}`；
+  随后 `api/idb-watch` **2.8s** 读到 349 个会话 / 247 私聊（此前是 500 + auth expired）。
+- 测试：`tests/test_teams_bot.py` 32 条（新增 open-teams 兜底 1 条）；
+  全套 1581（skipped=1）OK；不变量 25 条全绿。
+
 ## [11.0.0-preview.69] - 2026-11-05
 
 ### Added
