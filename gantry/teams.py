@@ -985,103 +985,6 @@ async def api_search_probe(page=None) -> dict[str, Any]:
     }""")
 
 
-async def api_open_by_search(name: str, page=None, wait: float = 3.5,
-                             confirm: float = 60.0) -> dict[str, Any]:
-    """用搜索框打开会话；返回是否成功与当前头部标题（只读，不发消息）。"""
-    page = page or await teams_open()
-    before = await header_title(page)
-    out: dict[str, Any] = {"target": name, "before": (before or "")[:60]}
-    inp = None
-    for sel in ('input[data-tid="AUTOSUGGEST_INPUT"]',
-                'input[role="combobox"]', 'input[type="text"]'):
-        try:
-            loc = page.locator(sel).first
-            if await loc.count() and await loc.is_visible():
-                inp = loc
-                break
-        except Exception:                        # noqa: BLE001
-            continue
-    if inp is None:
-        return {**out, "error": "找不到搜索框"}
-    try:
-        # 标题栏的搜索是折叠的：先点"Expand search box"再输入
-        try:
-            toggle = page.locator('[data-tid="title-bar-toggle-search-btn"]').first
-            if await toggle.count() and await toggle.is_visible():
-                box = await toggle.bounding_box()
-                if box:
-                    await page.mouse.click(box["x"] + box["width"] / 2,
-                                           box["y"] + box["height"] / 2)
-                    await asyncio.sleep(1.0)
-        except Exception:                        # noqa: BLE001
-            pass
-        await inp.click()
-        await inp.fill("")
-        await inp.fill(name)
-        await asyncio.sleep(wait)
-    except Exception as exc:                     # noqa: BLE001
-        return {**out, "error": f"输入失败: {str(exc)[:120]}"}
-    out["suggestion"] = await page.evaluate(r"""() => {
-      const sels = ['[data-tid="ms-searchux-popup"]', '[role="listbox"]',
-                    '[data-tid*="suggest" i]'];
-      for (const sel of sels) {
-        const el = document.querySelector(sel);
-        if (el && el.innerText) {
-          return (el.innerText || '').replace(new RegExp('\\s+', 'g'), ' ').slice(0, 300);
-        }
-      }
-      return '';
-    }""")
-    opened = False
-    for attempt in ("enter", "down+enter"):
-        try:
-            if attempt == "down+enter":
-                await page.keyboard.press("ArrowDown")
-                await asyncio.sleep(0.6)
-            await page.keyboard.press("Enter")
-            await asyncio.sleep(2.5)
-        except Exception:                        # noqa: BLE001
-            pass
-        deadline = time.monotonic() + max(10.0, confirm)
-        while time.monotonic() < deadline:
-            after = await header_title(page)
-            if after and after != before:
-                out["after"] = (after or "")[:60]
-                opened = bool(name.lower()[:8] in after.lower()) or after != before
-                out["matched"] = bool(name.lower()[:8] in after.lower())
-                if opened:
-                    break
-            await asyncio.sleep(1.5)
-        if opened:
-            break
-    out["opened"] = opened
-    out.setdefault("after", (await header_title(page) or "")[:60])
-    out["participants"] = await chat_participants()
-    return out
-
-
-async def api_search_probe(page=None) -> dict[str, Any]:
-    """搜索相关 DOM 结构（只读）。"""
-    page = page or await teams_open()
-    return await page.evaluate(r"""() => {
-      const info = (el) => el ? ({
-        tag: el.tagName, tid: el.getAttribute('data-tid') || '',
-        role: el.getAttribute('role') || '',
-        aria: (el.getAttribute('aria-label') || '').slice(0, 60),
-        placeholder: (el.getAttribute('placeholder') || '').slice(0, 40),
-        visible: !!(el.offsetWidth || el.offsetHeight)
-      }) : null;
-      const q = (sel) => [...document.querySelectorAll(sel)].slice(0, 4).map(info);
-      return {
-        active: info(document.activeElement),
-        inputs: q('input'),
-        comboboxes: q('[role="combobox"]'),
-        searchTids: q('[data-tid*="search" i], [data-tid*="AUTOSUGGEST" i]'),
-        textboxes: q('[role="textbox"]')
-      };
-    }""")
-
-
 async def api_open_by_search(name: str, page=None, wait: float = 3.0) -> dict[str, Any]:
     """键盘搜索打开会话；返回是否成功与当前头部标题。"""
     page = page or await teams_open()
@@ -1499,23 +1402,6 @@ async def api_hosts_probe(page=None) -> dict[str, Any]:
                 except Exception as exc:         # noqa: BLE001
                     results.append({"url": url[:110], "error": str(exc)[:80]})
     return {"results": results}
-
-
-def _jwt_claims(tok: str) -> dict[str, Any]:
-    """解 JWT 的 payload（base64url），失败返回 {}。"""
-    import base64
-    import json as _json
-
-    try:
-        parts = str(tok).split(".")
-        if len(parts) < 2:
-            return {}
-        seg = parts[1] + "=" * (-len(parts[1]) % 4)
-        raw = base64.urlsafe_b64decode(seg.encode())
-        data = _json.loads(raw.decode("utf-8", "replace"))
-        return data if isinstance(data, dict) else {}
-    except Exception:                            # noqa: BLE001
-        return {}
 
 
 def _claims_summary(tok: str) -> dict[str, Any]:
