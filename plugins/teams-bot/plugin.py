@@ -151,6 +151,27 @@ class Bot:
             self.ctx._teams_outbox = ob
         return ob
 
+    def _model_ready(self) -> bool:
+        """Copilot 网页被区域限制/未登录时，别每轮都等模型超时。"""
+        model = str(_cfg(self.ctx, "model") or "copilot-auto")
+        if not model.startswith("copilot"):
+            return True
+        try:
+            from gantry.api import BOOT
+
+            if BOOT.get("browser_state") in ("idle", "starting"):
+                return True                 # 浏览器还没起：留给懒启动判断
+            if not BOOT.get("copilot_ready"):
+                return False
+        except Exception:                    # noqa: BLE001
+            return True
+        try:
+            from gantry import bridge as b
+
+            return "blocked" not in b.page_url_safe()
+        except Exception:                    # noqa: BLE001
+            return True
+
     # ── 状态 ──
     def seen(self) -> list[str]:
         st = self.ctx.state
@@ -205,7 +226,7 @@ class Bot:
             # 命中文档 ≠ 可读回答：整段抄资料会让人感觉"没有智能"。
             # 优先让模型依据资料组织成针对问题的步骤；模型挂了再退回原文摘录。
             if bool(_cfg(self.ctx, "kb_synthesize")) and \
-                    bool(_cfg(self.ctx, "fallback_agent")):
+                    bool(_cfg(self.ctx, "fallback_agent")) and self._model_ready():
                 try:
                     text = await self._agent_answer(question, good)
                     if text:
@@ -220,7 +241,7 @@ class Bot:
             text = build_kb_answer(question, good, int(_cfg(self.ctx, "kb_max_chars")))
             if text:
                 return text, f"kb:{good[0].get('title')}"
-        if bool(_cfg(self.ctx, "fallback_agent")):
+        if bool(_cfg(self.ctx, "fallback_agent")) and self._model_ready():
             try:
                 text = await self._agent_answer(question, good)
                 if text:

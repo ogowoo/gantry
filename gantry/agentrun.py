@@ -909,7 +909,11 @@ async def plain_chat_turn(sid: str, content: str, model_id: str, attach_paths: l
             else:
                 b.AGENT_SESSIONS.patch(sid, conversation_urls=urls, model=model_id)
             b.runtime_update(sid, phase="manual_completed", answer_preview=display[-12000:], detail="普通对话完成")
-            return {"session_id":sid,"role":"assistant","content":answer,"url":b.page.url,"mode":"chat"}
+            # 返回给 API/Teams 的正文也用清理后的 markdown：answer 原始文本可能
+            # 混入 Copilot 的 chat-suggestion（DOM 里在 markdown-reply 外面）。
+            content = (display or answer).strip()
+            return {"session_id":sid,"role":"assistant","content":content,
+                    "url":b.page.url,"mode":"chat"}
         finally:
             b.ACTIVE_SESSION_ID = prev_active
 
