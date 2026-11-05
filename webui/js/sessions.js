@@ -38,9 +38,9 @@ function openSessMenu(btn,sid){
  const el=document.createElement('div');
  el.className='codemenu sessmenu';
  el.innerHTML=
-  `<button type="button" class="cmitem" data-menu="tag">🏷 ${esc(tr('设置标签'))}</button>`+
-  `<button type="button" class="cmitem" data-menu="copy">📋 ${esc(tr('复制会话 ID'))}</button>`+
-  `<button type="button" class="cmitem danger" data-menu="del">🗑 ${esc(tr('删除会话'))}</button>`;
+  `<button type="button" class="cmitem" data-menu="tag">${esc(tr('设置标签'))}</button>`+
+  `<button type="button" class="cmitem" data-menu="copy">${esc(tr('复制会话 ID'))}</button>`+
+  `<button type="button" class="cmitem danger" data-menu="del">${esc(tr('删除会话'))}</button>`;
  document.body.appendChild(el);
  const r=btn.getBoundingClientRect();
  el.style.top=Math.round(r.bottom+4)+'px';
