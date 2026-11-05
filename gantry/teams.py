@@ -3400,6 +3400,20 @@ async def recent_messages(limit: int = 30, my_name: str = "",
                         continue
                 if not text:
                     text = (await item.inner_text(timeout=1000)) or ""
+                # 只读 `data-message-type=Chat` 的正常聊天消息：系统事件/成员变更
+                # 不该被当成回答上下文。
+                mtype = (await item.get_attribute("data-message-type")) or ""
+                if not mtype:
+                    try:
+                        mtype = await item.evaluate("""(el) => {
+                          const n = el.closest('[data-message-type]');
+                          return n ? (n.getAttribute('data-message-type') || '') : '';
+                        }""") or ""
+                    except Exception:           # noqa: BLE001
+                        mtype = ""
+                if mtype and mtype.strip().lower() not in (
+                        "chat", "text", "richtext", "richtext/html"):
+                    continue
                 author = re.sub(r"\s+", " ", author).strip()
                 text = re.sub(r"\n{3,}", "\n\n", text).strip()
                 if not text:

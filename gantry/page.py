@@ -1028,20 +1028,32 @@ async def answer_markdown(plain: str = "") -> str:
             return ""
         js = """(args) => {
           const first = args[0], last = args[1] || args[0];
-          const cands = document.querySelectorAll('article,section,div,main,[role="main"],[role="group"]');
+          // Copilot 给回答容器一个稳定 testid；优先用它，别在整页里猜"最深的 div"，
+          // 否则回答下方的建议按钮/工具条很容易被一起卷进来。
           let best = null;
-          for (const el of cands) {
-            const t = el.textContent || '';
-            if (!t.includes(first) || !t.includes(last)) continue;
-            const r = el.getBoundingClientRect();
-            if (r.height < 30 || r.width < 150) continue;
-            if (!best || (best !== el && best.contains(el))) best = el;   // 最深的（被别的候选包含的）
+          const explicit = [...document.querySelectorAll('[data-testid="copilot-message-div"]')]
+            .filter(el => {
+              const t = el.textContent || '';
+              return t.includes(first) && t.includes(last);
+            });
+          if (explicit.length) best = explicit[explicit.length - 1];
+          if (!best) {
+            const cands = document.querySelectorAll('article,section,div,main,[role="main"],[role="group"]');
+            for (const el of cands) {
+              const t = el.textContent || '';
+              if (!t.includes(first) || !t.includes(last)) continue;
+              const r = el.getBoundingClientRect();
+              if (r.height < 30 || r.width < 150) continue;
+              if (!best || (best !== el && best.contains(el))) best = el;   // 最深的（被别的候选包含的）
+            }
           }
           if (!best) return '';
           // 回答区域内也可能混着复制/建议按钮；markdown 转换前从克隆里剔除，
           // 避免“让它循环执行…”这类建议文字进入正文。
           const clone = best.cloneNode(true);
-          clone.querySelectorAll('button,[role="button"],[data-testid*="suggestion" i],[data-testid*="follow-up" i],[class*="suggestion" i]').forEach(el => el.remove());
+          clone.querySelectorAll('button,[role="button"],[data-testid*="suggestion" i],'
+            + '[data-testid*="follow-up" i],[class*="suggestion" i],'
+            + '[aria-label*="suggestion" i]').forEach(el => el.remove());
           return {md: window.__cbp_html2md(clone), dom: best.outerHTML.slice(0, 300000)};
         }"""
         res = await b.page.evaluate(js, [first, last])

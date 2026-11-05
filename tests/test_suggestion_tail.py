@@ -74,6 +74,51 @@ class StripSuggestionTests(unittest.TestCase):
         self.assertEqual(strip_suggestion_tail(text),
                          "请先确认手机的 Android 版本，再下载对应安装包。")
 
+    def test_question_suffix_without_blank_line_stripped(self):
+        text = (
+            "1. 先确认 OST 文件大小。\n"
+            "2. 用网页版自助修复。\n"
+            "3. 仍不行就重建 OST。\n"
+            "怎么确认邮箱已同步完成？\n"
+            "Outlook 还是很卡怎么办？"
+        )
+        self.assertEqual(
+            strip_suggestion_tail(text),
+            "1. 先确认 OST 文件大小。\n2. 用网页版自助修复。\n3. 仍不行就重建 OST。")
+
+    def test_rewrite_suggestion_suffix_without_blank_stripped(self):
+        text = (
+            "先关闭 Outlook。\n"
+            "按 Win + X 打开 Terminal。\n"
+            "执行重建命令后重新打开 Outlook。\n"
+            "改成更安全的分步命令\n"
+            "补充检查同步状态的方法\n"
+            "说明旧 OST 文件何时可删除"
+        )
+        self.assertEqual(
+            strip_suggestion_tail(text),
+            "先关闭 Outlook。\n按 Win + X 打开 Terminal。\n执行重建命令后重新打开 Outlook。")
+
+    def test_question_suffix_without_question_mark_stripped(self):
+        text = (
+            "先关闭 Outlook。\n"
+            "执行重建命令后重新打开 Outlook。\n"
+            "如何确认邮箱已完成同步\n"
+            "Outlook 仍然卡顿怎么处理"
+        )
+        self.assertEqual(
+            strip_suggestion_tail(text),
+            "先关闭 Outlook。\n执行重建命令后重新打开 Outlook。")
+
+    def test_rewrite_suffix_with_ba_prefix_stripped(self):
+        text = (
+            "执行命令后重新打开 Outlook。\n"
+            "把步骤改成更简短的中文\n"
+            "补充执行命令前的注意事项"
+        )
+        self.assertEqual(strip_suggestion_tail(text),
+                         "执行命令后重新打开 Outlook。")
+
     def test_plain_numbered_list_untouched(self):
         text = "步骤如下：\n\n1. 读取文件\n2. 修改配置\n3. 运行测试"
         self.assertEqual(strip_suggestion_tail(text), text)

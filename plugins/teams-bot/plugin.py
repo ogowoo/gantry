@@ -254,7 +254,9 @@ class Bot:
                 "2. 不要整段复制/粘贴参考资料，要用自己的话针对问题给出可操作步骤；"
                 "资料与问题无关时不要硬套，直接按一般 IT 知识回答并说明需要核实。\n"
                 "3. 回答用中文、口语化、分步骤，控制在 6 行以内。\n"
-                "4. 不要提到「参考资料」这个词，也不要说自己是 AI。\n\n"
+                "4. 不要提到「参考资料」这个词，也不要说自己是 AI。\n"
+                "5. 不要追问、不要要求用户补截图/补信息，也不要用「如果需要…」「把…发我」"
+                "这类收尾；最后一条就是可执行步骤。\n\n"
                 f"《参考资料》\n{context}\n\n"
                 f"同事的问题：{question}"
             )
@@ -363,6 +365,12 @@ class Bot:
                     last_ids[cid] = lid
                 text = normalise_text(str(c.get("lastText") or ""))
                 who = str(c.get("lastFrom") or "")
+                # Teams 会话最后一条可能是 ThreadActivity/AddMember 等非聊天消息；
+                # 这类消息的正文是内部 id/系统事件，不能拿来回答（会生成无关回复）。
+                mtype = str(c.get("lastType") or "").strip().lower()
+                if mtype and mtype not in ("chat", "text", "richtext", "richtext/html"):
+                    out["skipped"].append({"id": cid[:24], "why": f"非聊天消息:{mtype}"})
+                    continue
                 if not text:
                     continue
                 # 只处理未读：历史消息（已读水位覆盖）直接跳过，避免首次启用
