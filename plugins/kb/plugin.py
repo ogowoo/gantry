@@ -36,13 +36,17 @@ _DEFAULTS: dict[str, Any] = {
     "max_results": 6,
     "min_score": 0.0,
     "auto_reindex": True,
-    # 向量层：auto = 端点可用就用 HTTP embedding（本机 llama-server --embeddings），
-    # 不可用自动退回纯 FTS；hash = 零依赖兜底；off = 关闭
+    # 向量层：fastembed = 进程内 ONNX 模型（默认，无需外部 server）；
+    # auto = 端点可用就用 HTTP embedding；hash = 零依赖兜底；off = 关闭
     "embedding": {
-        "backend": "auto",
+        "backend": "fastembed",
+        "model": "BAAI/bge-small-zh-v1.5",
+        "cache_dir": "data/models/fastembed",
+        "dim": 512,
+        "local_files_only": False,
+        "threads": 0,
         "base_url": "http://127.0.0.1:18085/v1",
-        "model": "qwen3-embed",
-        "dim": 0,
+        "model_path": "",
         "w_vec": 0.75,
         "w_cov": 0.25,
     },
@@ -91,6 +95,10 @@ def _emb_cfg(ctx) -> dict[str, Any]:
     raw = (ctx.config or {}).get("embedding")
     if isinstance(raw, dict):
         base.update({k: v for k, v in raw.items() if v not in (None, "")})
+    # cache_dir 相对路径按仓库根解析，避免服务从别的 cwd 启动时找不到模型
+    cache = str(base.get("cache_dir") or "")
+    if cache and not Path(cache).is_absolute():
+        base["cache_dir"] = str(_root() / cache)
     return base
 
 

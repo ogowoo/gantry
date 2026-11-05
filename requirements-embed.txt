@@ -1,0 +1,4 @@
+# 可选：进程内 embedding（知识库语义检索，ONNX，不需要外部 server）
+#   pip install -r requirements-embed.txt   或   python install.py --embed
+# 默认模型 BAAI/bge-small-zh-v1.5（中文，512 维，约 90 MB）
+fastembed>=0.9,<1

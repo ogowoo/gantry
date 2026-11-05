@@ -89,6 +89,61 @@ class HttpEmbedder:
         return vecs
 
 
+class FastEmbedEmbedder:
+    """进程内 ONNX 嵌入（fastembed）：默认 BAAI/bge-small-zh-v1.5，中文 512 维。
+
+    不依赖 llama.cpp / 外部 server；模型首次用 `cache_dir` 下载，之后本地加载。
+    `local_files_only=true` 时只读缓存（离线/已预下载场景）。
+    """
+
+    def __init__(self, model: str = "BAAI/bge-small-zh-v1.5", cache_dir: str = "",
+                 dim: int = 0, local_files_only: bool = False, threads: int = 0):
+        self.model = str(model or "BAAI/bge-small-zh-v1.5")
+        self.cache_dir = str(cache_dir or "")
+        self.dim = int(dim or 0)
+        self.local_files_only = bool(local_files_only)
+        self.threads = int(threads or 0)
+        self.name = f"fastembed:{self.model}"
+        self._enc: Any = None
+
+    def _ensure(self) -> None:
+        if self._enc is not None:
+            return
+        try:
+            from fastembed import TextEmbedding
+        except Exception as exc:                 # noqa: BLE001
+            raise RuntimeError(
+                "进程内 embedding 需要 fastembed：pip install fastembed"
+                f"（当前不可用：{exc}）") from exc
+        kwargs: dict[str, Any] = {"model_name": self.model}
+        if self.cache_dir:
+            kwargs["cache_dir"] = self.cache_dir
+        if self.threads:
+            kwargs["threads"] = self.threads
+        if self.local_files_only:
+            kwargs["local_files_only"] = True
+        try:
+            self._enc = TextEmbedding(**kwargs)
+        except Exception as exc:                 # noqa: BLE001
+            raise RuntimeError(f"加载 embedding 模型失败（{self.model}）：{exc}") from exc
+        if not self.dim:
+            try:
+                probe = next(iter(self._enc.embed(["dimension probe"])))
+                self.dim = len(probe)
+            except Exception:                    # noqa: BLE001
+                self.dim = 0
+
+    def embed(self, texts: list[str]) -> list[list[float]]:
+        self._ensure()
+        assert self._enc is not None
+        out: list[list[float]] = []
+        for vec in self._enc.embed(list(texts)):
+            out.append([float(x) for x in vec])
+        if out and not self.dim:
+            self.dim = len(out[0])
+        return out
+
+
 class HashEmbedder:
     """零依赖兜底：字符 n-gram hashing（不训练、不联网，单测与离线可用）。
 
@@ -303,10 +358,11 @@ def _cosine(a: list[float], b: list[float]) -> float:
 
 
 def build_embedder(cfg: dict[str, Any] | None = None) -> Embedder | None:
-    """按配置造嵌入后端：backend = auto|http|hash|local|off。
+    """按配置造嵌入后端：backend = auto|http|hash|local|fastembed|off。
 
-    auto  = 端点可用就用 HTTP（失败退回 None→FTS）
-    local = 进程内 llama_cpp 加载 GGUF（配 model_path）
+    auto     = 端点可用就用 HTTP（失败退回 None→FTS）
+    local    = 进程内 llama_cpp 加载 GGUF（配 model_path）
+    fastembed= 进程内 ONNX 模型（默认 BAAI/bge-small-zh-v1.5，配 model/cache_dir）
     """
     c = dict(cfg or {})
     backend = str(c.get("backend") or "auto").lower()
@@ -314,6 +370,13 @@ def build_embedder(cfg: dict[str, Any] | None = None) -> Embedder | None:
         return None
     if backend == "hash":
         return HashEmbedder(int(c.get("dim") or 512))
+    if backend in ("fastembed", "onnx", "bge"):
+        return FastEmbedEmbedder(
+            model=str(c.get("model") or "BAAI/bge-small-zh-v1.5"),
+            cache_dir=str(c.get("cache_dir") or ""),
+            dim=int(c.get("dim") or 0),
+            local_files_only=bool(c.get("local_files_only")),
+            threads=int(c.get("threads") or 0))
     if backend == "local":
         from .local_models import LocalEmbedder
 

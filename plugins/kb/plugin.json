@@ -42,15 +42,14 @@
       "min_score": 0.0,
       "auto_reindex": true,
       "embedding": {
-        "backend": "local",
-        "base_url": "http://127.0.0.1:18085/v1",
-        "model": "qwen3-embed",
-        "dim": 1024,
+        "backend": "fastembed",
+        "model": "BAAI/bge-small-zh-v1.5",
+        "cache_dir": "data/models/fastembed",
+        "dim": 512,
+        "local_files_only": false,
+        "threads": 0,
         "w_vec": 0.75,
-        "w_cov": 0.25,
-        "model_path": "E:/models/gguf/Qwen3-Embedding-0.6B-Q8_0.gguf",
-        "n_ctx": 2048,
-        "n_threads": 8
+        "w_cov": 0.25
       },
       "ocr": {
         "engine": "rapidocr",

@@ -42,13 +42,28 @@ curl http://127.0.0.1:8765/v1/plugins/kb/api/docs
 
 | 键 | 默认 | 说明 |
 | --- | --- | --- |
-| `backend` | `auto` | `auto`=端点可用就用 HTTP，否则退回 FTS；`http` / `hash` / `local` / `off` |
-| `base_url` | `http://127.0.0.1:18085/v1` | 任意 OpenAI 兼容 `/embeddings`（llama.cpp `--embeddings`、Ollama、FLM） |
-| `model` | `qwen3-embed` | 本机 `llama-server -m Qwen3-Embedding-0.6B-Q8_0.gguf --embeddings --port 18085` |
-| `dim` | `0` | 0=自动探测 |
+| `backend` | `fastembed` | `fastembed`=进程内 ONNX（推荐）；`auto`=HTTP 端点可用就用，否则退回 FTS；`http` / `hash` / `local` / `off` |
+| `model` | `BAAI/bge-small-zh-v1.5` | fastembed 模型名（中文 512 维）；`http` 时是端点模型名 |
+| `cache_dir` | `data/models/fastembed` | fastembed 模型缓存目录 |
+| `local_files_only` | `false` | 只读缓存、不联网下载（已预下载时设 `true`） |
+| `base_url` | `http://127.0.0.1:18085/v1` | `http` 后端：任意 OpenAI 兼容 `/embeddings`（llama.cpp / Ollama / FLM） |
+| `model_path` | 空 | `local` 后端：进程内 GGUF（llama_cpp）路径 |
+| `dim` | `512` | 0=自动探测（fastembed 默认 512） |
 | `w_vec` / `w_cov` | `0.75` / `0.25` | 混合权重 |
 
-`local` 是**进程内**模式：给 `model_path` 指向 embedding GGUF（如
+装 fastembed（约 50 MB 依赖，模型首次使用自动下载约 90 MB）：
+
+```powershell
+python install.py --embed
+# 或：
+pip install -r requirements-embed.txt
+```
+
+`fastembed` 是默认的**进程内**模式，不需要 llama.cpp/外部 server。模型缓存目录默认
+`data/models/fastembed`；离线机器可以先在有网环境下载整个目录，再把 `local_files_only`
+设为 `true`。
+
+`local` 是另一种**进程内**模式：给 `model_path` 指向 embedding GGUF（如
 `Qwen3-Embedding-0.6B-Q8_0.gguf`），由 `gantry.local_models.LocalEmbedder` 用 `llama_cpp`
 直接加载，不需要外部 `llama-server`。
 
