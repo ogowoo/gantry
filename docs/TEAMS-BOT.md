@@ -193,8 +193,8 @@ curl -X POST http://127.0.0.1:8765/v1/plugins/teams-bot/api/compose `
 - 后台轮询、手动 `api/run`、`teams_reply`、`api/compose` 共用 `gantry.teams` 的页面互斥锁；
   `cycle()` 非重入：上一轮未结束时 `api/run` 返回 `skipped=busy`，不会排队叠加。
 - 每条自动回复发送前核对 `conversation_id`、会话标题、对端 `peer_guid`/显示名和触发消息片段；
-  任一不一致返回 `reason=identity_mismatch`，**不发送**。给了 `conv_id` 时 API 失败也不回退 UI
-  （UI 无法核对 id，回退可能发错会话）。
+  任一不一致返回 `reason=identity_mismatch`，**不发送**。仅当 chatsvc 列表/直查都找不到该
+  1:1（API 根本发不了）时才回退 UI，回退仍校验标题/对端；明确不一致时绝不回退。
 - 幂等箱 `data/teams-bot-sends.db` 以 `(conversation_id, message_id)` 为主键记录
   `reserved / sent / failed`；重启、超时、重复轮询都不会重发。`reserved` 超过租约或
   `failed` 视为"结果未知"，默认不自动重试，需人工确认。

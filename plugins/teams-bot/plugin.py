@@ -872,6 +872,39 @@ def setup(ctx):
         """诊断网页客户端内部接口（只读）：令牌/会话/消息。"""
         return await teams.api_probe()
 
+    async def _api_resolve(request=None):
+        """只读诊断：按 conv_id 查 chatsvc 记录并做发送前身份核验，不发送。"""
+        cid = ""
+        peer = ""
+        topic = ""
+        snippet = ""
+        try:
+            q = getattr(request, "query_params", {}) or {}
+            cid = str(q.get("id") or "")
+            peer = str(q.get("peer") or "")
+            topic = str(q.get("topic") or "")
+            snippet = str(q.get("snippet") or "")
+        except Exception:                        # noqa: BLE001
+            pass
+        if not cid:
+            return {"error": "需要 ?id=conversation_id"}
+        page = await teams.teams_open()
+        token = await teams._ensure_skype_token(page)
+        expected = {"conv_id": cid, "peer": peer, "topic": topic,
+                    "snippet": snippet, "peer_guid": str(
+                        (getattr(request, "query_params", {}) or {}).get("peer_guid") or "")}
+        _cid, resolved = await teams._resolve_conversation_id(
+            page, cid, peer, token, snippet, expected=expected)
+        return {"conv_id": cid, "resolved": resolved, "page_url": page.url}
+
+    async def _api_tabs(request=None):
+        """只读：查看 Teams 标签页，确认是否重复开标签。"""
+        return await teams.teams_tabs()
+
+    async def _api_tabs_cleanup(request=None):
+        """关掉 Gantry 自开的多余 Teams 标签（不碰用户自己的 Chat 标签）。"""
+        return await teams.close_extra_gantry_tabs()
+
     async def _api_settings(request):
         try:
             body = await request.json()
@@ -907,6 +940,9 @@ def setup(ctx):
     ctx.register_api("GET", "api/idb-convs", _api_idb_convs)
     ctx.register_api("GET", "api/idb-record", _api_idb_record)
     ctx.register_api("GET", "api/idb-watch", _api_idb_watch)
+    ctx.register_api("GET", "api/resolve", _api_resolve)
+    ctx.register_api("GET", "api/tabs", _api_tabs)
+    ctx.register_api("POST", "api/tabs/cleanup", _api_tabs_cleanup)
     ctx.register_api("GET", "api/open-search", _api_open_search)
     ctx.register_api("GET", "api/search-probe", _api_search_probe)
     ctx.register_api("GET", "api/open-url", _api_open_url)

@@ -32,7 +32,8 @@ Teams 网页版里"有人 @ 我"就回，**知识库优先**。默认装好但�
 1. **统一页面锁**：后台轮询、手动 `/api/run`、`teams_reply`、`compose` 共用一把锁，
    不会同时操作同一个 Teams 页面；轮询周期还会拒绝重入（忙时返回 `skipped=busy`）。
 2. **身份核验**：同时核对 `conversation_id`、会话标题、对端 `peer_guid`/显示名和
-   触发消息片段；任一不一致返回 `identity_mismatch` 并停止发送，绝不回退 UI 猜会话。
+   触发消息片段；任一不一致返回 `identity_mismatch` 并停止发送。只有 chatsvc
+   列表里找不到该 1:1（API 无法发送）时才允许回退 UI，且仍校验标题/对端。
 3. **持久化幂等**：键 `(conversation_id, message_id)` 存在 `data/teams-bot-sends.db`，
    状态为 `reserved / sent / failed`。重启、超时、重复轮询都不会重发同一条；
    `reserved` 超时或 `failed` 视为"结果未知"，默认不自动重试（宁可漏发，不重复刷屏）。
