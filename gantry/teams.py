@@ -1889,9 +1889,14 @@ async def api_hook_capture(page=None, reload: bool = True,
     target = None
     if reload:
         try:
-            target = await ctx.new_page()
+            # 优先重载现有 Teams 页；每次抓令牌都新开标签会把窗口堆满
+            target = teams_page if (teams_page and not teams_page.is_closed()) else None
+            if target is None:
+                target = await _existing_teams_page(ctx)
+            if target is None:
+                target = await ctx.new_page()
+                out["new_page"] = True
             await target.goto(TEAMS_URL, wait_until="domcontentloaded", timeout=180_000)
-            out["new_page"] = True
         except Exception as exc:                 # noqa: BLE001
             out["open_error"] = str(exc)[:200]
             target = None
@@ -2491,7 +2496,16 @@ async def _resolve_conversation_id(page, conv_id: str, peer: str, token: str,
     有 `expected` 时走**严格模式**：只接受 id 完全一致且身份核验通过的会话；
     绝不用 peer/snippet 模糊匹配到另一个 id（发错会话比不发更严重）。
     """
-    out = await page.evaluate("""async ({origin, token}) => {
+    out = await page.evaluate("""async ({origin, token, targetId}) => {
+      const mapConv = (c) => ({
+        id: c.id || '',
+        type: c.type || '',
+        threadType: (c.threadProperties || {}).threadType || '',
+        topic: (c.threadProperties || {}).topic || '',
+        lastFrom: ((c.lastMessage || {}).imdisplayname
+                   || (c.lastMessage || {}).fromDisplayName || ''),
+        last: ((c.lastMessage || {}).content || '').slice(0, 240)
+      });
       try {
         const r = await fetch(origin + '/api/chatsvc/emea/v1/users/ME/conversations'
                               + '?view=msnp24Equivalent&pageSize=50',
@@ -2500,23 +2514,36 @@ async def _resolve_conversation_id(page, conv_id: str, peer: str, token: str,
         const text = await r.text();
         let j = {};
         try { j = JSON.parse(text); } catch (e) { }
+        const conversations = (j.conversations || []).map(mapConv);
+        // 列表可能只返回最近 50 条；按 id 直接取一次，避免把正常会话误判成"不可发送"
+        let direct = null;
+        let directStatus = null;
+        if (targetId && !conversations.some(c => c.id === targetId)) {
+          try {
+            const dr = await fetch(origin + '/api/chatsvc/emea/v1/users/ME/conversations/'
+                                   + encodeURIComponent(targetId) + '?view=msnp24Equivalent',
+              {credentials: 'include',
+               headers: {'X-Skypetoken': token, 'Accept': 'application/json'}});
+            directStatus = dr.status;
+            const dt = await dr.text();
+            let dj = {};
+            try { dj = JSON.parse(dt); } catch (e) { }
+            if (dr.ok && dj.id) direct = mapConv(dj);
+          } catch (e) { directStatus = 'error'; }
+        }
         return {ok: r.ok, status: r.status, body: text.slice(0, 400),
-                conversations: (j.conversations || []).map(c => ({
-                  id: c.id || '',
-                  type: c.type || '',
-                  threadType: (c.threadProperties || {}).threadType || '',
-                  topic: (c.threadProperties || {}).topic || '',
-                  lastFrom: ((c.lastMessage || {}).imdisplayname
-                             || (c.lastMessage || {}).fromDisplayName || ''),
-                  last: ((c.lastMessage || {}).content || '').slice(0, 240)
-                }))};
+                conversations, direct, directStatus};
       } catch (e) { return {ok: false, error: String(e)}; }
-    }""", {"origin": "https://teams.cloud.microsoft", "token": token})
+    }""", {"origin": "https://teams.cloud.microsoft", "token": token,
+            "targetId": conv_id})
     convs = out.get("conversations") or []
     exact = next((c for c in convs if c.get("id") == conv_id), None)
+    if exact is None and out.get("direct"):
+        exact = out.get("direct")
     if expected:
         if exact is None:
             return conv_id, {"how": "not-found", "status": out.get("status"),
+                             "direct_status": out.get("directStatus"),
                              "count": len(convs),
                              "verification": {"ok": False,
                                               "errors": ["会话 id 不在可发送列表里"]}}
@@ -2595,6 +2622,12 @@ async def _api_send_message(page, conv_id: str, text: str, *,
     verification = resolved.get("verification") or {"ok": True, "errors": []}
     if expected and (resolved.get("how") != "exact" or not verification.get("ok")):
         reason = "，".join(verification.get("errors") or ["会话 id 不在可发送列表里"])
+        if resolved.get("how") == "not-found":
+            # 不在列表 ≠ 身份不一致：可能只是 API 列表不包含这种 1:1。
+            # 交给 reply_to 决定是否用 UI 回退（回退仍校验标题/对端）。
+            return {"ok": False, "reason": "api_not_found",
+                    "error": "API 发送不可用：" + reason,
+                    "verification": verification, "resolved": resolved, "claims": claims}
         return {"ok": False, "reason": "identity_mismatch",
                 "error": "发送前校验失败，已停止发送：" + reason,
                 "verification": verification, "resolved": resolved, "claims": claims}
@@ -2819,6 +2852,99 @@ async def _goto_chat_home(page) -> None:
         pass
 
 
+async def _existing_teams_page(ctx) -> Any:
+    """在已打开的标签页里找 Teams，避免每次重启/重载都新开一个。"""
+    pages = []
+    try:
+        pages = list(ctx.pages)
+    except Exception:                            # noqa: BLE001
+        return None
+    for p in reversed(pages):                    # 后开的通常更接近当前
+        try:
+            if p.is_closed():
+                continue
+            url = (p.url or "").lower()
+        except Exception:                        # noqa: BLE001
+            continue
+        if "teams.cloud.microsoft" in url or "teams.microsoft.com" in url:
+            return p
+    return None
+
+
+_GANTRY_TAB_MARKERS = ("[GANTRY-AGENT]", "[CBP-AGENT]")
+
+
+async def teams_tabs() -> dict[str, Any]:
+    """只读：当前浏览器里有哪些 Teams 标签页（含 Gantry 自己开的）。"""
+    ctx = _b.ctx
+    if ctx is None:
+        return {"count": 0, "tabs": []}
+    out = []
+    try:
+        pages = list(ctx.pages)
+    except Exception:                            # noqa: BLE001
+        pages = []
+    for i, p in enumerate(pages):
+        try:
+            if p.is_closed():
+                continue
+            url = p.url or ""
+            title = (await p.title()) or ""
+        except Exception:                        # noqa: BLE001
+            continue
+        is_teams = ("teams.cloud.microsoft" in url.lower()
+                    or "teams.microsoft.com" in url.lower())
+        if not is_teams:
+            continue
+        out.append({"index": i, "url": url[:100], "title": title[:100],
+                    "gantry": any(m in title for m in _GANTRY_TAB_MARKERS),
+                    "current": p is teams_page})
+    return {"count": len(out), "tabs": out}
+
+
+async def close_extra_gantry_tabs() -> dict[str, Any]:
+    """关掉 Gantry 自己开的多余 Teams 标签页，只保留当前/第一个。
+
+    只处理标题带 `[GANTRY-AGENT]`/`[CBP-AGENT]` 的页面，不碰用户自己开的
+    "Chat | ..." 标签，避免误关用户页面。
+    """
+    global teams_page
+    ctx = _b.ctx
+    if ctx is None:
+        return {"closed": 0, "kept": "", "reason": "浏览器未启动"}
+    owned = []
+    try:
+        pages = list(ctx.pages)
+    except Exception:                            # noqa: BLE001
+        pages = []
+    for p in pages:
+        try:
+            if p.is_closed():
+                continue
+            url = (p.url or "").lower()
+            title = (await p.title()) or ""
+        except Exception:                        # noqa: BLE001
+            continue
+        if ("teams.cloud.microsoft" in url or "teams.microsoft.com" in url) \
+                and any(m in title for m in _GANTRY_TAB_MARKERS):
+            owned.append(p)
+    if not owned:
+        return {"closed": 0, "kept": "", "reason": "没有 Gantry 自开的 Teams 标签"}
+    keep = teams_page if teams_page in owned else owned[0]
+    closed = 0
+    for p in owned:
+        if p is keep:
+            continue
+        try:
+            await p.close()
+            closed += 1
+        except Exception:                        # noqa: BLE001
+            pass
+    teams_page = keep
+    return {"closed": closed, "kept": (keep.url or "")[:100],
+            "title": ((await keep.title()) or "")[:100]}
+
+
 async def teams_open(timeout: float = 300.0, force_reload: bool = False) -> Any:
     """打开/复用 Teams 标签页，等到主界面出现。SSO 已在共享 ctx 里，通常只需几秒。"""
     global teams_page
@@ -2829,8 +2955,12 @@ async def teams_open(timeout: float = 300.0, force_reload: bool = False) -> Any:
         raise TeamsError(f"启动浏览器失败：{exc}") from exc
     ctx = _b.ctx
     if teams_page is None or teams_page.is_closed():
-        teams_page = await ctx.new_page()
-        force_reload = True
+        # 服务重启/模块热重载后全局变量会丢；先复用现有 Teams 标签页，
+        # 不要每次都 ctx.new_page()（用户实测会堆一排重复标签）。
+        teams_page = await _existing_teams_page(ctx)
+        if teams_page is None:
+            teams_page = await ctx.new_page()
+            force_reload = True
     if force_reload or "teams." not in (teams_page.url or ""):
         try:
             await teams_page.goto(TEAMS_URL, wait_until="domcontentloaded", timeout=120_000)
@@ -3659,12 +3789,20 @@ async def _reply_to_unlocked(peer: str, text: str, send: bool = False,
                         "reason": "identity_mismatch",
                         "error": api_res.get("error") or "发送前身份校验失败",
                         "verification": api_res.get("verification")}
+            not_found = (api_res.get("resolved") or {}).get("how") == "not-found"
             if strict or conv_id:
-                # 给了 conv_id 就必须按 conv_id 发；API 不可用时 UI 无法核对 id，
-                # 回退可能发错会话，因此严格停止。
-                return {"opened": False, "sent": False,
-                        "reason": "strict_no_ui_fallback",
-                        "error": api_res.get("error") or "API 发送失败，严格模式不退回 UI"}
+                # 有些 1:1（例如自己的另一个账号/旧会话）不在 chatsvc 列表里，
+                # 但 UI 仍能打开。此时允许回退 UI，但必须用标题/对端做核验；
+                # 真正的身份不一致（identity_mismatch）上面已经直接拒绝。
+                expected_known = bool((expected or {}).get("peer") or
+                                      (expected or {}).get("topic"))
+                if not_found and expected_known:
+                    _b.log("API 列表找不到会话，回退 UI（仍校验标题/对端）")
+                else:
+                    return {"opened": False, "sent": False,
+                            "reason": "strict_no_ui_fallback",
+                            "error": api_res.get("error") or
+                                     "API 发送失败，严格模式不退回 UI"}
             _b.log(f"reply_to API 发送失败（回退 UI）：{api_res.get('status')} {api_res.get('body')}")
         except Exception as exc:                 # noqa: BLE001
             api_res = {"ok": False, "error": str(exc)[:300]}

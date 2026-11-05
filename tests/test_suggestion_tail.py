@@ -55,6 +55,25 @@ class StripSuggestionTests(unittest.TestCase):
         self.assertNotIn("网页也打不开怎么办", out)
         self.assertIn("登录 Global Desktop 网页", out)
 
+    def test_pure_question_suggestion_tail_stripped(self):
+        text = (
+            "先按 Android 版本下载对应的 Duo Mobile 安装包。\n\n"
+            "如何查看手机的 Android 版本？\n"
+            "安装时提示未知来源怎么办？\n"
+            "iPhone 应该下载哪个版本？"
+        )
+        self.assertEqual(strip_suggestion_tail(text),
+                         "先按 Android 版本下载对应的 Duo Mobile 安装包。")
+
+    def test_mixed_short_question_tail_stripped(self):
+        text = (
+            "请先确认手机的 Android 版本，再下载对应安装包。\n\n"
+            "我的手机是 Android 版本\n"
+            "安装时提示未知来源怎么办？"
+        )
+        self.assertEqual(strip_suggestion_tail(text),
+                         "请先确认手机的 Android 版本，再下载对应安装包。")
+
     def test_plain_numbered_list_untouched(self):
         text = "步骤如下：\n\n1. 读取文件\n2. 修改配置\n3. 运行测试"
         self.assertEqual(strip_suggestion_tail(text), text)

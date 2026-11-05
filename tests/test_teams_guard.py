@@ -75,5 +75,32 @@ class PageLockTests(unittest.TestCase):
         asyncio.new_event_loop().run_until_complete(run())
 
 
+class TabReuseTests(unittest.TestCase):
+    class Page:
+        def __init__(self, url, closed=False):
+            self.url = url
+            self._closed = closed
+
+        def is_closed(self):
+            return self._closed
+
+    def test_finds_existing_teams_tab(self):
+        class Ctx:
+            pages = [TabReuseTests.Page("https://m365.cloud.microsoft/chat/"),
+                     TabReuseTests.Page("https://teams.cloud.microsoft/v2/")]
+
+        page = asyncio.new_event_loop().run_until_complete(
+            teams._existing_teams_page(Ctx()))
+        self.assertTrue(page.url.startswith("https://teams."))
+
+    def test_skips_closed_teams_tab(self):
+        class Ctx:
+            pages = [TabReuseTests.Page("https://teams.cloud.microsoft/v2/", closed=True)]
+
+        page = asyncio.new_event_loop().run_until_complete(
+            teams._existing_teams_page(Ctx()))
+        self.assertIsNone(page)
+
+
 if __name__ == "__main__":
     unittest.main()

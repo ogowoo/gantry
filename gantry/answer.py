@@ -271,6 +271,16 @@ _SUGGESTION_EN = re.compile(
     r"Try|Test|Check|Retry|Generate|Create|Draft|Shorten|Expand|Improve|Polish)\b",
     re.I,
 )
+_QUESTION_WORDS = ("怎么办", "怎么", "如何", "为什么", "是否", "能不能",
+                   "可不可以", "有没有", "要不要", "哪里", "哪个",
+                   "什么时候", "多少", "谁", "哪些")
+
+
+def _is_question_tail(line: str) -> bool:
+    """像建议按钮的问句（"如何查看版本？" / "iPhone 下载哪个版本？"）。"""
+    s = str(line or "").strip()
+    return (0 < len(s) <= 60 and s[-1] in "？?"
+            and any(w in s for w in _QUESTION_WORDS))
 
 
 def _looks_like_suggestion(line: str) -> bool:
@@ -309,6 +319,19 @@ def _strip_plain_suggestion_tail(raw: str) -> str:
     tail = [x for x in lines[cut:] if x.strip()]
     if not 2 <= len(tail) <= 4:
         return raw
+    # 纯问句尾巴（"如何查看版本？/怎么办？/哪个版本？"）也是 Copilot 的建议按钮
+    if all(_is_question_tail(x) for x in tail):
+        return "\n".join(lines[:cut]).rstrip()
+    # 混合尾巴："我的手机是 Android 版本 / 安装时提示未知来源怎么办"：
+    # 只要有一段问句建议，其余都是短行，也可判定为建议区。
+    if any(_is_question_tail(x) for x in tail):
+        def _short_line(s: str) -> bool:
+            s = s.strip()
+            return (0 < len(s) <= 40 and s[-1] not in "。！!：:"
+                    and not s.startswith(("-", "*", "•"))
+                    and not s[0].isdigit())
+        if all(_short_line(x) for x in tail):
+            return "\n".join(lines[:cut]).rstrip()
     matched = sum(1 for x in tail if _looks_like_suggestion(x))
     if matched < 2:
         # 兜底：至少命中 1 条建议句式，且最后 2~4 行都很短、无句末标点、
