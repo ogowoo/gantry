@@ -580,5 +580,18 @@ class OpenTeamsTests(BotTestCase):
         self.assertIn("RuntimeError", res.get("error", ""))
 
 
+class ChatsFilterTests(BotTestCase):
+    def test_chats_filter_limits_scan(self):
+        self.fake.conversations = [
+            conv(dm("11111111-1111-1111-1111-111111111111"), "@Gantry 问题A", peer="张三"),
+            conv(dm("22222222-2222-2222-2222-222222222222"), "@Gantry 问题B", peer="李四"),
+        ]
+        self.kb.hits = []
+        out = self.run_cycle(dry_run=True, fallback_agent=False,
+                             reply_when_unknown=False, chats=["李四"])
+        self.assertEqual(out["scanned"], 1, "chats 白名单应只留匹配会话")
+        self.assertEqual(out["filtered"], 1)
+
+
 if __name__ == "__main__":
     unittest.main()

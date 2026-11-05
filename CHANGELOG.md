@@ -14,6 +14,32 @@
 ### Fixed
 - 
 
+## [11.0.0-preview.72] - 2026-11-05
+
+### Fixed
+
+- **发送后要验证**：`_compose_text_unlocked()` 以前点完发送按钮就返回 `sent=True`；
+  实测有过"点了没反应但报成功"（第一次 P1 测试的触发消息没落地）。现在点完等 1.2s
+  检查输入框：**清空才算发出**，否则补一次 Enter，仍有内容则返回错误。
+- **`chats` 白名单真正生效**：文档里承诺"只盯这些会话"，但 cycle 里没实现——一旦
+  `enabled=true` 会扫全部未读私聊（容易回错人）。现在 `chats` 非空时按
+  对端名/标题过滤，`last_cycle` 里有 `filtered` 计数。
+
+### Added
+
+- `GET api/messages?id=<conv_id>`（读会话消息，服务端真值，用于核对发送）与
+  `POST api/reload-teams`（重载 Teams 页面，同步 IDB/DOM）两个只读接口。
+- `scripts/test_p1_live.py`：P1 端到端验证（触发消息 → cycle 入队 → worker 真发送 →
+  读回确认 → 自动复位），默认只发 `Liang, Walt`。
+
+### 实测（只发 Liang, Walt 自己的会话）
+
+- 触发消息："@Gantry P1 队列测试，收到请忽略" → 会话里可见（`sent=true`，输入框已清空）。
+- `cycle`: `scanned=1, filtered=31, candidates=1, queued=1, handled=1`；
+  worker 发完 `queue_size=0, replies=1`，会话里出现机器人回复（KB 命中 wifi 文档）。
+- 测试：`tests/test_teams_bot.py` 33 条（新增 chats 过滤 1 条）；全套 1582（skipped=1）OK；
+  不变量 25 条全绿。
+
 ## [11.0.0-preview.71] - 2026-11-05
 
 ### Fixed
