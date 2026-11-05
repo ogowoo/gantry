@@ -365,10 +365,23 @@ async def set_browser_mode(payload: dict):
     target_raw = payload.get("headless")
     if target_raw is None:
         # 只启动、不切换模式（"启动自动化浏览器"按钮就是这么调的）
-        if b.current_page() is not None:
-            return {"headless": b.HEADLESS_CURRENT, "changed": False, "fallback": False}
+        page = b.current_page()
+        if page is not None:
+            # 页面可能已经开着但窗口被最小化/压在别的窗口后面；仅返回
+            # changed=false 用户会以为按钮没生效。这里把窗口带到前台。
+            try:
+                await page.bring_to_front()
+                focused = True
+            except Exception as exc:             # noqa: BLE001
+                focused = False
+                return {"headless": b.HEADLESS_CURRENT, "changed": False,
+                        "fallback": False, "focused": False,
+                        "focus_error": str(exc)[:160]}
+            return {"headless": b.HEADLESS_CURRENT, "changed": False,
+                    "fallback": False, "focused": focused}
         actual = await b._start_browser(b.HEADLESS_CURRENT)
-        return {"headless": actual, "changed": True, "fallback": False}
+        return {"headless": actual, "changed": True, "fallback": False,
+                "focused": True}
     if not isinstance(target_raw, bool):
         raise HTTPException(422, "headless 必须是布尔值")
     target = target_raw
@@ -433,9 +446,19 @@ async def set_workspace(payload: dict):
 @router.post("/v1/agent/browser/retry")
 async def browser_retry():
     """重新初始化浏览器（登录完成后、或上次启动失败时用），不必重启服务。"""
+    focused = False
+    page = b.current_page()
+    if page is not None:
+        # 浏览器其实已经起来，只是窗口被最小化/被别的窗口盖住；先把窗口带到前台，
+        # 否则用户点"重试浏览器"看不出任何变化。
+        try:
+            await page.bring_to_front()
+            focused = True
+        except Exception:                    # noqa: BLE001
+            pass
     old = a.BOOT.get("task")
     if old and not old.done():
         old.cancel()
     task = asyncio.create_task(a.boot_browser())
     a.BOOT["task"] = task
-    return {"started": True, "state": a.BOOT["browser_state"]}
+    return {"started": True, "state": a.BOOT["browser_state"], "focused": focused}
