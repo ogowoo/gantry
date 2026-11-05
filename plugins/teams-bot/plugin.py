@@ -55,7 +55,9 @@ _DEFAULTS: dict[str, Any] = {
     "model": "copilot-auto",
     "max_replies_per_cycle": 2,
     "seen_limit": 300,
-    "send_timeout_seconds": 120,
+    "send_timeout_seconds": 45,
+    # Teams 未登录时不要每轮都撞：退避这么久再试
+    "auth_backoff_seconds": 300,
     "outbox_path": "data/teams-bot-sends.db",
     "outbox_lease_seconds": 300,
 }
@@ -134,6 +136,14 @@ class Bot:
         self._last_error = ""
         self._last_kb = 0.0
         self._lock = asyncio.Lock()
+        # P0：鉴权失败退避（epoch 秒）与最近会话状态
+        self._auth_until = 0.0
+        self._auth_seen = ""
+        # P1：发送队列（cycle 只入队，worker 串行发）
+        self._queue: asyncio.Queue | None = None
+        self._worker: asyncio.Task | None = None
+        self._sending = False
+        self._sent_count = 0
         self._cycle_started = 0.0
 
     # ── 发送幂等箱（持久化，重启后仍能防重复）──
@@ -182,6 +192,72 @@ class Bot:
             st["seen"] = val
         return val
 
+    # ── P1：发送队列 ──
+    def _ensure_worker(self) -> None:
+        if self._queue is None:
+            self._queue = asyncio.Queue()
+        if self._worker is None or self._worker.done():
+            self._worker = asyncio.get_event_loop().create_task(self._send_loop())
+
+    async def _send_loop(self) -> None:
+        assert self._queue is not None
+        while True:
+            job = await self._queue.get()
+            self._sending = True
+            try:
+                await self._do_send(job)
+            except Exception as exc:             # noqa: BLE001
+                self._last_error = f"发送异常: {str(exc)[:160]}"
+                self.ctx.log(f"发送异常: {str(exc)[:200]}")
+            finally:
+                self._sending = False
+                self._queue.task_done()
+
+    async def _do_send(self, job: dict[str, Any]) -> None:
+        from gantry import teams
+
+        item = job["item"]
+        timeout = max(10.0, float(job.get("timeout") or 45))
+        try:
+            res = await asyncio.wait_for(
+                teams.reply_to(job["peer"], job["answer"], send=True,
+                               snippet=job["snippet"], conv_id=job["cid"],
+                               expected=job["expected"], strict=True),
+                timeout=timeout)
+        except asyncio.TimeoutError:
+            item["error"] = f"发送超时（>{timeout:.0f}s）"
+            self.outbox().mark_failed(job["cid"], job["mid"], item["error"], unknown=True)
+            return
+        except Exception as exc:                 # noqa: BLE001
+            item["error"] = str(exc)[:160]
+            self.outbox().mark_failed(job["cid"], job["mid"], item["error"], unknown=True)
+            return
+        if res.get("sent"):
+            item["sent"] = True
+            self.outbox().mark_sent(job["cid"], job["mid"])
+            self._sent_count += 1
+            self.ctx.save_state(replies=int(self.ctx.state.get("replies") or 0) + 1)
+            self.ctx.log(f"Teams 已发送 → {job['peer']}: {job['answer'][:40]}")
+        else:
+            item["error"] = (res.get("error") or "发送未完成")[:160]
+            self.outbox().mark_failed(job["cid"], job["mid"], item["error"],
+                                      unknown=(res.get("reason") != "identity_mismatch"))
+
+    async def drain(self) -> None:
+        """测试用：等队列清空后停掉 worker。"""
+        if self._queue is not None:
+            try:
+                await asyncio.wait_for(self._queue.join(), timeout=30)
+            except asyncio.TimeoutError:
+                pass
+        if self._worker is not None:
+            self._worker.cancel()
+            try:
+                await self._worker
+            except BaseException:                # noqa: BLE001
+                pass
+            self._worker = None
+
     def stats(self) -> dict[str, Any]:
         st = self.ctx.state
         return {"replies": int(st.get("replies") or 0),
@@ -206,6 +282,13 @@ class Bot:
             "kb": _kb(self.ctx).stats(),
             "seen": len(self.seen()),
             "busy": bool(self._lock.locked()),
+            "session": {
+                "auth": self._auth_seen or "unknown",
+                "retry_at": time.strftime("%H:%M:%S", time.localtime(self._auth_until))
+                if self._auth_until > time.time() else "",
+            },
+            "queue_size": self._queue.qsize() if self._queue is not None else 0,
+            "sending": self._sending,
             "outbox": self.outbox().stats(),
             **self.stats(),
             "last_cycle": self._last_cycle,
@@ -334,6 +417,11 @@ class Bot:
             self._cycle_started = time.time()
             if not bool(_cfg(self.ctx, "enabled")):
                 return {"skipped": "disabled"}
+            # P0：上次鉴权失败且还在退避期内 —— 直接返回，不去碰浏览器
+            if time.time() < self._auth_until:
+                return {"at": time.strftime("%H:%M:%S"), "skipped": "auth_backoff",
+                        "auth": self._auth_seen,
+                        "retry_in": round(self._auth_until - time.time())}
             tokens = list(_cfg(self.ctx, "mention_tokens") or [])
             my_name = str(_cfg(self.ctx, "my_name") or "")
             max_replies = int(_cfg(self.ctx, "max_replies_per_cycle") or 2)
@@ -345,7 +433,7 @@ class Bot:
             out: dict[str, Any] = {"at": time.strftime("%H:%M:%S"), "source":
                                    str(_cfg(self.ctx, "source") or "idb"),
                                    "scanned": 0, "candidates": 0, "replied": 0,
-                                   "handled": 0,
+                                   "queued": 0, "handled": 0,
                                    "would": [], "skipped": [], "errors": []}
             # 知识库：最多每 60 秒增量重建一次
             if time.time() - self._last_kb > 60:
@@ -354,13 +442,28 @@ class Bot:
                     self._last_kb = time.time()
                 except Exception as exc:         # noqa: BLE001
                     self.ctx.log(f"知识库重建失败: {exc}")
+            # P2：只取上次水位之后有变化的会话（首轮 since=0 全量）
+            since = float(self.ctx.state.get("idb_watermark") or 0)
             try:
-                watch = await teams.api_idb_watch()
-            except Exception as exc:             # noqa: BLE001
+                watch = await teams.api_idb_watch(since=since)
+            except teams.TeamsAuthRequired as exc:
+                backoff = float(_cfg(self.ctx, "auth_backoff_seconds") or 300)
+                self._auth_until = time.time() + backoff
+                self._auth_seen = "expired"
                 self._last_error = str(exc)
+                out["errors"].append(
+                    f"Teams 未登录（{backoff:.0f}s 后重试）: {str(exc)[:120]}")
+                self._last_cycle = out
+                self.ctx.log(f"Teams 需要登录，退避 {backoff:.0f}s：{str(exc)[:80]}")
+                return out
+            except Exception as exc:
+                self._last_error = str(exc)
+                self._auth_seen = "error"
                 out["errors"].append(f"读会话失败: {str(exc)[:160]}")
                 self._last_cycle = out
                 return out
+            self._auth_seen = "ok"
+            self._auth_until = 0.0
             if watch.get("error"):
                 out["errors"].append(watch["error"])
                 self._last_cycle = out
@@ -448,45 +551,32 @@ class Bot:
                     item["idempotency"] = reservation.get("action")
                     if not reservation.get("send"):
                         item["error"] = str(reservation.get("error") or
-                                             "幂等箱拒绝发送")[:160]
+                                            "幂等箱拒绝发送")[:160]
                         out["skipped"].append({"id": cid[:24],
                                                "why": reservation.get("action")})
                     else:
-                        expected = {
-                            "conv_id": cid,
-                            "peer": c.get("peerName") or "",
-                            "peer_guid": c.get("peerGuid") or peer_guid(
-                                cid, str(watch.get("skypeTenant") or "")),
-                            "topic": c.get("topic") or "",
-                            "snippet": str(c.get("lastText") or ""),
-                            "message_id": mid,
-                        }
-                        try:
-                            res = await asyncio.wait_for(
-                                teams.reply_to(
-                                    c.get("peerName") or c["id"], answer, send=True,
-                                    snippet=str(c.get("lastText") or "")[:40],
-                                    conv_id=cid, expected=expected, strict=True),
-                                timeout=send_timeout)
-                            if res.get("sent"):
-                                item["sent"] = True
-                                out["replied"] += 1
-                                self.outbox().mark_sent(cid, mid)
-                            else:
-                                item["error"] = (res.get("error") or
-                                                 "发送未完成")[:160]
-                                self.outbox().mark_failed(
-                                    cid, mid, item["error"],
-                                    unknown=(res.get("reason") != "identity_mismatch"))
-                        except asyncio.TimeoutError:
-                            item["error"] = f"发送超时（>{send_timeout:.0f}s）"
-                            out["skipped"].append({"id": cid[:24], "why": "发送超时"})
-                            self.outbox().mark_failed(cid, mid, item["error"],
-                                                      unknown=True)
-                        except Exception as exc:     # noqa: BLE001
-                            item["error"] = str(exc)[:160]
-                            self.outbox().mark_failed(cid, mid, item["error"],
-                                                      unknown=True)
+                        # P1：入队，由独立 worker 串行发送；cycle 不再被发送阻塞
+                        self._ensure_worker()
+                        self._queue.put_nowait({
+                            "cid": cid,
+                            "mid": mid,
+                            "answer": answer,
+                            "snippet": str(c.get("lastText") or "")[:40],
+                            "peer": c.get("peerName") or c["id"],
+                            "expected": {
+                                "conv_id": cid,
+                                "peer": c.get("peerName") or "",
+                                "peer_guid": c.get("peerGuid") or peer_guid(
+                                    cid, str(watch.get("skypeTenant") or "")),
+                                "topic": c.get("topic") or "",
+                                "snippet": str(c.get("lastText") or ""),
+                                "message_id": mid,
+                            },
+                            "timeout": send_timeout,
+                            "item": item,
+                        })
+                        item["queued"] = True
+                        out["queued"] += 1
                 out["would"].append(item)
                 out["handled"] += 1
                 seen.append(key)
@@ -496,6 +586,10 @@ class Bot:
                                     + (1 if item["sent"] else 0))
                 self.ctx.log(f"Teams[{source}] {item['chat']}: {q[:40]}")
             self._last_cycle = out
+            # P2：记录本轮最大 lastTime 作为水位（只增不减）
+            newest = max([float(c.get("lastTime") or 0) for c in (pool or [])] or [0])
+            if newest > since:
+                self.ctx.state["idb_watermark"] = newest
             cycles = int(self.ctx.state.get("cycles") or 0) + 1
             at = time.strftime("%Y-%m-%d %H:%M:%S")
             self.ctx.state["cycles"] = cycles
@@ -826,8 +920,21 @@ def setup(ctx):
         return res
 
     async def _api_idb_watch(request=None):
-        """会话监看视图（IndexedDB，只读）：成员数 + 最后一条消息。"""
-        return await teams.api_idb_watch()
+        """会话监看视图（IndexedDB，只读）。支持 ?since=<epoch_ms> 做增量。"""
+        since = 0.0
+        try:
+            q = getattr(request, "query_params", {}) or {}
+            since = float(q.get("since") or 0)
+        except Exception:                        # noqa: BLE001
+            since = 0.0
+        try:
+            return await teams.api_idb_watch(since=since)
+        except teams.TeamsAuthRequired as exc:
+            # 之前这里抛出去变成 500；现在返回结构化结果，WebUI 能显示"需要登录"
+            return {"ok": False, "auth": "expired", "error": str(exc)[:300],
+                    "hint": "在自动化浏览器里登录一次 Teams，然后重试"}
+        except Exception as exc:                 # noqa: BLE001
+            return {"ok": False, "auth": "error", "error": str(exc)[:300]}
 
     async def _api_idb_record(request=None):
         """看一条会话记录的原始结构（只读）。"""

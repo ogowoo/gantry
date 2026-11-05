@@ -17,6 +17,10 @@ TEAMS_URL = str((_b.CFG.get("teams_url") or "https://teams.cloud.microsoft/v2"))
 class TeamsError(RuntimeError):
     pass
 
+class TeamsAuthRequired(TeamsError):
+    """共享浏览器里没有有效的 Teams 会话（需要人工登录一次）。"""
+
+
 class TeamsBusyError(TeamsError):
     """Teams 页面正被另一条发送/轮询流程占用（统一互斥锁超时）。"""
 

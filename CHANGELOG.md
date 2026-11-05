@@ -14,6 +14,31 @@
 ### Fixed
 - 
 
+## [11.0.0-preview.67] - 2026-11-05
+
+### Fixed
+
+- **P0 · Teams 未登录不再每轮硬撞**：新增 `TeamsAuthRequired`（登录墙专用异常）；
+  `GET api/idb-watch` 返回 **HTTP 200** + `{"ok":false,"auth":"expired","hint":...}`
+  （此前是 500）；`api/status` 增加 `session.auth` / `retry_at`；cycle 在鉴权失败后
+  按 `auth_backoff_seconds`（默认 300s）退避，期间返回 `skipped: auth_backoff`。
+  实测：run#1 报"未登录（300s 后重试）"，run#2 返回 `auth_backoff, retry_in=300`。
+
+- **P1 · 发送与轮询解耦**：cycle 只做"扫描 + 回答 + 入队"，独立 worker 串行发送；
+  单条 `send_timeout_seconds` 120 → **45s**；`status` 增加 `queue_size` / `sending`；
+  `out["queued"]` 记录入队数。发送失败/超时仍写 outbox（幂等不变）。
+
+- **P2 · IDB 增量扫描**：`api_idb_watch(since=)` 只返回 `lastTime` 之后变化的会话
+  （JS 侧先过滤再序列化）；插件用 `idb_watermark` 记录水位（只增不减），
+  下一轮带上水位，减少跨进程传输与遍历。
+
+### 实测
+
+- 线上：`idb-watch` 200 + `auth=expired`；`status.session={'auth':'expired','retry_at':...}`；
+  退避生效。
+- 测试：`tests/test_teams_bot.py` 30 条（新增水位/第二轮带水位/鉴权退避 3 条）；
+  全套 1579（skipped=1）OK；不变量 25 条全绿。
+
 ## [11.0.0-preview.66] - 2026-11-05
 
 ### Changed

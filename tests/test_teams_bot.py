@@ -104,7 +104,9 @@ class FakeTeams:
         self.sent.append(text)
         return {"opened": True, "sent": True, "how": "snippet"}
 
-    async def api_idb_watch(self, page=None, limit=400):
+    async def api_idb_watch(self, page=None, limit=400, since=0.0):
+        self.since_calls = getattr(self, 'since_calls', [])
+        self.since_calls.append(since)
         c = list(self.conversations)
         return {"total": len(c), "direct": sum(1 for x in c if x.get("isDirect")),
                 "recent": c[:6], "directSample": [x for x in c if x.get("isDirect")][:6]}
@@ -139,7 +141,14 @@ class BotTestCase(unittest.TestCase):
         cfg.setdefault("outbox_path", ":memory:")
         cfg.setdefault("kb_synthesize", False)   # 单测不调模型；synthesis 单独测
         bot = plugin.Bot(FakeCtx(**cfg))
-        return asyncio.new_event_loop().run_until_complete(bot.cycle())
+
+        async def _run():
+            out = await bot.cycle()
+            await bot.drain()                    # P1：发送改队列，等它发完再断言
+            return out
+
+        self.bot = bot
+        return asyncio.new_event_loop().run_until_complete(_run())
 
 
 class GuardTests(BotTestCase):
@@ -321,7 +330,8 @@ class SendGatingTests(BotTestCase):
         self.fake.conversations = [conv(dm(), "@Gantry 问题")]
         out = self.run_cycle(dry_run=False, send_enabled=True)
         self.assertEqual(len(self.fake.sent), 1)
-        self.assertEqual(out["replied"], 1)
+        self.assertEqual(out["queued"], 1)
+        self.assertEqual(out["would"][0]["sent"], True)
         # 写侧要求：带上会话名 + 最后一条消息片段（用于按消息搜索定位会话）
         peer, text, send, snippet = self.fake.replied[0]
         self.assertEqual(peer, "Lynn Ling - Example")
@@ -358,18 +368,24 @@ class ConcurrencyAndIdempotencyTests(BotTestCase):
                        kb_synthesize=False)
             loop = asyncio.new_event_loop()
             ctx1, ctx2 = FakeCtx(**cfg), FakeCtx(**cfg)
+            bot1, bot2 = plugin.Bot(ctx1), plugin.Bot(ctx2)
             try:
-                first = loop.run_until_complete(plugin.Bot(ctx1).cycle())
-                self.assertEqual(first["replied"], 1)
+                async def _cycle(bot):
+                    out = await bot.cycle()
+                    await bot.drain()            # P1：发送是队列，等发完
+                    return out
+
+                first = loop.run_until_complete(_cycle(bot1))
+                self.assertEqual(first["queued"], 1)
                 self.assertEqual(len(self.fake.sent), 1)
                 # 模拟重启：新 Bot、新 seen，但幂等箱还在
-                second = loop.run_until_complete(plugin.Bot(ctx2).cycle())
+                second = loop.run_until_complete(_cycle(bot2))
             finally:
                 for c in (ctx1, ctx2):
                     ob = getattr(c, "_teams_outbox", None)
                     if ob is not None:
                         ob.close()
-            self.assertEqual(second["replied"], 0)
+            self.assertEqual(second["queued"], 0)
             self.assertEqual(len(self.fake.sent), 1, "重启后不能重复发送同一条")
             self.assertTrue(any(s.get("why") == "duplicate"
                                 for s in second.get("skipped", [])))
@@ -465,6 +481,56 @@ class BotRetrievalTests(BotTestCase):
                          "text": "答案"}]
         text, source = self._answer("@Gantry 问题", self._FakeSem([]))
         self.assertTrue(text, "混合检索空结果时应退回 FTS")
+
+
+class WatermarkAndAuthTests(BotTestCase):
+    """P2：增量扫描传水位；P0：未登录时退避而不是每轮硬撞。"""
+
+    def test_cycle_passes_watermark(self):
+        self.fake.conversations = [conv(dm(), "@Gantry 问题")]
+        self.kb.hits = []
+        self.run_cycle(dry_run=True, fallback_agent=False, reply_when_unknown=False)
+        self.assertEqual(self.fake.since_calls[0], 0.0, "首轮应全量")
+        self.assertEqual(float(self.bot.ctx.state.get("idb_watermark") or 0),
+                         1793613729, "首轮后应把最大 lastTime 记为水位")
+
+    def test_second_cycle_uses_watermark(self):
+        self.fake.conversations = [conv(dm(), "@Gantry 问题")]
+        self.kb.hits = []
+        ctx = FakeCtx(enabled=True, mention_tokens=["@Gantry"], dry_run=True,
+                      outbox_path=":memory:", kb_synthesize=False)
+        bot = plugin.Bot(ctx)
+        loop = asyncio.new_event_loop()
+        try:
+            loop.run_until_complete(bot.cycle())
+            loop.run_until_complete(bot.cycle())
+        finally:
+            pass
+        self.assertEqual(self.fake.since_calls[0], 0.0)
+        self.assertEqual(self.fake.since_calls[1], 1793613729, "第二轮应带上水位")
+
+    def test_auth_required_backs_off(self):
+        import gantry.teams as teams_mod
+
+        async def boom(*a, **k):
+            raise teams_mod.TeamsAuthRequired("Teams 要求登录")
+
+        orig = teams_mod.api_idb_watch
+        teams_mod.api_idb_watch = boom
+        ctx = FakeCtx(enabled=True, mention_tokens=["@Gantry"], dry_run=True,
+                      outbox_path=":memory:", kb_synthesize=False,
+                      auth_backoff_seconds=300)
+        bot = plugin.Bot(ctx)
+        loop = asyncio.new_event_loop()
+        try:
+            out1 = loop.run_until_complete(bot.cycle())
+            self.assertTrue(any("未登录" in e for e in out1.get("errors") or []))
+            self.assertEqual(bot.status()["session"]["auth"], "expired")
+            out2 = loop.run_until_complete(bot.cycle())
+        finally:
+            teams_mod.api_idb_watch = orig
+        self.assertEqual(out2.get("skipped"), "auth_backoff")
+        self.assertGreater(out2.get("retry_in") or 0, 0)
 
 
 if __name__ == "__main__":
