@@ -299,5 +299,46 @@ class DirectIdTests(unittest.TestCase):
         self.assertEqual(peer_guid("19:abc@thread.v2", TENANT), "")
 
 
+class CoverageGateTests(unittest.TestCase):
+    """混合检索分数高但词面无关时不能当命中（P1 测试里"P1 队列测试"命中了 wifi 文档）。"""
+
+    def test_terms_split(self):
+        from gantry.teams_logic import query_terms
+
+        terms = query_terms("VPN 连不上怎么办")
+        self.assertIn("vpn", terms)
+        self.assertTrue(any("连不" in t for t in terms), terms)
+        self.assertNotIn("怎么办", terms, "停用词应被去掉")
+
+    def test_coverage_unrelated_is_zero(self):
+        from gantry.teams_logic import coverage
+
+        hit = {"title": "wifi", "heading": "Wi-Fi 802.1X 认证失败",
+               "text": "一直重输密码没用，多半是证书或时间问题"}
+        self.assertLess(coverage("P1 队列测试，收到请忽略", hit), 0.34)
+
+    def test_coverage_relevant_is_high(self):
+        from gantry.teams_logic import coverage
+
+        hit = {"title": "VPN 连不上怎么办", "heading": "排查步骤",
+               "text": "换手机热点试一次，端口 443"}
+        self.assertGreaterEqual(coverage("VPN 连不上怎么办", hit), 0.5)
+
+    def test_pick_hits_drops_unrelated(self):
+        from gantry.teams_logic import pick_hits
+
+        hits = [{"title": "wifi", "heading": "Wi-Fi", "text": "证书问题",
+                 "score": 0.62}]
+        self.assertEqual(pick_hits(hits, 0.5, "P1 队列测试，收到请忽略", 0.34), [])
+        self.assertEqual(len(pick_hits(hits, 0.5)), 1, "只给阈值时保持旧行为")
+
+    def test_pick_hits_keeps_relevant(self):
+        from gantry.teams_logic import pick_hits
+
+        hits = [{"title": "VPN 连不上怎么办", "heading": "排查",
+                 "text": "换热点、端口 443", "score": 0.62}]
+        self.assertEqual(len(pick_hits(hits, 0.5, "VPN 连不上怎么办", 0.34)), 1)
+
+
 if __name__ == "__main__":
     unittest.main()

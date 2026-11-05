@@ -71,7 +71,7 @@
       ],
       "my_name": "",
       "kb_first": true,
-      "kb_min_score": 0.35,
+      "kb_min_score": 0.5,
       "kb_max_chars": 1200,
       "reply_when_unknown": true,
       "fallback_agent": true,
@@ -79,7 +79,8 @@
       "model": "copilot-auto",
       "max_replies_per_cycle": 2,
       "seen_limit": 300,
-      "only_direct": true
+      "only_direct": true,
+      "kb_min_coverage": 0.34
     }
   }
 }
