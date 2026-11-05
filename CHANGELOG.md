@@ -14,6 +14,32 @@
 ### Fixed
 - 
 
+## [11.0.0-preview.66] - 2026-11-05
+
+### Changed
+
+- **`gantry/teams.py` 解耦完成**：从 3964 行的单体拆成 6 个模块，`teams.py` 只剩
+  **169 行 façade**（保留 `__getattr__` 惰性取 bridge，其余全部显式 re-export，
+  插件/测试/脚本零改动）：
+
+  | 模块 | 行数 | 职责 |
+  |---|---|---|
+  | `teams_dom.py` | 901 | 页面/会话 DOM：开页面、标签、等渲染、头部、消息、点会话、`_SEL` |
+  | `teams_send.py` | 567 | 输入框、发送、按消息片段/搜索定位会话 |
+  | `teams_api.py` | 1904 | authz/令牌抓取、chatsvc 直发、全部只读排障接口、`probe()` |
+  | `teams_idb.py` | 364 | IndexedDB 读取（会话/最后消息/成员映射） |
+  | `teams_common.py` | 91 | bridge 句柄、页面互斥锁、异常、身份归一化 |
+
+  依赖方向单向：`common ← dom ← send/api`；`idb` 用函数内惰性 import 拿 `teams_open`，
+  避免与 façade 循环。跨模块引用用显式 import 补齐（静态扫描确认三个新模块
+  **无未解析裸名**）。
+
+### 实测
+
+- 全套 1576（skipped=1）OK；不变量 25 条全绿；teams 相关 89 条测试通过。
+- 服务重启后 `11.0.0-preview.65`→新代码：10 个插件全部 `loaded`，`teams-bot`
+  仍是 `enabled=false / dry_run=true / send_enabled=false`（replies=0），无 `crash.log`。
+
 ## [11.0.0-preview.65] - 2026-11-05
 
 ### Changed
