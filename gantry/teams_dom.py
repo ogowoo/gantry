@@ -18,7 +18,8 @@ from typing import Any
 from . import bridge as _b
 from .bridge import diagnostics
 from .teams_common import (  # noqa: F401
-    PAGE_LOCK_TIMEOUT, REPLY_TIMEOUT, TEAMS_URL, TeamsBusyError, TeamsError, _PAGE_LOCK,
+    PAGE_LOCK_TIMEOUT, REPLY_TIMEOUT, TEAMS_URL, TeamsAuthRequired, TeamsBusyError,
+    TeamsError, _PAGE_LOCK,
     _norm_identity, _plain_text, acquire_page_lock, page_lock_stats, release_page_lock,
     verify_conversation_identity,
 )
@@ -493,8 +494,8 @@ async def teams_open(timeout: float = 300.0, force_reload: bool = False) -> Any:
                                  "确认走的是 Playwright 的 Chromium/Edge，而不是纯 HTTP 客户端")
             if await _first_visible(teams_page, "login_wall"):
                 await diagnostics("teams_login_wall")
-                raise TeamsError("Teams 要求登录（共享浏览器里没有有效的 Teams 会话）："
-                                 "先在自动化浏览器里登录一次 Teams")
+                raise TeamsAuthRequired("Teams 要求登录（共享浏览器里没有有效的 Teams 会话）："
+                                        "先在自动化浏览器里登录一次 Teams")
             # 搜索页不是聊天页：回列表，别在这里干等 300s
             try:
                 _title = (await teams_page.title() or "").lower()

@@ -133,7 +133,7 @@ from .teams_idb import (  # noqa: F401  （对外名字保持不变）
     api_idb_watch,
 )
 from .teams_common import (  # noqa: F401
-    TeamsBusyError, TeamsError,
+    TeamsAuthRequired, TeamsBusyError, TeamsError,
 
     PAGE_LOCK_TIMEOUT, REPLY_TIMEOUT, TEAMS_URL, _PAGE_LOCK,
     _norm_identity, _plain_text, acquire_page_lock, page_lock_stats,
