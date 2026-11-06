@@ -490,6 +490,10 @@ function toggleMore(el, e){
  document.querySelectorAll('.menuList.open').forEach(m=>{if(m!==menu)m.classList.remove('open')});
  menu.classList.toggle('open')}
 document.addEventListener('click',e=>{let m=document.getElementById('moreMenu');if(m&&m.classList.contains('open')&&!e.target.closest('#moreBtn'))m.classList.remove('open')});
+/* 点击菜单外任意处关闭所有浮层菜单（⋯ / 权限档位 / 更多），再点按钮本身则由 toggleMore 处理 */
+document.addEventListener('click',e=>{
+ if(e.target&&e.target.closest&&e.target.closest('.menu'))return;
+ document.querySelectorAll('.menuList.open').forEach(m=>m.classList.remove('open'))},true);
 
 /* 主题：选择（choice）与解析（resolved）分开——
    choice='auto' 表示**跟随系统**（默认），resolved 才落到具体主题 id。
