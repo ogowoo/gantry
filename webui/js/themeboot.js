@@ -315,8 +315,7 @@ try{const _rs=document.getElementById('btnRefreshSess');if(_rs)_rs.onclick=async
    服务端配置走 /v1/config（白名单，见 api.CONFIG_SCHEMA），外观与语言即时生效。 */
 const SETTINGS_GROUPS=[
  ['ui', '外观'], ['exec', '执行'], ['browser', '浏览器'],
- ['model', '模型'], ['kb', '知识库'], ['prompt', '提示词'],
- ['service', '服务'], ['data', '数据'], ['danger', '危险区']];
+ ['data', '数据'], ['raw', '原始配置'], ['danger', '危险区']];
 /* 枚举值的显示名：直接显示 "session"/"each"/"lazy" 太像代码（用户看到的是生词）。 */
 const ENUM_LABEL={each:'每次操作都询问',session:'本会话内不再逐次询问',
   lazy:'首次使用时启动',eager:'服务启动时预热'};
