@@ -277,6 +277,42 @@ async def set_config(payload: dict | None = None):
     return {"applied": applied, "persisted": persisted}
 
 
+@router.get("/v1/config/raw")
+async def get_config_raw():
+    """返回完整 config.json（原始 JSON），用于高级/raw 编辑。"""
+    cfg_path = b.BASE / "config.json"
+    if not cfg_path.exists():
+        return {"config": {}}
+    try:
+        text = cfg_path.read_text(encoding="utf-8")
+        return {"config": json.loads(text)}
+    except Exception as exc:
+        raise HTTPException(500, f"读取 config.json 失败: {exc}") from exc
+
+
+@router.post("/v1/config/raw")
+async def set_config_raw(payload: dict | None = None):
+    """直接写回完整 config.json（高级/raw 编辑）。谨慎使用：写错会导致服务无法启动。"""
+    data = payload or {}
+    cfg = data.get("config")
+    if not isinstance(cfg, dict):
+        raise HTTPException(400, "需要 {config: {...}} 结构")
+    cfg_path = b.BASE / "config.json"
+    try:
+        cfg_path.write_text(json.dumps(cfg, ensure_ascii=False, indent=2),
+                            encoding="utf-8")
+    except Exception as exc:
+        raise HTTPException(500, f"写 config.json 失败: {exc}") from exc
+    # 同时刷新内存中的 CFG，让多数改动立即生效（部分仍要重启）
+    try:
+        b.CFG.clear()
+        b.CFG.update(cfg)
+    except Exception as exc:
+        b.log(f"刷新内存配置失败（重启后生效）: {exc}")
+    b.log("config.json 已通过 raw 编辑器更新")
+    return {"ok": True, "path": str(cfg_path)}
+
+
 @router.get("/v1/plugins/registry")
 async def plugin_registry():
     """插件注册表：已安装版本/来源/启停状态 + 备份列表。"""
