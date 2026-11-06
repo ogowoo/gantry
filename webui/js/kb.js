@@ -202,6 +202,13 @@ export async function kbSearch() {
   }
 }
 
+export function kbClear() {
+  const q = $id('#kbQ');
+  const box = $id('#kbHits');
+  if (q) q.value = '';
+  if (box) box.innerHTML = '';
+}
+
 function wireOnce() {
   const input = $id('#kbFile');
   if (input && !input.dataset.kbWired) {
@@ -232,6 +239,11 @@ function wireOnce() {
   if (saveBtn && !saveBtn.dataset.kbWired) {
     saveBtn.dataset.kbWired = '1';
     saveBtn.addEventListener('click', kbSaveSettings);
+  }
+  const clearBtn = $id('#kbClear');
+  if (clearBtn && !clearBtn.dataset.kbWired) {
+    clearBtn.dataset.kbWired = '1';
+    clearBtn.addEventListener('click', kbClear);
   }
 }
 
