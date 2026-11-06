@@ -4,7 +4,7 @@ import { SETTINGS_GROUPS, SANDBOX_UI, ENUM_LABEL, openMemory } from './themeboot
 import { CODE_EXT } from './codeux.js';
 import { stepFilterInput } from './steps.js';
 import { readAnimPrefs, applyAnimPrefs, setAnimPref, animPrefLabel, ANIM_RANGES } from './animprefs.js';
-import { openKb, closeKb, kbPick, kbRefresh, kbReindex, kbImportUrl, kbImportText, kbInbox, kbSearch, kbDelete, fmtErr, wireKbSettings, kbLoadSettings } from './kb.js';
+import { openKb, closeKb, kbPick, kbRefresh, kbReindex, kbImportUrl, kbImportText, kbInbox, kbSearch, kbDelete, fmtErr, wireKbSettings, kbLoadSettings, kbSaveSettings } from './kb.js';
 import { openModels, closeModels, renderModels, modelDelete, modelCopyPath, modelDownload } from './models.js';
 import { kbSaveMsg as kbSaveMsgImpl } from './composer.js';
 
@@ -39,7 +39,6 @@ function _modelsExtraHtml(){
     <option value="rapidocr">rapidocr</option>
     <option value="xiaomi">xiaomi</option>
    </select></label>
-  <div class="setrow"><span></span><button type="button" class="btn" id="kbSettingsSave">${esc(tr('保存'))}</button></div>
   <div id="kbSettingsHint" class="meta" style="margin-top:4px">${esc(tr('加载中…'))}</div>`;
 }
 function renderSandbox(){
@@ -439,6 +438,11 @@ async function saveSettings(){
   if(el)setAnimPref(k,el.value);
  });
  applyAnimPrefs();
+ // Embedding / OCR 控件在本地模型页里：跟随全局保存一起提交
+ if(document.getElementById('kbEmbBackend')){
+  try{await kbSaveSettings(true)}
+  catch(e){toast(tr('保存失败: ')+fmtErr(e),'err',8000);return}
+ }
  // 只提交**改动过**的字段：整表提交时，空的文本/枚举控件会被后端校验拒掉
  // （实测 ``default_model: ""`` 让整批保存 400），也会把没动过的键来回写文件。
  const raw=collectSettings();
