@@ -575,6 +575,7 @@ const ACTIONS={
  reopenRetry:()=>{retryDismissedAt=null;updateRetryCountdown(lastRuntime)},
  pickSandbox:(el)=>pickSandbox(el&&el.dataset?el.dataset.arg:''),
  settingsTab:(el)=>{setSettingsTab(el&&el.dataset?el.dataset.arg:'');},
+ stepsLoadMore:()=>{if(window.stepLoadMore)window.stepLoadMore()},
  closeSettings:(el)=>{closeSettings();if(el&&el.dataset&&el.dataset.arg==='memory'){try{openMemory()}catch(e){}}},
  saveSettings:()=>saveSettings(),
  rollbackSession:()=>rollbackSession(),

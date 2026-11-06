@@ -89,6 +89,10 @@
 .codemenu.sessmenu .cmitem{padding:8px 10px;border-radius:7px;font-size:13px}
 .codemenu.sessmenu .cmitem.danger{color:var(--danger-text)}
 .stepfilter{font-size:11.5px;padding:1px 4px;margin-right:6px;max-width:150px}
+/* 时间线虚拟窗口底部的「显示更早的步骤」 */
+.stepmore{display:flex;justify-content:center;padding:8px 0 4px}
+.stepmore .btn{font-size:12px;color:var(--muted)}
+.stepmore .btn:hover{color:var(--accent2);border-color:var(--accent)}
 /* 对话区的"正在生成"气泡：虚线 + 弱化，明确是临时内容 */
 .msg.live .msg-main{border-style:dashed;background:transparent}
 .msg.live .msg-av{opacity:.6}

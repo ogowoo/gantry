@@ -137,11 +137,14 @@ header.topbar .topbarchev{flex:none;margin-left:2px}
 .grp:last-child{border-right:0;padding-right:0}
 .actions .btn{height:34px;padding-top:0;padding-bottom:0}
 .menu{position:relative;display:flex;align-items:center}
-.menuList{position:absolute;right:0;top:calc(100% + 6px);background:var(--panel2);border:1px solid var(--line2);border-radius:10px;padding:6px;display:none;flex-direction:column;gap:4px;min-width:210px;box-shadow:0 14px 40px var(--menu-shadow);z-index:20}
+.menuList{position:absolute;right:0;top:calc(100% + 6px);background:var(--panel2);border:1px solid var(--line2);border-radius:12px;padding:6px;display:none;flex-direction:column;gap:2px;min-width:210px;
+  box-shadow:0 10px 30px rgba(0,0,0,.08),0 1px 8px rgba(0,0,0,.03);z-index:20}
 .menuList.open{display:flex}
-.menuList button{text-align:left;border:0;background:transparent;padding:8px 10px;border-radius:7px;cursor:pointer;font-size:13px}
-.menuList button:hover{background:var(--menu-hover)}
+.menuList button{text-align:left;border:0;background:transparent;padding:9px 12px;border-radius:8px;cursor:pointer;font-size:13px;color:var(--text);
+  display:flex;align-items:center;gap:10px;transition:background-color .12s ease,color .12s ease}
+.menuList button:hover{background:color-mix(in srgb,var(--accent) 9%,var(--panel));color:var(--accent2)}
 .menuList button.danger{color:var(--danger-text)}
+.menuList button.danger:hover{background:color-mix(in srgb,var(--red) 10%,var(--panel))}
 
 /* KPI 条（旧版独立一行用的，宽屏仍保留 auto-fit 定义供回退）：
    auto-fit 让卡片数随可用宽度自适应，杜绝窄窗口网格溢出互相挤压 */
