@@ -77,12 +77,8 @@ details[open] > .model-download-summary::before{transform:rotate(90deg)}
 .theme-swatch-solarized{background:#fdf6e3}
 .theme-swatch-mint{background:#e6f5ee}
 .theme-swatch-amber{background:#fff1d6}
-/* 记忆：卡片网格 */
-.embed-memMask #memList{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:10px}
-.embed-memMask .mem-row{background:var(--panel);border:1px solid var(--line);border-radius:12px;
-  padding:10px 12px;margin:0}
-.embed-memMask .mem-meta{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
-.embed-memMask .mem-text{margin-top:6px;font-size:12.5px;line-height:1.55}
+/* 记忆：卡片网格（基础卡片样式见 themeboot.js MEM_CSS，全局生效） */
+.embed-memMask #memList{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:10px}
 .embed-memMask .mem-toolbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:8px}
 .embed-memMask .mem-toolbar select{flex:0 0 auto}
 .embed-memMask .mem-toolbar input{flex:1 1 180px;min-width:0}
@@ -129,7 +125,6 @@ details[open] > .model-download-summary::before{transform:rotate(90deg)}
 .embed-kbMask #kbHits{margin-top:8px}
 /* 记忆：设置页已经有标题，不再显示弹窗头 */
 .embed-memMask .chead{display:none!important}
-.embed-memMask .mem-row{padding:10px 2px}
 /* 插件面板：改成上方标签 + 下方内容，避免左右分栏 */
 .embed-panelMask .panelwrap{display:flex;flex-direction:column;min-height:0}
 .embed-panelMask .panellist{flex:none;display:flex;flex-direction:row;flex-wrap:wrap;
