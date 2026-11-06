@@ -1,6 +1,6 @@
 // settings.js — 
 // 从原 webui/app.js 拆出的 ES 模块（该单体已退役，见 docs/ESM-MIGRATION.md）。
-import { SETTINGS_GROUPS, SANDBOX_UI, ENUM_LABEL } from './themeboot.js';
+import { SETTINGS_GROUPS, SANDBOX_UI, ENUM_LABEL, openMemory } from './themeboot.js';
 import { CODE_EXT } from './codeux.js';
 import { stepFilterInput } from './steps.js';
 import { readAnimPrefs, applyAnimPrefs, setAnimPref, animPrefLabel, ANIM_RANGES } from './animprefs.js';
@@ -188,7 +188,7 @@ async function renderSettings(){
   const g=spec.group||'exec';
   (groups[g]=groups[g]||[]).push([k,spec]);
  });
- const has=(gid)=>gid==='ui'||gid==='entries'||gid==='danger'||(groups[gid]||[]).length;
+ const has=(gid)=>gid==='ui'||gid==='danger'||(groups[gid]||[]).length;
  const _AP=readAnimPrefs();                  // 动画参数（模板里铺滑杆的当前值）
  const visible=SETTINGS_GROUPS.filter(([gid])=>has(gid));
  if(!visible.some(([gid])=>gid===window.settingsTab))window.settingsTab=visible[0][0];
@@ -227,17 +227,6 @@ async function renderSettings(){
    ${_animRow('breatheDur', '呼吸时长', '一个呼吸周期的秒数', _AP)}
    ${_animRow('breatheStrength', '呼吸强度', '边框强调色与光晕的强度（100% 是原设计）', _AP)}`;
 
- const entriesHtml=`<h4>${esc(tr('入口'))}</h4>
-   <div class="setbtns">
-    <button type="button" class="btn ghost" data-act="openManual">📖 ${esc(tr('使用手册'))}</button>
-    <button type="button" class="btn ghost" data-act="openModels">🧠 ${esc(tr('本地模型'))}</button>
-    <button type="button" class="btn ghost" data-act="openPlugins">🧩 ${esc(tr('插件管理'))}</button>
-    <button type="button" class="btn ghost" data-act="openKb">📚 ${esc(tr('知识库'))}</button>
-    <button type="button" class="btn ghost" data-act="openPanels">🗂 ${esc(tr('插件面板'))}</button>
-    <button type="button" class="btn ghost" data-act="openWsBrowser">📁 ${esc(tr('工作区浏览'))}</button>
-    <button type="button" class="btn ghost" data-act="closeSettings" data-arg="memory">💬 ${esc(tr('记忆面板'))}</button>
-   </div>`;
-
  const dangerHtml=`<h4>${esc(tr('危险区'))}</h4>
    <div class="setbtns">
     <button type="button" class="btn ghost" data-act="restartService">↻ ${esc(tr('重启服务'))}</button>
@@ -263,7 +252,6 @@ async function renderSettings(){
 
  box.innerHTML=visible.map(([gid,label])=>{
   if(gid==='ui')return pane('ui',uiHtml);
-  if(gid==='entries')return pane('entries',entriesHtml);
   if(gid==='raw')return pane('raw',rawHtml);
   if(gid==='danger'){
    // 危险区：先渲染 schema 里登记的高风险开关（如"允许自升级"），再放操作按钮
@@ -551,6 +539,7 @@ const ACTIONS={
  modelDelete:(el)=>modelDelete(el),
  modelCopyPath:(el)=>modelCopyPath(el),
  modelDownload:()=>modelDownload(),
+ openMemory:()=>openMemory(),
 };
 document.addEventListener('click',e=>{
  const el=e.target.closest?e.target.closest('[data-act]'):null;
