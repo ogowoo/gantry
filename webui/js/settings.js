@@ -6,7 +6,7 @@ import { stepFilterInput } from './steps.js';
 import { readAnimPrefs, applyAnimPrefs, setAnimPref, animPrefLabel, ANIM_RANGES } from './animprefs.js';
 import { openKb, closeKb, kbPick, kbRefresh, kbReindex, kbImportUrl, kbImportText, kbInbox, kbSearch, kbDelete, fmtErr, wireKbSettings, kbLoadSettings, kbSaveSettings } from './kb.js';
 import { openModels, closeModels, renderModels, modelDelete, modelCopyPath, modelDownload } from './models.js';
-import { kbSaveMsg as kbSaveMsgImpl } from './composer.js';
+import { kbSaveMsg as kbSaveMsgImpl, THEMES } from './composer.js';
 
 /* 设置左侧的“工具页”：不弹窗，直接把对应面板的 .dlg 移进设置右侧渲染。 */
 const TOOL_TABS = [
@@ -258,12 +258,12 @@ async function renderSettings(){
     style="${gid===window.settingsTab?'':'display:none'}">${html}</section>`;
 
  const uiHtml=`<h4>${esc(tr('外观'))}</h4>
-   <div class="theme-grid" id="themeGrid">${[['auto','跟随系统'],['light','浅色'],['dark','深色'],['solarized','护眼'],['mint','薄荷'],['amber','琥珀']]
-     .map(([v,t])=>`<button type="button" class="theme-card${_settingsTheme()===v?' on':''}" data-theme-choice="${v}">
-       <span class="theme-swatch theme-swatch-${v}"></span>
+   <div class="theme-grid" id="themeGrid">${THEMES
+     .map(([v,t])=>`<button type="button" class="theme-card${themeChoice()===v?' on':''}" data-theme-choice="${v}">
+       <span class="theme-swatch theme-swatch-${v||'dark'}"></span>
        <span class="theme-name">${esc(tr(t))}</span>
      </button>`).join('')}</div>
-   <input type="hidden" id="setTheme" data-ui="theme" value="${_settingsTheme()}">
+   <input type="hidden" id="setTheme" data-ui="theme" value="${themeChoice()}">
    <label class="setrow"><span>${esc(tr('语言'))}</span>
      <select id="setLang" data-ui="lang">${[['zh','中文'],['en','English'],['tw','繁體中文']]
        .map(([v,t])=>`<option value="${v}" data-i18n-skip="1" ${currentLang()===v?'selected':''}>${esc(t)}</option>`).join('')}</select></label>
@@ -366,8 +366,7 @@ async function renderSettings(){
     const v=btn.dataset.themeChoice;
     const hidden=document.getElementById('setTheme');
     if(hidden)hidden.value=v;
-    try{localStorage.setItem('gantry-theme',v)}catch(e){}
-    try{applyTheme(v,false)}catch(e){}
+    try{applyTheme(v,true)}catch(e){}
     themeGrid.querySelectorAll('[data-theme-choice]').forEach(x=>x.classList.toggle('on',x===btn));
    };
   });
