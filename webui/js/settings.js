@@ -13,8 +13,9 @@ const TOOL_TABS = [
  {id:'manual', label:'使用手册', mask:'manualMask', run:()=>window.openManual()},
  {id:'models', label:'本地模型', mask:'modelsMask', run:()=>openModels()},
  {id:'plugins', label:'插件管理', mask:'pluginsMask', run:()=>window.openPlugins()},
- {id:'kb', label:'知识库文档', mask:'kbMask', run:()=>openKb()},
+ {id:'kb', label:'知识库', mask:'kbMask', run:()=>openKb()},
  {id:'panels', label:'插件面板', mask:'panelMask', run:()=>window.openPanels()},
+ {id:'workspace', label:'工作区浏览', mask:'wsMask', run:()=>window.openWsBrowser('')},
  {id:'memory', label:'记忆面板', mask:'memMask', run:()=>window.openMemory()},
 ];
 function renderSandbox(){
@@ -109,13 +110,7 @@ function _cfgInput(key,spec,val){
   return `<label class="setrow" for="${id}"><span>${esc(tr(spec.label))}</span>
     <select id="${id}" data-cfg="${esc(key)}">${opts}</select></label>`;
  }
- if(spec.kind==='json'){
-  const text=(val===undefined||val===null)?'':JSON.stringify(val,null,2);
-  return `<label class="setrow setrow-json" for="${id}"><span>${esc(tr(spec.label))}</span>
-    <textarea id="${id}" data-cfg="${esc(key)}" class="code" spellcheck="false"
-      style="flex:1;min-height:70px;font-family:var(--mono);font-size:12px">${esc(text)}</textarea></label>`;
- }
- const t=spec.kind==='int'||spec.kind==='float'?'number':'text';
+ const t=spec.kind==='int'?'number':'text';
  // 没配过的键显示"默认"占位：空输入框会让人以为坏了/以为必须填
  const ph=(val===undefined||val===null||val==='')?`placeholder="${esc(tr('默认'))}"`:'';
  return `<label class="setrow" for="${id}"><span>${esc(tr(spec.label))}</span>
@@ -206,7 +201,7 @@ async function renderSettings(){
   const g=spec.group||'exec';
   (groups[g]=groups[g]||[]).push([k,spec]);
  });
- const has=(gid)=>gid==='ui'||gid==='danger'||(groups[gid]||[]).length;
+ const has=(gid)=>gid==='ui'||gid==='danger'||gid==='raw'||(groups[gid]||[]).length;
  const _AP=readAnimPrefs();                  // 动画参数（模板里铺滑杆的当前值）
  const visible=SETTINGS_GROUPS.filter(([gid])=>has(gid));
  const allTabs=visible.map(([gid])=>gid).concat(TOOL_TABS.map(t=>'tool-'+t.id));
@@ -261,42 +256,25 @@ async function renderSettings(){
    </div>
    <p class="sethint">${esc(tr('重启/终止都会中断正在跑的任务；状态已落库，重启后可恢复。'))}</p>`;
 
- function _trSection(sec){
-  if(sec.startsWith('提供商 · '))return tr('提供商')+' · '+sec.slice('提供商 · '.length);
-  return tr(sec);
+ let rawHtml='';
+ try{
+  const raw=await api('/v1/config/raw');
+  window.settingsRaw=raw.config||{};
+  rawHtml=`<h4>${esc(tr('原始配置'))}</h4>
+   <p class="sethint">${esc(tr('可直接用图形界面编辑 config.json 全部项；复杂数组仍可在 JSON 文本区改。'))}</p>
+   <div id="settingsRawTree">${_cfgTreeHtml(window.settingsRaw)}</div>`;
+ }catch(e){
+  rawHtml=`<h4>${esc(tr('原始配置'))}</h4><p class="sethint">${esc(tr('读取失败: ')+fmtErr(e))}</p>`;
  }
- function _sectionFor(gid,path){
-  if(path.startsWith('kb.embedding.'))return 'Embedding';
-  if(path.startsWith('kb.ocr.'))return 'OCR';
-  if(path.startsWith('providers.'))return '提供商 · '+path.split('.')[1];
-  if(path.startsWith('markers.'))return '对话标记';
-  if(path.startsWith('server.'))return '服务';
-  if(gid!=='exec')return '';
-  const leaf=path.split('.').pop();
-  if(/^allow_/.test(leaf)||path.includes('tools_extra'))return '工具权限';
-  if(path.includes('approval'))return '审批';
-  if(path.includes('memory')||path.includes('agent_md'))return '记忆与提示词';
-  if(path.includes('session')||path.includes('compact')||path.includes('rollover')||
-     path.includes('context')||path.includes('keep_recent'))return '上下文与会话';
-  if(path.includes('subagent'))return '子代理';
-  if(path.includes('run_code')||path.includes('python'))return '代码执行';
-  if(path.includes('outlook'))return 'Outlook';
-  if(path.includes('copilot')||path.includes('service_'))return 'Copilot 服务';
-  return 'Agent';
- }
+
  const cfgPane=(gid,label)=>{
-  let lastSection='';
-  const rows=(groups[gid]||[]).map(([k,spec])=>{
-   const sec=spec.section||_sectionFor(gid,k)||'';
-   let head='';
-   if(sec&&sec!==lastSection){head=`<h5 class="setsection">${esc(_trSection(sec))}</h5>`;lastSection=sec}
-   return head+_cfgInput(k,spec,window.settingsValues[k]);
-  }).join('');
+  const rows=(groups[gid]||[]).map(([k,spec])=>_cfgInput(k,spec,window.settingsValues[k])).join('');
   return rows?`<h4>${esc(tr(label))}</h4>${rows}`:'';
  };
 
  box.innerHTML=visible.map(([gid,label])=>{
   if(gid==='ui')return pane('ui',uiHtml);
+  if(gid==='raw')return pane('raw',rawHtml);
   if(gid==='danger'){
    // 危险区：先渲染 schema 里登记的高风险开关（如"允许自升级"），再放操作按钮
    const rows=(groups[gid]||[]).map(([k,spec])=>_cfgInput(k,spec,window.settingsValues[k])).join('');
@@ -322,7 +300,7 @@ function unmountTool(id){
  const dlg=host&&host.querySelector('.dlg');
  const mask=document.getElementById(t.mask);
  if(dlg&&mask)mask.appendChild(dlg);
- if(mask){mask.classList.remove('open');mask.style.display='none'}
+ if(mask)mask.classList.remove('open');
 }
 
 function unmountAllTools(){
@@ -340,7 +318,7 @@ function mountTool(id){
  if(dlg&&host)host.appendChild(dlg);
  if(dlg)dlg.classList.add('settings-embed-dlg');
  try{t.run()}catch(e){}
- if(mask){mask.classList.remove('open');mask.style.display='none'}
+ if(mask)mask.classList.remove('open');
 }
 
 function setSettingsTab(id){
@@ -409,6 +387,21 @@ async function saveSettings(){
   if(el)setAnimPref(k,el.value);
  });
  applyAnimPrefs();
+ // 原始 config.json 编辑（如果存在且内容有变化）
+ let rawSaved=0;
+ const rawPane=document.querySelector('[data-pane="raw"]');
+ if(rawPane){
+  const rawCfg=collectConfigTree();
+  if(JSON.stringify(rawCfg)!==JSON.stringify(window.settingsRaw||{})){
+   try{
+    await api('/v1/config/raw',{method:'POST',
+     headers:{'Content-Type':'application/json'},
+     body:JSON.stringify({config:rawCfg})});
+    window.settingsRaw=rawCfg;
+    rawSaved=1;
+   }catch(e){ toast(tr('原始配置保存失败: ')+((e&&(e.text||e.detail||e.message))||String(e)),'err'); return; }
+  }
+ }
  // 只提交**改动过**的字段：整表提交时，空的文本/枚举控件会被后端校验拒掉
  // （实测 ``default_model: ""`` 让整批保存 400），也会把没动过的键来回写文件。
  const raw=collectSettings();
@@ -422,8 +415,13 @@ async function saveSettings(){
  const serverN=Object.keys(values).length;
  const localChanges=_localChanges();       // 主题/语言/动画：都已经即时生效并落库了
  if(!serverN){
-  // 只有本地改动：说清楚"存了什么"，不要再说"没有改动"
-  if(localChanges.length){
+  // 只有本地改动或原始配置改动：说清楚"存了什么"，不要再说"没有改动"
+  if(rawSaved && localChanges.length){
+   _localSnap=_localSnapshot();
+   toast(tr('设置已保存（原始配置 · 本地 {n} 项）',{n:localChanges.length}),'ok');
+  }else if(rawSaved){
+   toast(tr('原始配置已保存'),'ok');
+  }else if(localChanges.length){
    _localSnap=_localSnapshot();
    toast(tr('本地设置已保存（{n} 项）',{n:localChanges.length}),'ok');
   }else{
