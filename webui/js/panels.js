@@ -125,6 +125,24 @@ async function openPlugins(){
       toast(tr('已重载: ')+p.name,'ok'); await openPlugins(); }catch(e){ toast(tr('重载失败: ')+(e.text||e),'err') } };
   acts.appendChild(btn);acts.appendChild(rb);
   row.appendChild(head);row.appendChild(desc);row.appendChild(meta);row.appendChild(acts);
+  if(p.name==='teams-bot'){
+    const cfgRow=document.createElement('div');cfgRow.className='pacts';cfgRow.style.cssText='margin-top:6px;gap:6px;align-items:center';
+    const lbl=document.createElement('span');lbl.className='hint';lbl.textContent=tr('模型')+':';cfgRow.appendChild(lbl);
+    const sel=document.createElement('select');sel.className='kbinput';sel.style.flex='1';sel.id='teamsBotModelSel';
+    const save=document.createElement('button');save.type='button';save.className='btn';save.textContent=tr('保存');
+    save.onclick=async()=>{ save.disabled=true; try{
+      await api('/v1/plugins/teams-bot/api/settings',{method:'POST',body:JSON.stringify({model:sel.value})});
+      toast(tr('设置已保存（{n} 项）').replace('{n}','1'),'ok'); }catch(e){ toast(tr('保存失败: ')+(e.text||e),'err') }
+      finally{ save.disabled=false; } };
+    cfgRow.appendChild(sel);cfgRow.appendChild(save);row.appendChild(cfgRow);
+    (async()=>{ try{
+      const [models,status]=await Promise.all([api('/v1/models'),api('/v1/plugins/teams-bot/api/status')]);
+      const current=String(status&&status.model||'');
+      const ids=(models&&models.data||[]).map(m=>m.id).filter(Boolean);
+      if(!ids.length){sel.innerHTML='<option value="">-</option>';return;}
+      sel.innerHTML=ids.map(id=>'<option value="'+esc(id)+'"'+(id===current?' selected':'')+'>'+esc(id)+'</option>').join('');
+    }catch(e){ sel.innerHTML='<option value="">'+esc(tr('读取失败: ')+(e.text||e))+'</option>'; } })();
+  }
   if(p.error){ const er=document.createElement('div');er.className='perr';er.textContent=p.error; row.appendChild(er) }
   box.appendChild(row)});
 }
