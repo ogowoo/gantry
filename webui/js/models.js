@@ -39,13 +39,13 @@ export async function renderModels() {
     }
     body.innerHTML = list.map((m) => {
       const path = esc(m.path || m.name);
-      return `<div class="setrow" style="align-items:flex-start;gap:8px;padding:6px 0;border-bottom:1px solid var(--line)">
-        <div style="flex:1;min-width:0">
-          <div style="font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${esc(m.name)}">${esc(m.name)}</div>
-          <div class="hint">${fmtSize(m.size)} · ${fmtTime(m.mtime)}</div>
-          <div class="hint" style="font-family:var(--mono);font-size:11px">${path}</div>
+      return `<div class="model-card">
+        <div class="model-card-main">
+          <div class="model-name" title="${esc(m.name)}">${esc(m.name)}</div>
+          <div class="model-meta">${fmtSize(m.size)} · ${fmtTime(m.mtime)}</div>
+          <div class="model-path" title="${path}">${path}</div>
         </div>
-        <div style="display:flex;gap:4px;flex-direction:column">
+        <div class="model-card-actions">
           <button type="button" class="btn ghost" data-act="modelCopyPath" data-arg="${path}">${esc(tr('复制路径'))}</button>
           <button type="button" class="btn ghost danger" data-act="modelDelete" data-arg="${esc(m.name)}">${esc(tr('删除'))}</button>
         </div>

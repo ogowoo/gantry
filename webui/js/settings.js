@@ -28,10 +28,10 @@ function _modelsExtraHtml(){
     <option value="off">off</option>
    </select></label>
   <div class="setrow"><span>${esc(tr('Embedding 模型'))}</span>
-   <div style="display:flex;gap:6px;flex:1;min-width:0">
-    <select id="kbEmbModel" class="kbinput" style="width:220px;max-width:none;order:2"></select>
-    <input id="kbEmbModelCustom" class="kbinput" placeholder="${esc(tr('模型名 / GGUF 路径 / model id'))}" style="width:220px;max-width:none;order:2;display:none">
-    <button type="button" class="btn ghost" id="kbEmbModelToggle" style="order:3">${esc(tr('自定义'))}</button>
+   <div style="display:flex;gap:6px;min-width:0">
+    <select id="kbEmbModel" class="kbinput" style="flex:1;min-width:0"></select>
+    <input id="kbEmbModelCustom" class="kbinput" placeholder="${esc(tr('模型名 / GGUF 路径 / model id'))}" style="flex:1;min-width:0;display:none">
+    <button type="button" class="btn ghost" id="kbEmbModelToggle">${esc(tr('自定义'))}</button>
    </div></div>
   <label class="setrow"><span>${esc(tr('OCR 引擎'))}</span>
    <select id="kbOcrEngine" class="kbinput">
