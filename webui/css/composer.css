@@ -10,9 +10,9 @@
 /* 品牌区 */
 .gantry-brand{display:flex;flex-direction:column;align-items:center;gap:4px;margin-bottom:2px}
 .gantry-logo{display:flex;align-items:center;justify-content:center;margin:0 0 14px}
-.gantry-logo-mark{width:64px;height:64px;border-radius:16px;display:flex;align-items:center;
+.gantry-logo-mark{width:68px;height:68px;border-radius:17px;display:flex;align-items:center;
   justify-content:center;font-family:var(--mono,ui-monospace,Consolas,monospace);
-  font-size:34px;font-weight:800;letter-spacing:0;color:var(--green);line-height:1;
+  font-size:36px;font-weight:800;letter-spacing:0;color:var(--green);line-height:1;
   background:color-mix(in srgb,var(--green) 10%,var(--panel));
   border:1px solid color-mix(in srgb,var(--green) 30%,var(--line2));
   box-shadow:0 4px 14px color-mix(in srgb,var(--green) 16%,transparent),
