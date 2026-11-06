@@ -288,11 +288,12 @@ def setup(ctx) -> None:
     ctx.register_tool("kb_stats", kb_stats, "知识库规模与索引状态", {})
 
     async def kb_add(text: str = "", title: str = "", url: str = "",
-                     paths: list | None = None, category: str = "chat") -> dict:
+                     paths: list | None = None, category: str = "chat",
+                     browser: bool = False) -> dict:
         """把内容加入知识库（会话里让模型自己整理后入库）。
 
         - `text`：整理好的 Markdown/文本；
-        - `url`：抓网页正文；
+        - `url`：抓网页正文；需要登录/Javascript 渲染的页面可设 `browser=True`；
         - `paths`：工作区/本地文件路径，自动按扩展名提取（docx/pdf/xlsx/pptx/图片OCR）；
         一次可以只给一种，也可以组合（例如 url + paths）。
         """
@@ -313,7 +314,9 @@ def setup(ctx) -> None:
                 errors.append({"ok": False, "kind": "text", "error": str(exc)[:200]})
         if str(url or "").strip():
             try:
-                res = kb_ingest.ingest_url(kb.dir, str(url))
+                res = await kb_ingest.ingest_url_async(
+                    kb.dir, str(url),
+                    use_browser=bool(browser), browser_fallback=not bool(browser))
                 done.append({"ok": True, "kind": "url", **res})
             except Exception as exc:             # noqa: BLE001
                 errors.append({"ok": False, "kind": "url", "error": str(exc)[:200]})
@@ -337,10 +340,10 @@ def setup(ctx) -> None:
 
     ctx.register_tool(
         "kb_add", kb_add,
-        "把内容加入本地知识库：整理好的 text / 网页 url / 文件 paths（自动提取 docx/pdf/xlsx/pptx/图片）",
+        "把内容加入本地知识库：整理好的 text / 网页 url / 文件 paths（自动提取 docx/pdf/xlsx/pptx/图片）；登录页用 browser=true",
         {"text": "整理后的正文（Markdown 更好）", "title": "标题（用于文件名与出处）",
          "url": "网页地址", "paths": "本地或工作区文件路径数组",
-         "category": "分类，默认 chat"})
+         "category": "分类，默认 chat", "browser": "是否用自动化浏览器抓取（适合登录页/JS 渲染）"})
 
     # ── HTTP 接口（面板/排障用）──
     async def _api_search(request):
@@ -423,7 +426,10 @@ def setup(ctx) -> None:
         kb = _kb(ctx)
         try:
             if body.get("url"):
-                res = kb_ingest.ingest_url(kb.dir, str(body["url"]))
+                res = await kb_ingest.ingest_url_async(
+                    kb.dir, str(body["url"]),
+                    use_browser=bool(body.get("browser")),
+                    browser_fallback=not bool(body.get("browser")))
             elif body.get("text"):
                 title = str(body.get("title") or "").strip() or "粘贴的文本"
                 text = str(body["text"])

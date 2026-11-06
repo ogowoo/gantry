@@ -25,14 +25,17 @@ URL 用 urllib 抓取（带 UA、超时），再用 BeautifulSoup 取正文；�
 """
 from __future__ import annotations
 
+import asyncio
 import datetime as _dt
 import re
+import urllib.error
 import urllib.request
 from pathlib import Path
 from typing import Any
 
 MAX_TEXT_CHARS = 2_000_000          # 单文档上限（约 200 万字符，足够放一本手册）
 URL_TIMEOUT = 30.0
+BROWSER_FETCH_TIMEOUT = 60_000      # ms，Playwright goto 超时
 UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
       "(KHTML, like Gecko) Chrome/124.0 Safari/537.36")
 
@@ -220,6 +223,11 @@ def fetch_url(url: str) -> tuple[str, str]:
         with urllib.request.urlopen(req, timeout=URL_TIMEOUT) as resp:
             raw = resp.read(8 * 1024 * 1024)
             ctype = str(resp.headers.get("content-type") or "")
+    except urllib.error.HTTPError as exc:
+        code = exc.code
+        if code in (401, 403, 407):
+            raise IngestError(f"HTTP {code}: 需要登录或无权访问 ({u})") from exc
+        raise IngestError(f"HTTP {code}: {exc.reason}") from exc
     except Exception as exc:                     # noqa: BLE001
         raise IngestError(f"抓取失败：{str(exc)[:200]}") from exc
     if "pdf" in ctype.lower():
@@ -229,6 +237,83 @@ def fetch_url(url: str) -> tuple[str, str]:
     if not text.strip():
         raise IngestError("网页没有提取到正文（可能需要登录或者是纯 JS 渲染页面）")
     return title or Path(u).stem, text[:MAX_TEXT_CHARS]
+
+
+def _should_browser_fallback(exc: BaseException) -> bool:
+    """普通抓取失败后，判断是否值得用浏览器再试一次。"""
+    msg = str(exc).lower()
+    return any(k in msg for k in (
+        "需要登录", "无权访问", "401", "403", "407",
+        "没有提取到正文", "js 渲染", "javascript", "sign in", "log in", "login",
+    ))
+
+
+async def fetch_url_async(url: str, *, use_browser: bool = False,
+                          browser_fallback: bool = True) -> tuple[str, str]:
+    """异步抓网页，支持用自动化浏览器抓取（处理登录态 / JS 渲染）。
+
+    - `use_browser=True`：直接走浏览器；
+    - `browser_fallback=True`：普通抓取因登录/401/403/正文为空失败时，自动换浏览器。
+    """
+    u = str(url or "").strip()
+    if not re.match(r"^https?://", u, re.I):
+        raise IngestError("URL 必须以 http:// 或 https:// 开头")
+
+    last_err: BaseException | None = None
+    if not use_browser:
+        try:
+            return fetch_url(u)
+        except Exception as exc:                 # noqa: BLE001
+            if not browser_fallback or not _should_browser_fallback(exc):
+                raise
+            last_err = exc
+
+    try:
+        from gantry import bridge as b            # noqa: PLC0415
+        from gantry.api import ensure_browser_raw  # noqa: PLC0415
+
+        await ensure_browser_raw(wait_seconds=90)
+        ctx = b.ctx
+        if ctx is None:
+            raise IngestError("浏览器上下文未就绪")
+        page = await ctx.new_page()
+        try:
+            await page.goto(u, wait_until="networkidle",
+                            timeout=BROWSER_FETCH_TIMEOUT)
+            # 等 ServiceNow 这类 SPA 把正文刷出来
+            await asyncio.sleep(1.5)
+            html = await page.content()
+            page_title = (await page.title()).strip()
+        finally:
+            try:
+                await page.close()
+            except Exception:                    # noqa: BLE001
+                pass
+        if not html.strip():
+            raise IngestError("浏览器抓取后页面为空")
+        title, text = _html_to_text(html)
+        title = (page_title or title or Path(u).stem).strip()
+        if not text.strip():
+            raise IngestError("浏览器抓取后没有提取到正文")
+        return title, text[:MAX_TEXT_CHARS]
+    except IngestError:
+        raise
+    except Exception as exc:                     # noqa: BLE001
+        if last_err is not None:
+            raise IngestError(
+                f"普通抓取失败：{last_err}；浏览器抓取也失败：{exc}") from exc
+        raise IngestError(f"浏览器抓取失败：{exc}") from exc
+
+
+async def ingest_url_async(kb_dir: Path, url: str, *, use_browser: bool = False,
+                           browser_fallback: bool = True) -> dict[str, Any]:
+    """异步版 ingest_url，支持浏览器抓取。"""
+    title, text = await fetch_url_async(
+        url, use_browser=use_browser, browser_fallback=browser_fallback)
+    path = save_document(kb_dir, url, text, title=title,
+                         source=url, category="web")
+    return {"path": str(path), "name": title, "title": title,
+            "chars": len(text), "source": url}
 
 
 # ── 落盘 ───────────────────────────────────────────────────────────────────
