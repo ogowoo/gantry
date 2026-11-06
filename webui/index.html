@@ -398,9 +398,9 @@
 
       <div id="kbDrop" class="kbdrop" style="border:1px dashed var(--line);border-radius:10px;padding:14px;text-align:center;margin-bottom:10px">
         <div style="margin-bottom:6px" data-i18n="把文件拖到这里，或">把文件拖到这里，或</div>
-        <input type="file" id="kbFile" multiple accept=".md,.txt,.csv,.html,.htm,.docx,.xlsx,.xlsm,.pptx,.pdf" style="display:none">
+        <input type="file" id="kbFile" multiple accept=".md,.txt,.csv,.html,.htm,.mht,.mhtml,.docx,.xlsx,.xlsm,.pptx,.pdf" style="display:none">
         <button type="button" class="btn accent" data-act="kbPick">选择文件</button>
-        <span class="hint" style="margin-left:8px">docx / pdf / xlsx / pptx / md / txt / html</span>
+        <span class="hint" style="margin-left:8px">docx / pdf / xlsx / pptx / md / txt / html / mht</span>
       </div>
 
       <div class="kbrow" style="display:flex;gap:6px;margin-bottom:8px">
@@ -416,6 +416,29 @@
           <button type="button" class="btn" data-act="kbText">导入这段文本</button>
         </div>
         <textarea id="kbTextBody" rows="4" placeholder="把 FAQ / 公告 / 会议纪要粘进来" style="width:100%;margin-top:6px"></textarea>
+      </details>
+
+      <details style="margin-bottom:10px">
+        <summary class="hint" style="cursor:pointer" data-i18n="模型与索引设置">模型与索引设置</summary>
+        <div style="display:flex;gap:6px;margin-top:6px;align-items:center;flex-wrap:wrap">
+          <label class="hint">Embedding</label>
+          <select id="kbEmbBackend" class="kbinput" style="width:120px">
+            <option value="fastembed">fastembed</option>
+            <option value="local">local</option>
+            <option value="http">http</option>
+            <option value="hash">hash</option>
+            <option value="off">off</option>
+          </select>
+          <input id="kbEmbModel" class="kbinput" placeholder="模型名 / GGUF 路径 / model id" style="flex:1;min-width:180px">
+          <label class="hint">OCR</label>
+          <select id="kbOcrEngine" class="kbinput" style="width:110px">
+            <option value="auto">auto</option>
+            <option value="rapidocr">rapidocr</option>
+            <option value="xiaomi">xiaomi</option>
+          </select>
+          <button type="button" class="btn" id="kbSettingsSave">保存</button>
+        </div>
+        <div id="kbSettingsHint" class="meta" style="margin-top:4px">加载中…</div>
       </details>
 
       <div style="display:flex;gap:6px;align-items:center;margin-bottom:6px">

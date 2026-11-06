@@ -228,6 +228,62 @@ function wireOnce() {
     q.dataset.kbWired = '1';
     q.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); kbSearch(); } });
   }
+  const saveBtn = $id('#kbSettingsSave');
+  if (saveBtn && !saveBtn.dataset.kbWired) {
+    saveBtn.dataset.kbWired = '1';
+    saveBtn.addEventListener('click', kbSaveSettings);
+  }
+}
+
+async function kbLoadSettings() {
+  const backend = $id('#kbEmbBackend');
+  const model = $id('#kbEmbModel');
+  const ocr = $id('#kbOcrEngine');
+  const hint = $id('#kbSettingsHint');
+  try {
+    const d = await api('/v1/config');
+    const vals = (d && d.values) || {};
+    if (backend) backend.value = String(vals['kb.embedding.backend'] || 'fastembed');
+    if (model) model.value = String(vals['kb.embedding.model'] || '');
+    if (ocr) ocr.value = String(vals['kb.ocr.engine'] || 'auto');
+    if (hint) {
+      const eff = await api('/v1/plugins/kb/api/ocr');
+      hint.textContent = (tr('Embedding') + ': ' + (vals['kb.embedding.backend'] || 'fastembed')
+        + (vals['kb.embedding.model'] ? ' / ' + vals['kb.embedding.model'] : '')
+        + ' · OCR: ' + ((eff && eff.effective) || vals['kb.ocr.engine'] || 'auto')
+        + ' · ' + tr('保存后 Embedding 改动需重建索引/重启生效'));
+    }
+  } catch (e) {
+    if (hint) hint.textContent = tr('读取设置失败: ') + (e.text || e.message || e);
+  }
+}
+
+async function kbSaveSettings() {
+  const backend = $id('#kbEmbBackend');
+  const model = $id('#kbEmbModel');
+  const ocr = $id('#kbOcrEngine');
+  const hint = $id('#kbSettingsHint');
+  const payload = {
+    values: {
+      'kb.embedding.backend': (backend && backend.value) || 'fastembed',
+      'kb.embedding.model': (model && model.value) || '',
+      'kb.ocr.engine': (ocr && ocr.value) || 'auto',
+    },
+    persist: true,
+  };
+  try {
+    await api('/v1/config', { method: 'POST', body: JSON.stringify(payload) });
+    // OCR 切换立即生效
+    await api('/v1/plugins/kb/api/ocr', {
+      method: 'POST',
+      body: JSON.stringify({ engine: payload.values['kb.ocr.engine'] }),
+    });
+    toast(tr('知识库设置已保存'), 'ok');
+    await kbLoadSettings();
+  } catch (e) {
+    toast(tr('保存失败: ') + (e.text || e.message || e), 'err', 8000);
+    if (hint) hint.textContent = tr('保存失败: ') + (e.text || e.message || e);
+  }
 }
 
 export async function openKb() {
@@ -236,6 +292,7 @@ export async function openKb() {
   mask.classList.add('open');
   wireOnce();
   await kbRefresh();
+  await kbLoadSettings();
 }
 
 export function closeKb() {

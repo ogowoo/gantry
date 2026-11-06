@@ -140,6 +140,16 @@ CONFIG_SCHEMA: dict[str, dict] = {
     "agent.allow_self_upgrade": {"kind": "bool", "default": False,
                            "label": "允许 Agent 修改服务自身代码（自升级）",
                            "group": "danger"},
+
+    # ── 知识库 ──────────────────────────────────────────────────────────
+    "kb.embedding.backend": {"kind": "enum",
+                             "values": ["local", "fastembed", "http", "hash", "off"],
+                             "group": "kb", "label": "Embedding 后端"},
+    "kb.embedding.model": {"kind": "str", "group": "kb",
+                           "label": "Embedding 模型（模型名 / GGUF 路径 / HTTP model id）"},
+    "kb.ocr.engine": {"kind": "enum",
+                      "values": ["auto", "rapidocr", "xiaomi"],
+                      "group": "kb", "label": "OCR 引擎"},
 }
 
 
