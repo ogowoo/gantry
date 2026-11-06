@@ -365,7 +365,7 @@ async function kbLoadSettings() {
   }
 }
 
-async function kbSaveSettings() {
+async function kbSaveSettings(silent = false) {
   const backend = $id('#kbEmbBackend');
   const ocr = $id('#kbOcrEngine');
   const hint = $id('#kbSettingsHint');
@@ -378,10 +378,15 @@ async function kbSaveSettings() {
     persist: true,
   };
   try {
-    await api('/v1/config', { method: 'POST', body: JSON.stringify(payload) });
-    toast(tr('知识库设置已保存'), 'ok');
+    await api('/v1/config', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    if (!silent) toast(tr('知识库设置已保存'), 'ok');
   } catch (e) {
     const msg = fmtErr(e);
+    if (silent) throw e;
     toast(tr('保存失败: ') + msg, 'err', 8000);
     if (hint) hint.textContent = tr('保存失败: ') + msg;
     return;
@@ -390,10 +395,11 @@ async function kbSaveSettings() {
   try {
     await api('/v1/plugins/kb/api/ocr', {
       method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ engine: payload.values['kb.ocr.engine'] }),
     });
   } catch (e) {
-    toast(tr('OCR 切换失败: ') + fmtErr(e), 'warn', 6000);
+    if (!silent) toast(tr('OCR 切换失败: ') + fmtErr(e), 'warn', 6000);
   }
   await kbLoadSettings();
 }
@@ -412,4 +418,4 @@ export function closeKb() {
   if (mask) mask.classList.remove('open');
 }
 
-export { fmtErr, wireOnce as wireKbSettings, kbLoadSettings };
+export { fmtErr, wireOnce as wireKbSettings, kbLoadSettings, kbSaveSettings };
