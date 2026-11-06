@@ -395,11 +395,11 @@
     <div class="dhead"><span>🧠 <span data-i18n="本地模型">本地模型</span></span><span class="hint">Esc 关闭</span></div>
     <div class="dbody" style="max-height:62vh;overflow:auto">
       <div id="modelsBody" style="margin-bottom:10px">—</div>
-      <details style="margin-top:10px;border-top:1px solid var(--line);padding-top:10px">
-        <summary class="hint" style="cursor:pointer" data-i18n="下载新模型">下载新模型</summary>
-        <div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap;align-items:flex-start">
-          <input id="modelDownloadUrl" class="kbinput" placeholder="https://hf-mirror.com/.../xxx.gguf" style="flex:1;min-width:220px">
-          <input id="modelDownloadName" class="kbinput" placeholder="保存文件名（可选）" style="width:180px">
+      <details style="margin-top:22px;border-top:1px solid var(--line);padding-top:16px">
+        <summary class="hint" style="cursor:pointer;margin-bottom:10px" data-i18n="下载新模型">下载新模型</summary>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+          <input id="modelDownloadUrl" class="kbinput" placeholder="https://hf-mirror.com/.../xxx.gguf" style="flex:2 1 320px;min-width:200px">
+          <input id="modelDownloadName" class="kbinput" placeholder="保存文件名（可选）" style="flex:1 1 160px;min-width:120px;max-width:220px">
           <button type="button" class="btn accent" id="modelDownloadBtn" data-act="modelDownload">下载</button>
         </div>
         <div id="modelDownloadHint" class="meta" style="margin-top:6px"></div>
