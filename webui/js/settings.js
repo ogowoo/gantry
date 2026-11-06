@@ -104,6 +104,74 @@ function _cfgInput(key,spec,val){
    <input type="${t}" id="${id}" data-cfg="${esc(key)}" value="${esc(val??'')}" ${ph}
      ${spec.min!==undefined?`min="${spec.min}"`:''} ${spec.max!==undefined?`max="${spec.max}"`:''}></label>`;
 }
+
+/* ── 原始 config.json 图形树编辑器 ───────────────────────── */
+function _cfgLeafHtml(val, path) {
+ const key = path[path.length - 1] || '';
+ const fullPath = path.join('.');
+ const pad = Math.max(0, path.length - 1) * 12;
+ if (typeof val === 'boolean') {
+  return `<label class="setrow" style="padding-left:${pad}px"><span>${esc(key)}</span>
+   <input type="checkbox" data-cfg-path="${esc(fullPath)}" ${val ? 'checked' : ''}></label>`;
+ }
+ const t = typeof val === 'number' ? 'number' : 'text';
+ return `<label class="setrow" style="padding-left:${pad}px"><span>${esc(key)}</span>
+  <input type="${t}" data-cfg-path="${esc(fullPath)}" value="${esc(val === null ? '' : val)}" style="flex:1"></label>`;
+}
+
+function _cfgTreeHtml(obj, path = []) {
+ if (obj === null || typeof obj !== 'object') {
+  return _cfgLeafHtml(obj, path);
+ }
+ if (Array.isArray(obj)) {
+  const key = path[path.length - 1] || '';
+  const fullPath = path.join('.');
+  const pad = Math.max(0, path.length - 1) * 12;
+  return `<label class="setrow" style="padding-left:${pad}px"><span>${esc(key)}</span>
+   <textarea data-cfg-path="${esc(fullPath)}" class="code" spellcheck="false" style="flex:1;min-height:60px;font-size:12px">${esc(JSON.stringify(obj, null, 2))}</textarea></label>`;
+ }
+ return Object.entries(obj).map(([k, v]) => {
+  const childPath = [...path, k];
+  const isLeaf = v === null || typeof v !== 'object';
+  if (isLeaf) return _cfgLeafHtml(v, childPath);
+  const pad = Math.max(0, path.length) * 12;
+  return `<details style="margin:2px 0;padding-left:${pad}px" open>
+    <summary style="cursor:pointer;font-weight:600;color:var(--accent)">${esc(k)}</summary>
+    <div style="margin-left:8px;border-left:2px solid var(--line);padding-left:6px">${_cfgTreeHtml(v, childPath)}</div>
+  </details>`;
+ }).join('');
+}
+
+function collectConfigTree() {
+ const out = {};
+ const box = document.getElementById('settingsBody');
+ if (!box) return out;
+ box.querySelectorAll('[data-cfg-path]').forEach(el => {
+  const path = el.dataset.cfgPath.split('.');
+  const isTextarea = el.tagName === 'TEXTAREA';
+  const isCheck = el.type === 'checkbox';
+  let val;
+  if (isTextarea) {
+   try { val = JSON.parse(el.value); } catch (_) { val = el.value; }
+  } else if (isCheck) {
+   val = el.checked;
+  } else if (el.type === 'number') {
+   const n = Number(el.value);
+   val = Number.isNaN(n) ? el.value : n;
+  } else {
+   val = el.value;
+  }
+  let cur = out;
+  for (let i = 0; i < path.length - 1; i++) {
+   const k = path[i];
+   if (!(k in cur) || typeof cur[k] !== 'object' || cur[k] === null) cur[k] = {};
+   cur = cur[k];
+  }
+  cur[path[path.length - 1]] = val;
+ });
+ return out;
+}
+
 async function renderSettings(){
  const box=document.getElementById('settingsBody');
  const nav=document.getElementById('settingsNav');
@@ -179,10 +247,9 @@ async function renderSettings(){
  try{
   const raw=await api('/v1/config/raw');
   window.settingsRaw=raw.config||{};
-  const text=JSON.stringify(window.settingsRaw,null,2);
   rawHtml=`<h4>${esc(tr('原始配置'))}</h4>
-   <p class="sethint">${esc(tr('可直接编辑 config.json 全部内容。格式错误会导致保存失败；写入错误配置可能导致服务无法启动。'))}</p>
-   <textarea id="settingsRawConfig" class="code" data-raw="1" spellcheck="false" style="width:100%;min-height:320px;resize:vertical;font-family:var(--mono);font-size:13px">${esc(text)}</textarea>`;
+   <p class="sethint">${esc(tr('可直接用图形界面编辑 config.json 全部项；复杂数组仍可在 JSON 文本区改。'))}</p>
+   <div id="settingsRawTree">${_cfgTreeHtml(window.settingsRaw)}</div>`;
  }catch(e){
   rawHtml=`<h4>${esc(tr('原始配置'))}</h4><p class="sethint">${esc(tr('读取失败: ')+fmtErr(e))}</p>`;
  }
@@ -274,11 +341,9 @@ async function saveSettings(){
  applyAnimPrefs();
  // 原始 config.json 编辑（如果存在且内容有变化）
  let rawSaved=0;
- const rawTa=document.getElementById('settingsRawConfig');
- if(rawTa){
-  let rawCfg;
-  try{ rawCfg=JSON.parse(rawTa.value); }
-  catch(e){ toast(tr('config.json 格式错误: ')+e.message,'err'); return; }
+ const rawPane=document.querySelector('[data-pane="raw"]');
+ if(rawPane){
+  const rawCfg=collectConfigTree();
   if(JSON.stringify(rawCfg)!==JSON.stringify(window.settingsRaw||{})){
    try{
     await api('/v1/config/raw',{method:'POST',

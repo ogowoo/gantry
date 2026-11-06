@@ -672,7 +672,7 @@ Object.assign(I18N_EN, {
  "自定义": "Custom",
  "自定义…": "Custom…",
  "原始配置": "Raw Config",
- "可直接编辑 config.json 全部内容。格式错误会导致保存失败；写入错误配置可能导致服务无法启动。": "Edit the full config.json directly. Invalid JSON will fail to save; wrong config may prevent the service from starting.",
+ "可直接用图形界面编辑 config.json 全部项；复杂数组仍可在 JSON 文本区改。": "Edit all config.json items via the GUI; complex arrays can still be edited as JSON text.",
  "config.json 格式错误: ": "config.json format error: ",
  "原始配置保存失败: ": "Raw config save failed: ",
  "原始配置已保存": "Raw config saved",
