@@ -39,7 +39,12 @@ export async function renderModels() {
     }
     body.innerHTML = list.map((m) => {
       const path = esc(m.path || m.name);
+      const isEmbed = /embed/i.test(m.name);
+      const icon = isEmbed
+        ? '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="5" cy="12" r="2"/><circle cx="19" cy="6" r="2"/><circle cx="19" cy="18" r="2"/><path d="M7 11.2 17 6.8M7 12.8l10 4.4"/></svg>'
+        : '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 5.5A1.5 1.5 0 0 1 5.5 4h13A1.5 1.5 0 0 1 20 5.5v9a1.5 1.5 0 0 1-1.5 1.5H9l-5 4z"/><path d="M8 8h8M8 11h5"/></svg>';
       return `<div class="model-card">
+        <span class="model-icon${isEmbed ? ' embed' : ''}" title="${isEmbed ? 'Embedding' : 'LLM'}">${icon}</span>
         <div class="model-card-main">
           <div class="model-name" title="${esc(m.name)}">${esc(m.name)}</div>
           <div class="model-meta">${fmtSize(m.size)} · ${fmtTime(m.mtime)}</div>

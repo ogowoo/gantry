@@ -357,8 +357,7 @@ async function kbLoadSettings() {
       const eff = await api('/v1/plugins/kb/api/ocr');
       hint.textContent = (tr('Embedding') + ': ' + (vals['kb.embedding.backend'] || 'fastembed')
         + (vals['kb.embedding.model'] ? ' / ' + vals['kb.embedding.model'] : '')
-        + ' · OCR: ' + ((eff && eff.effective) || vals['kb.ocr.engine'] || 'auto')
-        + ' · ' + tr('保存后 Embedding 改动需重建索引/重启生效'));
+        + ' · OCR: ' + ((eff && eff.effective) || vals['kb.ocr.engine'] || 'auto'));
     }
   } catch (e) {
     if (hint) hint.textContent = tr('读取设置失败: ') + fmtErr(e);

@@ -888,6 +888,7 @@ Object.assign(I18N_EN, {
  "终止服务 / 退出": "Stop service / quit",
  "重启/终止都会中断正在跑的任务；状态已落库，重启后可恢复。": "Restarting or stopping interrupts running tasks; state is persisted and can be resumed.",
  "改完点保存；外观类即时生效": "Click Save when done; appearance applies immediately",
+ "💡 提示：外观修改即时生效；Embedding/OCR 修改需重建索引或重启后生效": "Hint: appearance changes apply immediately; Embedding/OCR changes need a rebuild or restart",
  "设置已保存（{n} 项）": "Settings saved ({n})",
  "本地设置已保存（{n} 项）": "Local settings saved ({n})",
  "设置已保存（服务端 {n} 项 · 本地 {m} 项）": "Saved ({n} server · {m} local)",
