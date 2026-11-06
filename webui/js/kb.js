@@ -217,7 +217,7 @@ export function kbClear() {
   if (box) box.innerHTML = '';
 }
 
-function wireOnce() {
+function wireKbSettings() {
   const input = $id('#kbFile');
   if (input && !input.dataset.kbWired) {
     input.dataset.kbWired = '1';
@@ -415,7 +415,7 @@ export async function openKb() {
   const mask = $id('#kbMask');
   if (!mask) return;
   mask.classList.add('open');
-  wireOnce();
+  wireKbSettings();
   await kbRefresh();
   await kbLoadSettings();
 }
@@ -425,4 +425,4 @@ export function closeKb() {
   if (mask) mask.classList.remove('open');
 }
 
-export { fmtErr, wireOnce as wireKbSettings, kbLoadSettings, kbSaveSettings };
+export { fmtErr, wireKbSettings, kbLoadSettings, kbSaveSettings };

@@ -14,6 +14,35 @@
 ### Fixed
 - 
 
+## [11.0.0-preview.74] - 2026-11-06
+
+### Changed
+
+- 同步上游 `7b37865..3f33545` 共 **40 个提交**：主要是前端重构（chat 下拉菜单、
+  timeline 虚拟窗口、home 品牌块、settings UI 拆分、models.js 新增、
+  docs/gantry-mindmap.md/svg 等）。
+
+### Fixed
+
+- 同步后 `tests/test_rename.py` 两个回归：
+  - `test_empty_state_monogram`：上游首页空态徽标结构从 `nc-head/big` 改成
+    `gantry-brand/gantry-logo`，测试正则同步为匹配 `[<span>G</span>]` 结构。
+  - `test_every_cjk_tr_key_has_english`：上游新增 `webui/js/kb.js` 和
+    `webui/js/models.js` 调用 `tr('OCR 切换失败: ') / tr('下载失败: ')`，但
+    `i18n.js` 英文表漏译；已补英文。
+- 同步后 `tests/test_esm_migration.py` 两个回归：
+  - `test_index_loads_globals_before_i18n_and_module`：`index.html` 里 `i18n.js`
+    被加了 `?v=20261106`，测试硬编码匹配失败；去掉 query string（cache bust
+    应走文件名 hash，不应破坏结构断言）。
+  - `test_main_binds_every_exported_function`：上游新增 `models.js` 6 个导出
+    未在 `main.js` 绑 window；`kb.js` 的 `wireOnce as wireKbSettings` 让
+    ESM 扫描器无法识别；已把 `wireOnce` 改名为 `wireKbSettings`，并在
+    `main.js` 补全 models 与 `wireKbSettings` 的 window 绑定。
+
+### 实测
+
+- 全套 **1587**（skipped=1）OK；不变量 25 条全绿。
+
 ## [11.0.0-preview.73] - 2026-11-05
 
 ### Fixed
