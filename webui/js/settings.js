@@ -122,7 +122,7 @@ document.addEventListener('change',ev=>{if(ev.target&&ev.target.dataset&&ev.targ
 function _cfgInput(key,spec,val){
  const id='set_'+key.replace(/\./g,'_');
  if(spec.kind==='bool'){
-  return `<label class="setrow" for="${id}"><input type="checkbox" id="${id}" data-cfg="${esc(key)}" ${val?'checked':''}>
+  return `<label class="setrow cfgrow" for="${id}"><input type="checkbox" id="${id}" data-cfg="${esc(key)}" ${val?'checked':''}>
     <span>${esc(tr(spec.label))}</span></label>`;
  }
  if(spec.kind==='enum'){
@@ -130,13 +130,13 @@ function _cfgInput(key,spec,val){
    const label=ENUM_LABEL[v]||v;
    return `<option value="${esc(v)}" ${String(val)===v?'selected':''}>${esc(tr(label))}</option>`;
   }).join('');
-  return `<label class="setrow" for="${id}"><span>${esc(tr(spec.label))}</span>
+  return `<label class="setrow cfgrow" for="${id}"><span>${esc(tr(spec.label))}</span>
     <select id="${id}" data-cfg="${esc(key)}">${opts}</select></label>`;
  }
  const t=spec.kind==='int'?'number':'text';
  // 没配过的键显示"默认"占位：空输入框会让人以为坏了/以为必须填
  const ph=(val===undefined||val===null||val==='')?`placeholder="${esc(tr('默认'))}"`:'';
- return `<label class="setrow" for="${id}"><span>${esc(tr(spec.label))}</span>
+ return `<label class="setrow cfgrow" for="${id}"><span>${esc(tr(spec.label))}</span>
    <input type="${t}" id="${id}" data-cfg="${esc(key)}" value="${esc(val??'')}" ${ph}
      ${spec.min!==undefined?`min="${spec.min}"`:''} ${spec.max!==undefined?`max="${spec.max}"`:''}></label>`;
 }
@@ -258,9 +258,12 @@ async function renderSettings(){
     style="${gid===window.settingsTab?'':'display:none'}">${html}</section>`;
 
  const uiHtml=`<h4>${esc(tr('外观'))}</h4>
-   <label class="setrow"><span>${esc(tr('主题'))}</span>
-     <select id="setTheme" data-ui="theme">${[['auto','跟随系统'],['light','浅色'],['dark','深色'],['solarized','护眼'],['mint','薄荷'],['amber','琥珀']]
-       .map(([v,t])=>`<option value="${v}" ${_settingsTheme()===v?'selected':''}>${esc(tr(t))}</option>`).join('')}</select></label>
+   <div class="theme-grid" id="themeGrid">${[['auto','跟随系统'],['light','浅色'],['dark','深色'],['solarized','护眼'],['mint','薄荷'],['amber','琥珀']]
+     .map(([v,t])=>`<button type="button" class="theme-card${_settingsTheme()===v?' on':''}" data-theme-choice="${v}">
+       <span class="theme-swatch theme-swatch-${v}"></span>
+       <span class="theme-name">${esc(tr(t))}</span>
+     </button>`).join('')}</div>
+   <input type="hidden" id="setTheme" data-ui="theme" value="${_settingsTheme()}">
    <label class="setrow"><span>${esc(tr('语言'))}</span>
      <select id="setLang" data-ui="lang">${[['zh','中文'],['en','English'],['tw','繁體中文']]
        .map(([v,t])=>`<option value="${v}" data-i18n-skip="1" ${currentLang()===v?'selected':''}>${esc(t)}</option>`).join('')}</select></label>
@@ -286,8 +289,43 @@ async function renderSettings(){
    </div>
    <p class="sethint">${esc(tr('重启/终止都会中断正在跑的任务；状态已落库，重启后可恢复。'))}</p>`;
 
+ function _cfgSection(gid,path){
+  if(gid==='exec'){
+   const leaf=path.split('.').pop();
+   if(/^allow_/.test(leaf)||path.includes('tools_extra'))return '工具权限';
+   if(path.includes('approval'))return '审批';
+   if(path.includes('memory')||path.includes('agent_md'))return '记忆与提示词';
+   if(path.includes('session')||path.includes('compact')||path.includes('rollover')||
+      path.includes('context')||path.includes('keep_recent'))return '上下文与会话';
+   if(path.includes('subagent'))return '子代理';
+   if(path.includes('run_code')||path.includes('python'))return '代码执行';
+   if(path.includes('outlook'))return 'Outlook';
+   if(path.includes('service_')||path.includes('copilot'))return 'Copilot 服务';
+   return '';
+  }
+  if(gid==='browser'){
+   if(path.includes('timeout')||path.includes('stable')||path.includes('poll'))return '超时与轮询';
+   if(path.includes('startup')||path.includes('headless'))return '启动方式';
+   if(path.includes('csrf'))return '安全';
+   return '';
+  }
+  if(gid==='data')return '';
+  return '';
+ }
  const cfgPane=(gid,label)=>{
-  const rows=(groups[gid]||[]).map(([k,spec])=>_cfgInput(k,spec,window.settingsValues[k])).join('');
+  const order=gid==='exec'
+   ? ['','工具权限','审批','记忆与提示词','上下文与会话','子代理','代码执行','Outlook','Copilot 服务']
+   : gid==='browser' ? ['','启动方式','超时与轮询','安全'] : [''];
+  const bucket=new Map(order.map(s=>[s,[]]));
+  (groups[gid]||[]).forEach(([k,spec])=>{
+   const sec=_cfgSection(gid,k)||'';
+   if(!bucket.has(sec))bucket.set(sec,[]);
+   bucket.get(sec).push([k,spec]);
+  });
+  const rows=order.filter(s=>bucket.get(s)&&bucket.get(s).length).map(sec=>{
+   const body=bucket.get(sec).map(([k,spec])=>_cfgInput(k,spec,window.settingsValues[k])).join('');
+   return (sec?`<h5 class="setsection">${esc(tr(sec))}</h5>`:'')+body;
+  }).join('');
   return rows?`<h4>${esc(tr(label))}</h4>${rows}`:'';
  };
 
@@ -321,6 +359,19 @@ async function renderSettings(){
     style="${id===window.settingsTab?'':'display:none'}">${inner}</section>`;
  }).join('');
  try{translateAttrs(box);translateAttrs(nav)}catch(e){}
+ const themeGrid=document.getElementById('themeGrid');
+ if(themeGrid){
+  themeGrid.querySelectorAll('[data-theme-choice]').forEach(btn=>{
+   btn.onclick=()=>{
+    const v=btn.dataset.themeChoice;
+    const hidden=document.getElementById('setTheme');
+    if(hidden)hidden.value=v;
+    try{localStorage.setItem('gantry-theme',v)}catch(e){}
+    try{applyTheme(v,false)}catch(e){}
+    themeGrid.querySelectorAll('[data-theme-choice]').forEach(x=>x.classList.toggle('on',x===btn));
+   };
+  });
+ }
  if(String(window.settingsTab||'').startsWith('tool-')) mountTool(window.settingsTab);
 }
 function _settingsTheme(){
