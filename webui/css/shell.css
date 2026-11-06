@@ -12,6 +12,10 @@
 .iconbtn{width:26px;height:26px;border-radius:7px;border:1px solid transparent;background:transparent;color:var(--muted);font-size:13px;cursor:pointer;display:grid;place-items:center;flex:none}
 .iconbtn:hover{background:var(--panel2);color:var(--text);border-color:var(--line2)}
 .railtop{padding:12px 12px 4px;flex:none}
+.railtop .btn.accent{background:transparent;border-color:var(--accent);
+  color:var(--accent2);box-shadow:none}
+.railtop .btn.accent:hover{background:var(--accent);border-color:var(--accent);
+  color:var(--accent-fg,#fff)}
 /* 会话栏两行布局：实测一行放不下——标签 60 + 筛选框 + **7 个图标按钮** 共需 342px，
    而侧栏可用宽 317px → 溢出 25px 被 .rail{overflow:hidden} 裁掉（截图里筛选框被压成 20px 空椭圆）。
    现在第 1 行 = 标签 + 筛选框，第 2 行 = 图标右对齐。 */
@@ -23,9 +27,11 @@
 .listacts{flex:1 1 100%;display:flex;justify-content:flex-start;align-items:center;
   gap:5px;row-gap:6px;flex-wrap:wrap;min-width:0}
 .sesslist{flex:1;overflow:auto;padding:0 8px 12px}
-.sess{display:flex;align-items:center;gap:9px;padding:9px 10px;border-radius:9px;cursor:pointer;border:1px solid transparent}
+.sess{display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:10px;
+  cursor:pointer;border:1px solid transparent}
 .sess:hover{background:var(--sess-hover)}
-.sess.sel{background:var(--sess-sel);border-color:var(--line2)}
+.sess.sel{background:color-mix(in srgb,var(--accent) 10%,var(--panel));
+  border-color:color-mix(in srgb,var(--accent) 35%,var(--line2))}
 .sess .dot{flex:none;width:8px;height:8px;border-radius:50%;background:#5c6a7a}
 .dot.run{background:var(--green);box-shadow:0 0 0 3px #3fb95022;animation:pulse 1.4s infinite}
 .dot.warn{background:var(--amber);box-shadow:0 0 0 3px #d2992222}
@@ -33,8 +39,10 @@
 .dot.done{background:var(--blue)}
 @keyframes pulse{50%{opacity:.35}}
 .smeta{flex:1;min-width:0}
-.smeta b{display:block;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.smeta small{display:block;color:var(--muted);font-size:11.5px;margin-top:2px;font-variant-numeric:tabular-nums}
+.smeta b{display:block;font-size:13.5px;font-weight:600;white-space:nowrap;
+  overflow:hidden;text-overflow:ellipsis}
+.smeta small{display:block;color:var(--faint);font-size:11px;margin-top:3px;
+  font-variant-numeric:tabular-nums}
 /* 会话标识：标题可能相似或被 Copilot 改名，删除前要能对上号 */
 .sid{font-family:"Cascadia Mono","JetBrains Mono",Consolas,"Courier New","Microsoft YaHei Mono","Sarasa Mono SC",monospace;font-size:11px;color:var(--sid-fg,var(--faint));cursor:copy;border-bottom:1px dotted var(--line2)}
 .sid:hover{color:var(--accent2)}
