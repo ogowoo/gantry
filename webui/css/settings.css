@@ -11,6 +11,29 @@
 .setnavact{color:var(--muted)}
 .setnavact:hover{color:var(--text)}
 .settings-toolpane{padding:0;border:0;background:transparent}
+.subtabs{display:flex;gap:6px;margin:0 0 12px}
+.subpane{min-width:0}
+.tool-grid{display:grid;grid-template-columns:minmax(0,1.15fr) minmax(260px,.85fr);
+  gap:16px;align-items:start}
+.tool-side{min-width:0;border-left:1px solid var(--line);padding-left:14px}
+.settings-tool-extra{min-width:0;border-left:1px solid var(--line);padding-left:14px}
+#modelsEmbedOcr{border-left:0;padding-left:0;margin-top:14px;border-top:1px solid var(--line);padding-top:14px}
+@media (max-width:920px){.tool-grid{grid-template-columns:1fr}.tool-side,.settings-tool-extra{border-left:0;padding-left:0}}
+/* 知识库：导入、文档、检索按区块拉开 */
+.embed-kbMask .dbody{display:flex;flex-direction:column;gap:12px}
+.embed-kbMask #kbDrop{padding:18px}
+.embed-kbMask #kbDocs{max-height:30vh!important;border:1px solid var(--line);
+  border-radius:10px;padding:4px 6px;background:var(--panel)}
+.embed-kbMask #kbHits{margin-top:2px}
+/* 记忆：设置页已经有标题，不再显示弹窗头 */
+.embed-memMask .chead{display:none!important}
+.embed-memMask .mem-row{padding:10px 2px}
+/* 插件面板：改成上方标签 + 下方内容，避免左右分栏 */
+.embed-panelMask .panelwrap{display:flex;flex-direction:column;min-height:0}
+.embed-panelMask .panellist{flex:none;display:flex;flex-direction:row;flex-wrap:wrap;
+  gap:6px;border-right:0;border-bottom:1px solid var(--line);padding:0 0 8px}
+.embed-panelMask .panelrow{white-space:nowrap}
+.embed-panelMask .panelbody{max-height:none;overflow:visible;padding-top:10px}
 .settings-embed .dlg{position:static!important;display:block!important;width:100%!important;
   max-width:none!important;max-height:none!important;margin:0!important;padding:0!important;
   border:0!important;border-radius:0!important;box-shadow:none!important;background:transparent!important}

@@ -4,20 +4,44 @@ import { SETTINGS_GROUPS, SANDBOX_UI, ENUM_LABEL, openMemory } from './themeboot
 import { CODE_EXT } from './codeux.js';
 import { stepFilterInput } from './steps.js';
 import { readAnimPrefs, applyAnimPrefs, setAnimPref, animPrefLabel, ANIM_RANGES } from './animprefs.js';
-import { openKb, closeKb, kbPick, kbRefresh, kbReindex, kbImportUrl, kbImportText, kbInbox, kbSearch, kbDelete, fmtErr } from './kb.js';
+import { openKb, closeKb, kbPick, kbRefresh, kbReindex, kbImportUrl, kbImportText, kbInbox, kbSearch, kbDelete, fmtErr, wireKbSettings, kbLoadSettings } from './kb.js';
 import { openModels, closeModels, renderModels, modelDelete, modelCopyPath, modelDownload } from './models.js';
 import { kbSaveMsg as kbSaveMsgImpl } from './composer.js';
 
 /* 设置左侧的“工具页”：不弹窗，直接把对应面板的 .dlg 移进设置右侧渲染。 */
 const TOOL_TABS = [
- {id:'manual', label:'使用手册', mask:'manualMask', run:()=>window.openManual()},
  {id:'models', label:'本地模型', mask:'modelsMask', run:()=>openModels()},
- {id:'plugins', label:'插件管理', mask:'pluginsMask', run:()=>window.openPlugins()},
+ {id:'plugins', label:'插件管理', mask:'pluginsMask', run:()=>window.openPlugins(),
+  extra:[{mask:'panelMask', run:()=>window.openPanels(), title:'插件面板'}]},
  {id:'kb', label:'知识库', mask:'kbMask', run:()=>openKb()},
- {id:'panels', label:'插件面板', mask:'panelMask', run:()=>window.openPanels()},
- {id:'workspace', label:'工作区浏览', mask:'wsMask', run:()=>window.openWsBrowser('')},
  {id:'memory', label:'记忆面板', mask:'memMask', run:()=>window.openMemory()},
 ];
+
+function _modelsExtraHtml(){
+ return `<h5 class="setsection">${esc(tr('Embedding / OCR'))}</h5>
+  <label class="setrow"><span>${esc(tr('Embedding 后端'))}</span>
+   <select id="kbEmbBackend" class="kbinput">
+    <option value="fastembed">fastembed</option>
+    <option value="local">local</option>
+    <option value="http">http</option>
+    <option value="hash">hash</option>
+    <option value="off">off</option>
+   </select></label>
+  <div class="setrow"><span>${esc(tr('Embedding 模型'))}</span>
+   <div style="display:flex;gap:6px;flex:1;min-width:0">
+    <select id="kbEmbModel" class="kbinput" style="width:220px;max-width:none;order:2"></select>
+    <input id="kbEmbModelCustom" class="kbinput" placeholder="${esc(tr('模型名 / GGUF 路径 / model id'))}" style="width:220px;max-width:none;order:2;display:none">
+    <button type="button" class="btn ghost" id="kbEmbModelToggle" style="order:3">${esc(tr('自定义'))}</button>
+   </div></div>
+  <label class="setrow"><span>${esc(tr('OCR 引擎'))}</span>
+   <select id="kbOcrEngine" class="kbinput">
+    <option value="auto">auto</option>
+    <option value="rapidocr">rapidocr</option>
+    <option value="xiaomi">xiaomi</option>
+   </select></label>
+  <div class="setrow"><span></span><button type="button" class="btn" id="kbSettingsSave">${esc(tr('保存'))}</button></div>
+  <div id="kbSettingsHint" class="meta" style="margin-top:4px">${esc(tr('加载中…'))}</div>`;
+}
 function renderSandbox(){
  const mode=SANDBOX_UI[sandboxMode]?sandboxMode:'workspace-write';
  const meta=SANDBOX_UI[mode];
@@ -271,8 +295,24 @@ async function renderSettings(){
   return pane(gid,cfgPane(gid,label));
  }).join('')+TOOL_TABS.map((t)=>{
   const id='tool-'+t.id;
+  const extras=(t.extra||[]).map((x,i)=>
+   `<h5 class="setsection">${esc(tr(x.title||''))}</h5><div class="settings-embed" id="embed-${id}-extra-${i}"></div>`
+  ).join('');
+  let inner=`<div class="settings-embed" id="embed-${id}"></div>`;
+  if(t.id==='models'){
+   inner=`<div class="settings-embed" id="embed-${id}"></div><div class="settings-tool-extra" id="modelsEmbedOcr"></div>`;
+  }else if(t.id==='plugins'){
+   inner=`<div class="subtabs" id="pluginsSubtabs">
+    <button type="button" class="btn seg on" data-sub="plugins">${esc(tr('插件'))}</button>
+    <button type="button" class="btn seg" data-sub="panels">${esc(tr('插件面板'))}</button>
+   </div>
+   <div class="subpane" data-subpane="plugins"><div class="settings-embed" id="embed-${id}"></div></div>
+   <div class="subpane" data-subpane="panels" style="display:none"><div class="settings-embed" id="embed-${id}-extra-0"></div></div>`;
+  }else if(t.extra){
+   inner=`<div class="settings-embed" id="embed-${id}"></div>${extras}`;
+  }
   return `<section class="setgroup settings-toolpane" data-pane="${id}"
-    style="${id===window.settingsTab?'':'display:none'}"><div class="settings-embed" id="embed-${id}"></div></section>`;
+    style="${id===window.settingsTab?'':'display:none'}">${inner}</section>`;
  }).join('');
  try{translateAttrs(box);translateAttrs(nav)}catch(e){}
  if(String(window.settingsTab||'').startsWith('tool-')) mountTool(window.settingsTab);
@@ -282,13 +322,30 @@ function _settingsTheme(){
 }
 function _toolById(id){return TOOL_TABS.find(t=>'tool-'+t.id===id)||null}
 
+function _mountMask(maskId,hostId,run){
+ let mask=document.getElementById(maskId);
+ if(!mask){try{run()}catch(e){}}
+ mask=document.getElementById(maskId);
+ const dlg=mask&&mask.querySelector('.dlg');
+ const host=document.getElementById(hostId);
+ if(dlg&&host)host.appendChild(dlg);
+ if(dlg){dlg.classList.add('settings-embed-dlg');dlg.classList.add('embed-'+maskId)}
+ try{run()}catch(e){}
+ if(mask){mask.classList.remove('open');mask.style.display='none'}
+}
+
+function _unmountMask(maskId,hostId){
+ const host=document.getElementById(hostId);
+ const dlg=host&&host.querySelector('.dlg');
+ const mask=document.getElementById(maskId);
+ if(dlg&&mask)mask.appendChild(dlg);
+ if(mask){mask.classList.remove('open');mask.style.display='none'}
+}
+
 function unmountTool(id){
  const t=_toolById(id);if(!t)return;
- const host=document.getElementById('embed-'+id);
- const dlg=host&&host.querySelector('.dlg');
- const mask=document.getElementById(t.mask);
- if(dlg&&mask)mask.appendChild(dlg);
- if(mask)mask.classList.remove('open');
+ _unmountMask(t.mask,'embed-'+id);
+ (t.extra||[]).forEach((x,i)=>_unmountMask(x.mask,'embed-'+id+'-extra-'+i));
 }
 
 function unmountAllTools(){
@@ -298,15 +355,22 @@ function unmountAllTools(){
 function mountTool(id){
  const t=_toolById(id);if(!t)return;
  unmountAllTools();
- let mask=document.getElementById(t.mask);
- if(!mask){try{t.run()}catch(e){}}
- mask=document.getElementById(t.mask);
- const dlg=mask&&mask.querySelector('.dlg');
- const host=document.getElementById('embed-'+id);
- if(dlg&&host)host.appendChild(dlg);
- if(dlg)dlg.classList.add('settings-embed-dlg');
- try{t.run()}catch(e){}
- if(mask)mask.classList.remove('open');
+ _mountMask(t.mask,'embed-'+id,t.run);
+ (t.extra||[]).forEach((x,i)=>_mountMask(x.mask,'embed-'+id+'-extra-'+i,x.run));
+ if(t.id==='models'){
+  const host=document.getElementById('modelsEmbedOcr');
+  if(host&&!host.dataset.ready){host.innerHTML=_modelsExtraHtml();host.dataset.ready='1'}
+  try{wireKbSettings();kbLoadSettings()}catch(e){}
+ }
+ if(t.id==='plugins'){
+  const pane=document.querySelector('[data-pane="tool-plugins"]');
+  const tabs=[...(pane?pane.querySelectorAll('#pluginsSubtabs [data-sub]'):[])];
+  const subpanes=[...(pane?pane.querySelectorAll('.subpane'):[])];
+  tabs.forEach(b=>{b.onclick=()=>{
+   tabs.forEach(x=>x.classList.toggle('on',x===b));
+   subpanes.forEach(p=>{p.style.display=(p.dataset.subpane===b.dataset.sub)?'':'none'});
+  }});
+ }
 }
 
 function setSettingsTab(id){
