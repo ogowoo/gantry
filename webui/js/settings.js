@@ -7,6 +7,17 @@ import { readAnimPrefs, applyAnimPrefs, setAnimPref, animPrefLabel, ANIM_RANGES 
 import { openKb, closeKb, kbPick, kbRefresh, kbReindex, kbImportUrl, kbImportText, kbInbox, kbSearch, kbDelete, fmtErr } from './kb.js';
 import { openModels, closeModels, renderModels, modelDelete, modelCopyPath, modelDownload } from './models.js';
 import { kbSaveMsg as kbSaveMsgImpl } from './composer.js';
+
+/* 设置左侧的“工具页”：不弹窗，直接把对应面板的 .dlg 移进设置右侧渲染。 */
+const TOOL_TABS = [
+ {id:'manual', label:'使用手册', mask:'manualMask', run:()=>window.openManual()},
+ {id:'models', label:'本地模型', mask:'modelsMask', run:()=>openModels()},
+ {id:'plugins', label:'插件管理', mask:'pluginsMask', run:()=>window.openPlugins()},
+ {id:'kb', label:'知识库', mask:'kbMask', run:()=>openKb()},
+ {id:'panels', label:'插件面板', mask:'panelMask', run:()=>window.openPanels()},
+ {id:'workspace', label:'工作区浏览', mask:'wsMask', run:()=>window.openWsBrowser('')},
+ {id:'memory', label:'记忆面板', mask:'memMask', run:()=>window.openMemory()},
+];
 function renderSandbox(){
  const mode=SANDBOX_UI[sandboxMode]?sandboxMode:'workspace-write';
  const meta=SANDBOX_UI[mode];
@@ -57,6 +68,7 @@ async function openSettings(){
  await renderSettings();
 }
 function closeSettings(){
+ unmountAllTools();
  const mask=document.getElementById('settingsMask');
  if(mask)mask.classList.remove('open');
 }
@@ -177,6 +189,7 @@ async function renderSettings(){
  const box=document.getElementById('settingsBody');
  const nav=document.getElementById('settingsNav');
  if(!box||!nav)return;
+ unmountAllTools();
  if(!window.settingsValues){
   try{
    const r=await api('/v1/config');
@@ -188,10 +201,11 @@ async function renderSettings(){
   const g=spec.group||'exec';
   (groups[g]=groups[g]||[]).push([k,spec]);
  });
- const has=(gid)=>gid==='ui'||gid==='danger'||(groups[gid]||[]).length;
+ const has=(gid)=>gid==='ui'||gid==='danger'||gid==='raw'||(groups[gid]||[]).length;
  const _AP=readAnimPrefs();                  // 动画参数（模板里铺滑杆的当前值）
  const visible=SETTINGS_GROUPS.filter(([gid])=>has(gid));
- if(!visible.some(([gid])=>gid===window.settingsTab))window.settingsTab=visible[0][0];
+ const allTabs=visible.map(([gid])=>gid).concat(TOOL_TABS.map(t=>'tool-'+t.id));
+ if(!allTabs.includes(window.settingsTab))window.settingsTab=visible[0][0];
 
  // 左导航：配置页签 + 工具动作（全部纯文字，无图标）
  const tabsHtml=visible.map(([gid,label])=>{
@@ -200,15 +214,13 @@ async function renderSettings(){
      role="tab" aria-selected="${on?'true':'false'}" data-act="settingsTab" data-arg="${gid}">
      ${esc(tr(label))}</button>`;
  }).join('');
- const toolsHtml=[
-  `<button type="button" class="setnavbtn setnavact" data-act="openManual">${esc(tr('使用手册'))}</button>`,
-  `<button type="button" class="setnavbtn setnavact" data-act="openModels">${esc(tr('本地模型'))}</button>`,
-  `<button type="button" class="setnavbtn setnavact" data-act="openPlugins">${esc(tr('插件管理'))}</button>`,
-  `<button type="button" class="setnavbtn setnavact" data-act="openKb">${esc(tr('知识库'))}</button>`,
-  `<button type="button" class="setnavbtn setnavact" data-act="openPanels">${esc(tr('插件面板'))}</button>`,
-  `<button type="button" class="setnavbtn setnavact" data-act="openWsBrowser">${esc(tr('工作区浏览'))}</button>`,
-  `<button type="button" class="setnavbtn setnavact" data-act="openMemory">${esc(tr('记忆面板'))}</button>`,
- ].join('');
+ const toolsHtml=TOOL_TABS.map((t)=>{
+  const id='tool-'+t.id;
+  const on=id===window.settingsTab;
+  return `<button type="button" class="setnavbtn setnavact${on?' on':''}"
+     role="tab" aria-selected="${on?'true':'false'}" data-act="settingsTab" data-arg="${id}">
+     ${esc(tr(t.label))}</button>`;
+ }).join('');
  nav.innerHTML=tabsHtml+`<div class="setnavsep"></div>`+toolsHtml;
 
  // 右内容：所有分组都渲染，非当前的隐藏（值仍留在 DOM，保存不会丢）
@@ -269,15 +281,50 @@ async function renderSettings(){
    return pane('danger',(rows?`<h4>${esc(tr('高风险设置'))}</h4>${rows}`:'')+dangerHtml);
   }
   return pane(gid,cfgPane(gid,label));
+ }).join('')+TOOL_TABS.map((t)=>{
+  const id='tool-'+t.id;
+  return `<section class="setgroup settings-toolpane" data-pane="${id}"
+    style="${id===window.settingsTab?'':'display:none'}"><div class="settings-embed" id="embed-${id}"></div></section>`;
  }).join('');
  try{translateAttrs(box);translateAttrs(nav)}catch(e){}
+ if(String(window.settingsTab||'').startsWith('tool-')) mountTool(window.settingsTab);
 }
 function _settingsTheme(){
  try{const t=localStorage.getItem('gantry-theme');return (!t||t==='auto')?'auto':t}catch(e){return 'auto'}
 }
+function _toolById(id){return TOOL_TABS.find(t=>'tool-'+t.id===id)||null}
+
+function unmountTool(id){
+ const t=_toolById(id);if(!t)return;
+ const host=document.getElementById('embed-'+id);
+ const dlg=host&&host.querySelector('.dlg');
+ const mask=document.getElementById(t.mask);
+ if(dlg&&mask)mask.appendChild(dlg);
+ if(mask)mask.classList.remove('open');
+}
+
+function unmountAllTools(){
+ TOOL_TABS.forEach(t=>unmountTool('tool-'+t.id));
+}
+
+function mountTool(id){
+ const t=_toolById(id);if(!t)return;
+ unmountAllTools();
+ let mask=document.getElementById(t.mask);
+ if(!mask){try{t.run()}catch(e){}}
+ mask=document.getElementById(t.mask);
+ const dlg=mask&&mask.querySelector('.dlg');
+ const host=document.getElementById('embed-'+id);
+ if(dlg&&host)host.appendChild(dlg);
+ if(dlg)dlg.classList.add('settings-embed-dlg');
+ try{t.run()}catch(e){}
+ if(mask)mask.classList.remove('open');
+}
+
 function setSettingsTab(id){
  const known=SETTINGS_GROUPS.map(g=>g[0]);
- if(!known.includes(id))return;
+ const isTool=String(id).startsWith('tool-');
+ if(!known.includes(id)&&!isTool)return;
  window.settingsTab=id;
  document.querySelectorAll('#settingsNav .setnavbtn').forEach(b=>{
   const on=b.dataset.arg===id;
@@ -286,6 +333,7 @@ function setSettingsTab(id){
  document.querySelectorAll('#settingsBody .setgroup[data-pane]').forEach(p=>{
   p.style.display=(p.dataset.pane===id)?'':'none';
  });
+ if(isTool)mountTool(id);else unmountAllTools();
 }
 
 function collectSettings(){
@@ -434,7 +482,6 @@ const ACTIONS={
  reopenRetry:()=>{retryDismissedAt=null;updateRetryCountdown(lastRuntime)},
  pickSandbox:(el)=>pickSandbox(el&&el.dataset?el.dataset.arg:''),
  settingsTab:(el)=>{setSettingsTab(el&&el.dataset?el.dataset.arg:'');},
- openWsBrowser:()=>openWsBrowser(''),
  closeSettings:(el)=>{closeSettings();if(el&&el.dataset&&el.dataset.arg==='memory'){try{openMemory()}catch(e){}}},
  saveSettings:()=>saveSettings(),
  rollbackSession:()=>rollbackSession(),
@@ -447,7 +494,6 @@ const ACTIONS={
  showLastPrompt:()=>showLastPrompt(),
  openSubagent:(el)=>load(el.dataset.arg),
  openPlugins:()=>openPlugins(),
- openKb:()=>openKb(),
  closeKb:()=>closeKb(),
  kbPick:()=>kbPick(),
  kbRefresh:()=>kbRefresh(),
@@ -549,7 +595,6 @@ const ACTIONS={
  modelDelete:(el)=>modelDelete(el),
  modelCopyPath:(el)=>modelCopyPath(el),
  modelDownload:()=>modelDownload(),
- openMemory:()=>openMemory(),
 };
 document.addEventListener('click',e=>{
  const el=e.target.closest?e.target.closest('[data-act]'):null;
