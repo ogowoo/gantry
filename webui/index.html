@@ -389,6 +389,28 @@
     </div>
   </div>
 </div>
+<!-- 本地模型管理：查看 / 删除 / 下载 GGUF -->
+<div class="mask" role="dialog" aria-modal="true" aria-label="本地模型" id="modelsMask" data-act="mask" data-arg="models">
+  <div class="dlg" style="width:min(720px,94vw)">
+    <div class="dhead"><span>🧠 <span data-i18n="本地模型">本地模型</span></span><span class="hint">Esc 关闭</span></div>
+    <div class="dbody" style="max-height:62vh;overflow:auto">
+      <div id="modelsBody" style="margin-bottom:10px">—</div>
+      <details style="margin-top:10px;border-top:1px solid var(--line);padding-top:10px">
+        <summary class="hint" style="cursor:pointer" data-i18n="下载新模型">下载新模型</summary>
+        <div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap;align-items:flex-start">
+          <input id="modelDownloadUrl" class="kbinput" placeholder="https://hf-mirror.com/.../xxx.gguf" style="flex:1;min-width:220px">
+          <input id="modelDownloadName" class="kbinput" placeholder="保存文件名（可选）" style="width:180px">
+          <button type="button" class="btn accent" id="modelDownloadBtn" data-act="modelDownload">下载</button>
+        </div>
+        <div id="modelDownloadHint" class="meta" style="margin-top:6px"></div>
+      </details>
+    </div>
+    <div class="dfoot">
+      <button type="button" class="btn ghost" data-act="openModels">刷新</button>
+      <button type="button" class="btn accent" data-act="closeModels">关闭</button>
+    </div>
+  </div>
+</div>
 <!-- 知识库管理：导入 Word/PDF/Excel/PPT/HTML/文本/URL，管理已收录文档 -->
 <div class="mask" role="dialog" aria-modal="true" aria-label="知识库" id="kbMask" data-act="mask" data-arg="kb">
   <div class="dlg" style="width:min(860px,96vw)">

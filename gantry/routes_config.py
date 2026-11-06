@@ -7,6 +7,8 @@ api.py，这里经 ``a.xxx`` 访问（保持测试对 api 模块的打桩语义�
 from __future__ import annotations
 
 import asyncio, hmac, json, logging, re, threading, time, uuid
+import urllib.parse
+import urllib.request
 from pathlib import Path
 from typing import Any
 
@@ -508,3 +510,79 @@ async def browser_retry():
     task = asyncio.create_task(a.boot_browser())
     a.BOOT["task"] = task
     return {"started": True, "state": a.BOOT["browser_state"], "focused": focused}
+
+
+@router.get("/v1/models/local")
+async def list_local_models():
+    """列出 data/models/ 里的本地 GGUF 文件（大小、修改时间）。"""
+    models_dir = b.BASE / "data" / "models"
+    if not models_dir.exists():
+        return {"models": []}
+    files = sorted(
+        p for p in models_dir.rglob("*.gguf")
+        if p.is_file() and not any(part.startswith(".") for part in p.relative_to(models_dir).parts)
+    )
+    return {
+        "models": [
+            {
+                "name": f.name,
+                "path": str(f.relative_to(models_dir)).replace("\\", "/"),
+                "full": str(f),
+                "size": f.stat().st_size,
+                "mtime": f.stat().st_mtime,
+            }
+            for f in files
+        ]
+    }
+
+
+@router.post("/v1/models/local/download")
+async def download_local_model(payload: dict):
+    """从 URL 下载模型到 data/models/。返回时文件已落盘。"""
+    url = str(payload.get("url") or "")
+    if not url:
+        raise HTTPException(400, "缺少 url")
+    filename = str(payload.get("filename") or "").strip()
+    if not filename:
+        # 从 URL 路径取文件名，并确保 .gguf 后缀
+        filename = Path(urllib.parse.urlparse(url).path).name or "model.gguf"
+    if not filename.lower().endswith(".gguf"):
+        filename += ".gguf"
+    # 防止目录遍历：只取 basename
+    filename = Path(filename).name
+    dest = b.BASE / "data" / "models" / filename
+    if dest.exists():
+        raise HTTPException(409, f"文件已存在: {filename}")
+    try:
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        req = urllib.request.Request(url, headers={"User-Agent": "gantry-local-model/1.0"})
+        with urllib.request.urlopen(req, timeout=3600) as resp, open(dest, "wb") as out:
+            while True:
+                chunk = resp.read(256 * 1024)
+                if not chunk:
+                    break
+                out.write(chunk)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        # 失败时清理半成品
+        try:
+            dest.unlink(missing_ok=True)
+        except Exception:                # noqa: BLE001
+            pass
+        raise HTTPException(500, f"下载失败: {exc}") from exc
+    return {"ok": True, "name": filename, "path": str(dest.relative_to(b.BASE)).replace("\\", "/"), "size": dest.stat().st_size}
+
+
+@router.delete("/v1/models/local/{filename}")
+async def delete_local_model(filename: str):
+    """删除本地模型文件。filename 只取 basename，防止目录遍历。"""
+    safe = Path(filename).name
+    dest = b.BASE / "data" / "models" / safe
+    if not dest.exists() or not dest.is_file():
+        raise HTTPException(404, f"文件不存在: {safe}")
+    try:
+        dest.unlink()
+        return {"ok": True, "deleted": safe}
+    except Exception as exc:
+        raise HTTPException(500, f"删除失败: {exc}") from exc

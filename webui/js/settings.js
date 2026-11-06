@@ -5,6 +5,7 @@ import { CODE_EXT } from './codeux.js';
 import { stepFilterInput } from './steps.js';
 import { readAnimPrefs, applyAnimPrefs, setAnimPref, animPrefLabel, ANIM_RANGES } from './animprefs.js';
 import { openKb, closeKb, kbPick, kbRefresh, kbReindex, kbImportUrl, kbImportText, kbInbox, kbSearch, kbDelete, fmtErr } from './kb.js';
+import { openModels, closeModels, renderModels, modelDelete, modelCopyPath, modelDownload } from './models.js';
 import { kbSaveMsg as kbSaveMsgImpl } from './composer.js';
 function renderSandbox(){
  const mode=SANDBOX_UI[sandboxMode]?sandboxMode:'workspace-write';
@@ -229,6 +230,7 @@ async function renderSettings(){
  const entriesHtml=`<h4>${esc(tr('入口'))}</h4>
    <div class="setbtns">
     <button type="button" class="btn ghost" data-act="openManual">📖 ${esc(tr('使用手册'))}</button>
+    <button type="button" class="btn ghost" data-act="openModels">🧠 ${esc(tr('本地模型'))}</button>
     <button type="button" class="btn ghost" data-act="openPlugins">🧩 ${esc(tr('插件管理'))}</button>
     <button type="button" class="btn ghost" data-act="openKb">📚 ${esc(tr('知识库'))}</button>
     <button type="button" class="btn ghost" data-act="openPanels">🗂 ${esc(tr('插件面板'))}</button>
@@ -544,6 +546,11 @@ const ACTIONS={
   if(b)b.textContent=tr(folded?'展开':'收起')},
  toggleCodeFold:(el)=>toggleCodeFold(el),
  removeAttachment:(el)=>removeAttachment(el.dataset.store,Number(el.dataset.arg)),
+ openModels:()=>openModels(),
+ closeModels:()=>closeModels(),
+ modelDelete:(el)=>modelDelete(el),
+ modelCopyPath:(el)=>modelCopyPath(el),
+ modelDownload:()=>modelDownload(),
 };
 document.addEventListener('click',e=>{
  const el=e.target.closest?e.target.closest('[data-act]'):null;
