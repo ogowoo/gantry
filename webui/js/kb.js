@@ -266,6 +266,21 @@ async function kbLoadSettings() {
     if (backend) backend.value = String(vals['kb.embedding.backend'] || 'fastembed');
     if (model) model.value = String(vals['kb.embedding.model'] || '');
     if (ocr) ocr.value = String(vals['kb.ocr.engine'] || 'auto');
+    // 给 local 后端自动补全 data/models/*.gguf
+    try {
+      const lm = await api('/v1/plugins/kb/api/local-models');
+      const list = (lm && lm.models) || [];
+      let dl = $id('#kbEmbModelList');
+      if (!dl) {
+        dl = document.createElement('datalist');
+        dl.id = 'kbEmbModelList';
+        document.body.appendChild(dl);
+      }
+      dl.innerHTML = list.map((m) => `<option value="${esc(m.path)}">${esc(m.name)}</option>`).join('');
+      if (model) model.setAttribute('list', 'kbEmbModelList');
+    } catch (_) {
+      // 忽略本地模型列表失败
+    }
     if (hint) {
       const eff = await api('/v1/plugins/kb/api/ocr');
       hint.textContent = (tr('Embedding') + ': ' + (vals['kb.embedding.backend'] || 'fastembed')

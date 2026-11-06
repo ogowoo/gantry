@@ -532,6 +532,26 @@ def setup(ctx) -> None:
     ctx.register_api("POST", "api/embed", _api_embed)
     ctx.register_api("GET", "api/vector-stats", _api_vector_stats)
 
+    async def _api_local_models(request=None):
+        """列出 data/models/ 里的本地 GGUF（给 Embedding local 后端选模型用）。"""
+        from gantry.bridge import BASE as _BASE
+
+        models_dir = Path(_BASE) / "data" / "models"
+        if not models_dir.exists():
+            return {"models": []}
+        files = sorted(
+            p for p in models_dir.rglob("*.gguf")
+            if p.is_file() and not any(part.startswith(".") for part in p.relative_to(models_dir).parts)
+        )
+        return {"models": [
+            {"name": f.name,
+             "path": str(f.relative_to(models_dir)),
+             "full": str(f)}
+            for f in files
+        ]}
+
+    ctx.register_api("GET", "api/local-models", _api_local_models)
+
     ctx.register_panel({"id": "kb-status", "title": "本地知识库", "view": "table",
                         "api": {"method": "GET", "path": "api/stats"},
                         "hint": "data/kb/*.md → FTS5 索引；放文档后 kb_reindex"})
