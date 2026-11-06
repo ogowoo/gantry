@@ -25,6 +25,7 @@
         "GET api/semantic",
         "POST api/embed",
         "GET api/vector-stats",
+        "GET api/local-models",
         "POST api/import",
         "POST api/delete",
         "GET api/inbox",
