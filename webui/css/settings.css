@@ -20,13 +20,28 @@
 #modelsEmbedOcr{border-left:0;padding-left:0;margin-top:14px;border-top:1px solid var(--line);padding-top:14px}
 .model-card{display:flex;align-items:center;gap:14px;padding:12px 14px;margin:0 0 10px;
   border:1px solid var(--line);border-radius:12px;background:var(--panel)}
+.model-icon{flex:none;width:36px;height:36px;border-radius:10px;display:inline-flex;
+  align-items:center;justify-content:center;background:color-mix(in srgb,var(--accent) 10%,var(--panel));
+  color:var(--accent)}
+.model-icon.embed{background:color-mix(in srgb,var(--purple,var(--accent)) 12%,var(--panel));
+  color:var(--purple,var(--accent))}
 .model-card-main{flex:1 1 auto;min-width:0}
+.model-card-actions .btn.danger{background:color-mix(in srgb,var(--red) 8%,transparent);
+  border-color:color-mix(in srgb,var(--red) 45%,var(--line));color:var(--red)}
 .model-name{font-weight:600;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .model-meta{font-size:12px;color:var(--muted);margin-top:2px}
 .model-path{font-family:var(--mono);font-size:11px;color:var(--faint);white-space:nowrap;
   overflow:hidden;text-overflow:ellipsis;margin-top:2px}
 .model-card-actions{display:flex;flex-direction:column;gap:6px;flex:none}
 #modelsBody .model-card:last-child{margin-bottom:0}
+.model-download-summary{display:flex;align-items:center;gap:8px;padding:9px 12px;
+  border-radius:8px;background:var(--menu-hover);cursor:pointer;list-style:none;
+  margin-bottom:10px;color:var(--muted)}
+.model-download-summary::-webkit-details-marker{display:none}
+.model-download-summary::before{content:"▶";font-size:9px;color:var(--accent);
+  transition:transform .15s ease}
+details[open] > .model-download-summary::before{transform:rotate(90deg)}
+.model-download-summary:hover{background:color-mix(in srgb,var(--menu-hover) 70%,var(--line));color:var(--text)}
 #modelsEmbedOcr .setrow{display:grid;grid-template-columns:160px minmax(0,1fr);gap:12px;
   align-items:center;flex-wrap:nowrap}
 #modelsEmbedOcr .setrow > span:first-child{flex:none;width:auto}
@@ -161,13 +176,17 @@
 .setnav{flex:0 0 148px;display:flex;flex-direction:column;gap:2px;padding:12px 8px;
   border-right:1px solid var(--line);background:var(--panel2);overflow:auto}
 .setnavbtn{display:block;width:100%;text-align:left;padding:8px 10px;border:0;border-radius:8px;
-  background:transparent;color:var(--muted);font-size:13px;cursor:pointer;font-family:inherit}
+  background:transparent;color:var(--muted);font-size:13px;cursor:pointer;font-family:inherit;
+  position:relative}
 .setnavbtn:hover{background:var(--menu-hover);color:var(--text)}
 .setnavbtn.on{background:color-mix(in srgb, var(--accent) 12%, var(--panel));color:var(--text);
-  font-weight:600;box-shadow:inset 2px 0 0 var(--accent)}
+  font-weight:600;box-shadow:inset 3px 0 0 var(--accent)}
 .setnavbtn.danger{color:var(--red)}
 .setnavbtn.danger.on{background:color-mix(in srgb, var(--red) 12%, var(--panel));
-  box-shadow:inset 2px 0 0 var(--red)}
+  box-shadow:inset 3px 0 0 var(--red)}
+.setnavdanger-sep{margin-top:auto;border-top:1px dashed color-mix(in srgb,var(--red) 35%,var(--line));
+  padding-top:8px}
+.setnavdanger{color:var(--red)}
 .setpane{flex:1 1 auto;min-width:0;overflow-x:hidden;overflow-y:auto;padding:14px 16px 6px}
 .setgroup{background:transparent;border:0;border-radius:0;padding:0;margin:0;
   box-shadow:none}

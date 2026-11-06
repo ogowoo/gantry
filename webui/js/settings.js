@@ -230,10 +230,12 @@ async function renderSettings(){
  const allTabs=visible.map(([gid])=>gid).concat(TOOL_TABS.map(t=>'tool-'+t.id));
  if(!allTabs.includes(window.settingsTab))window.settingsTab=visible[0][0];
 
- // 左导航：配置页签 + 工具动作（全部纯文字，无图标）
- const tabsHtml=visible.map(([gid,label])=>{
+ // 左导航：常规配置 + 工具页；危险区固定放最后
+ const normal=visible.filter(([gid])=>gid!=='danger');
+ const danger=visible.find(([gid])=>gid==='danger');
+ const tabsHtml=normal.map(([gid,label])=>{
   const on=gid===window.settingsTab;
-  return `<button type="button" class="setnavbtn${on?' on':''}${gid==='danger'?' danger':''}"
+  return `<button type="button" class="setnavbtn${on?' on':''}"
      role="tab" aria-selected="${on?'true':'false'}" data-act="settingsTab" data-arg="${gid}">
      ${esc(tr(label))}</button>`;
  }).join('');
@@ -244,7 +246,12 @@ async function renderSettings(){
      role="tab" aria-selected="${on?'true':'false'}" data-act="settingsTab" data-arg="${id}">
      ${esc(tr(t.label))}</button>`;
  }).join('');
- nav.innerHTML=tabsHtml+`<div class="setnavsep"></div>`+toolsHtml;
+ const dangerOn=danger&&danger[0]===window.settingsTab;
+ const dangerNavHtml=danger?`<div class="setnavdanger-sep"></div><button type="button"
+   class="setnavbtn setnavdanger danger${dangerOn?' on':''}" role="tab"
+   aria-selected="${dangerOn?'true':'false'}" data-act="settingsTab" data-arg="${danger[0]}">
+   ${esc(tr(danger[1]))}</button>`:'';
+ nav.innerHTML=tabsHtml+`<div class="setnavsep"></div>`+toolsHtml+dangerNavHtml;
 
  // 右内容：所有分组都渲染，非当前的隐藏（值仍留在 DOM，保存不会丢）
  const pane=(gid,html)=>`<section class="setgroup${gid==='danger'?' danger':''}" data-pane="${gid}"
