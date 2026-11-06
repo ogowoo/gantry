@@ -840,6 +840,7 @@ Object.assign(I18N_EN, {
   "外观": "Appearance",
  "（旧回合未存档）": "(not archived for older turns)",
  "显示更早的 {n} 个回合": "Show {n} earlier turns",
+ "显示更早的步骤（还有 {n} 条）": "Show earlier steps ({n} more)",
  "子代理状态": "Subagent status",
  "有子代理失败": "A subagent failed",
  "子代理运行中": "Subagent running",

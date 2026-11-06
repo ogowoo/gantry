@@ -2,6 +2,8 @@
 // 从原 webui/app.js 拆出的 ES 模块（该单体已退役，见 docs/ESM-MIGRATION.md）。
 let stepFilterKey='';
 let stepsPending=false, lastStepsRaw=[];   // 时间线在后台页签时先不建 DOM（长会话省 ~0.9s）
+/* 虚拟窗口：长会话只先渲染最近 stepWindow 条，更早的按需展开（1500 步时 DOM 从全量降到窗口大小） */
+let stepWindow=150, _stepStartIdx=0;
 const BAD_STATUS=['error','invalid_action','failed','gate_blocked','noop_guard',
                   'send_failed','service_unavailable','denied'];
 function stepMatch(s){
@@ -46,12 +48,14 @@ function renderSteps(steps,force){
  const filtered=!!(stepFilter.tool||stepFilter.status);
  const shown=lastSteps.filter(stepMatch);
  const key=JSON.stringify(stepFilter);
- // 只在"筛选变了 / 被显式要求 / 步骤变少"时整表重建；其余情况继续增量 prepend，
-   // 这样默认视图不会失去展开状态，筛选态也不会每秒重建整棵 DOM。
- const rebuild=force||key!==stepFilterKey||shown.length<renderedSteps;
+ // 虚拟窗口：目标只渲染最近 stepWindow 条；窗口起点变了（新步骤把旧步挤出窗口）就整表重建
+ const total=shown.length;
+ const target=Math.min(total,stepWindow);
+ const startIdx=total-target;
+ const rebuild=force||key!==stepFilterKey||startIdx!==_stepStartIdx||total<renderedSteps;
  stepFilterKey=key;
- if(rebuild){box.innerHTML='';renderedSteps=0}
- else if(!shown.length){box.innerHTML=''}
+ if(rebuild){box.innerHTML='';renderedSteps=0;_stepStartIdx=startIdx}
+ else if(!total){box.innerHTML=''}
  document.getElementById('stepCount').textContent=
   filtered?`${shown.length}/${lastSteps.length}`+tr(' 条（筛选）')
           :(lastSteps.length?lastSteps.length+tr(' 条'):'');
@@ -72,8 +76,8 @@ function renderSteps(steps,force){
     by=by||'granted';
    }}
   if(by)resolvedApprovals.set(i,by)});
- shown.slice(renderedSteps).forEach((s,_k)=>{
-  const idx=renderedSteps+_k;
+ shown.slice(_stepStartIdx+renderedSteps).forEach((s,_k)=>{
+  const idx=_stepStartIdx+renderedSteps+_k;
   const resolvedBy=resolvedApprovals.get(idx);
   const granted=(s.status==='approval_granted')||!!resolvedBy;
   let cls=s.status==='ok'?'ok':(s.status==='error'||s.status==='invalid_action'?'error':'info');
@@ -103,7 +107,14 @@ function renderSteps(steps,force){
   }
   e.innerHTML=`<div class="head"><b>${tr('步骤')} ${esc(s.step??'-')} · <span data-i18n-skip="1" title="${esc(String(s.tool||s.status||'event'))}">${esc(s.tool?toolLabel(s.tool):(s.status||'event'))}</span></b><span class="schip">${esc(chipTxt)}</span>${tm?`<span class="schip" style="border-style:dashed">${tm}</span>`:''}</div><div class="why">${esc(whyTxt)}</div>${detail}`;
   box.prepend(e)});
- renderedSteps=shown.length;
+ renderedSteps=total-_stepStartIdx;
+ // 窗口外还有更早的步骤：底部放一颗「显示更早」按钮，点击把窗口扩大 150 条
+ let more=box.querySelector('.stepmore');
+ if(_stepStartIdx>0){
+  if(!more){more=document.createElement('div');more.className='stepmore';box.appendChild(more)}
+  more.innerHTML='<button type="button" class="btn ghost" data-act="stepsLoadMore">'
+   +esc(tr('显示更早的步骤（还有 {n} 条）',{n:_stepStartIdx}))+'</button>';
+ }else if(more)more.remove();
  if(!shown.length&&!box.innerHTML.trim()){
   // 区分两种情况：真的没有步骤（普通对话），还是有步骤但被筛选掉了
   const hasMsgs=(window.lastMessages||[]).length>0;
@@ -132,6 +143,7 @@ function flushStepsIfPending(){
  stepsPending=false;
  renderSteps(lastStepsRaw);
 }
+window.stepLoadMore=function(){stepWindow+=150;renderSteps(lastStepsRaw,true)};
 /* 工具结果：渲染 / JSON 双视图切换 */
 function stepView(btn){
  const bar=btn.closest('.stepviewbar');if(!bar)return;
