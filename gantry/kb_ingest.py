@@ -41,6 +41,7 @@ UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
 
 TEXT_EXTS = {".md", ".markdown", ".txt", ".csv", ".tsv", ".log", ".json", ".yaml", ".yml"}
 HTML_EXTS = {".html", ".htm", ".xhtml"}
+MHTML_EXTS = {".mht", ".mhtml"}
 IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".bmp", ".webp", ".tif", ".tiff"}
 
 
@@ -173,6 +174,31 @@ def _pdf_text(data: bytes) -> str:
     return "\n\n".join(out)
 
 
+def _mhtml_text(data: bytes) -> str:
+    """从 MHTML / MHT 归档里取出主 HTML 正文，再转 Markdown 文本。"""
+    from email import message_from_bytes
+
+    msg = message_from_bytes(data)
+    html_part = None
+    if msg.is_multipart():
+        for part in msg.walk():
+            ctype = str(part.get_content_type() or "").lower()
+            if ctype == "text/html":
+                html_part = part
+                break
+    else:
+        ctype = str(msg.get_content_type() or "").lower()
+        if ctype == "text/html":
+            html_part = msg
+    if html_part is None:
+        raise IngestError("MHTML 里没有找到 text/html 主文档")
+    payload = html_part.get_payload(decode=True)
+    if payload is None:
+        raise IngestError("MHTML 主文档内容为空")
+    html = _decode(payload)
+    return _html_to_text(html)[1]
+
+
 def extract_text(name: str, data: bytes) -> str:
     """按扩展名提取正文（Markdown 风格）。不支持的格式给出可行动错误。"""
     ext = Path(str(name or "")).suffix.lower()
@@ -185,6 +211,8 @@ def extract_text(name: str, data: bytes) -> str:
             text = _decode(data)
         elif ext in HTML_EXTS:
             text = _html_to_text(_decode(data))[1]
+        elif ext in MHTML_EXTS:
+            text = _mhtml_text(data)
         elif ext == ".docx":
             text = _docx_text(data)
         elif ext in (".xlsx", ".xlsm"):
@@ -200,7 +228,7 @@ def extract_text(name: str, data: bytes) -> str:
         else:
             raise IngestError(
                 f"不支持的格式 {ext or '(无扩展名)'}：支持 "
-                f"{sorted(TEXT_EXTS | HTML_EXTS | IMAGE_EXTS | {'.docx', '.xlsx', '.pptx', '.pdf'})}；"
+                f"{sorted(TEXT_EXTS | HTML_EXTS | MHTML_EXTS | IMAGE_EXTS | {'.docx', '.xlsx', '.pptx', '.pdf'})}；"
                 "老格式 .doc/.xls/.ppt 请先另存为 .docx/.xlsx/.pptx")
     except IngestError:
         raise
