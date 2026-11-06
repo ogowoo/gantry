@@ -429,7 +429,9 @@
             <option value="hash">hash</option>
             <option value="off">off</option>
           </select>
-          <input id="kbEmbModel" class="kbinput" placeholder="模型名 / GGUF 路径 / model id" style="flex:1;min-width:180px">
+          <select id="kbEmbModel" class="kbinput" style="flex:1;min-width:180px"></select>
+          <input id="kbEmbModelCustom" class="kbinput" placeholder="模型名 / GGUF 路径 / model id" style="flex:1;min-width:180px;display:none">
+          <button type="button" class="btn ghost" id="kbEmbModelToggle">自定义</button>
           <label class="hint">OCR</label>
           <select id="kbOcrEngine" class="kbinput" style="width:110px">
             <option value="auto">auto</option>

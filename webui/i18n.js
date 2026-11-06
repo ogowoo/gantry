@@ -669,6 +669,8 @@ Object.assign(I18N_EN, {
  "保存后 Embedding 改动需重建索引/重启生效": "Embedding changes take effect after rebuild/restart",
  "知识库设置已保存": "KB settings saved",
  "清除": "Clear",
+ "自定义": "Custom",
+ "自定义…": "Custom…",
  "Embedding 后端": "Embedding backend",
  "Embedding 模型（模型名 / GGUF 路径 / HTTP model id）": "Embedding model (model name / GGUF path / HTTP model id)",
  "OCR 引擎": "OCR engine",
