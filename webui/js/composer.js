@@ -497,4 +497,20 @@ document.addEventListener('click',e=>{let m=document.getElementById('moreMenu');
 const THEMES=[["auto","跟随系统"],["","深色"],["amber","琥珀"],["jade","墨玉"],["light","浅色"],["solarized","护眼米"],["mint","薄荷"]];
 const THEME_IDS=THEMES.map(x=>x[0]);
 
+/* 首页快捷卡片：点一下把预设任务填进输入框 */
+const QUICK_PROMPTS={
+ bridge:'切换至 Copilot 桥接模式，测试当前连接延迟，并统计 Token 消耗速率。',
+ agent:'加载工作目录中的 agent.py，执行测试用例并输出 Harness 运行轨迹日志。',
+ eval:'对当前知识库启动 10 线程并发检索测试，输出命中率与 Top-K 分数矩阵。',
+};
+document.addEventListener('click',e=>{
+ const card=e.target&&e.target.closest?e.target.closest('[data-quick]'):null;
+ if(!card)return;
+ const ta=document.getElementById('task');
+ if(!ta)return;
+ ta.value=QUICK_PROMPTS[card.dataset.quick]||'';
+ ta.focus();
+ ta.dispatchEvent(new Event('input',{bubbles:true}));
+});
+
 export { mountTimelineIntoTab, syncComposer, liveTab, expandLive, closeLive, showPromptView, continueAgent, autoGrowFollowup, sendFollowup, awaitFollowupReply, updateChannelUI, refreshQueue, editQueueItem, removeQueueItem, thumbsHtml, renderThumbs, removeAttachment, attachPasteHandler, lastSavedAssistant, renderLiveBubble, updateLiveBubble, exportChatMarkdown, editMsg, delMsg, kbSaveMsg, toggleGlobalSearch, gsInput, runGlobalSearch, jumpToMessage, injectMessage, setTaskMode, runTask, waitSessionReady, toggleMore, THEMES, THEME_IDS };

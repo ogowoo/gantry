@@ -33,8 +33,28 @@
       <!-- 窄屏的会话列表开关：内联在内容区左上角（不再用浮在左侧中部的把手，那个会压住消息区） -->
       <button type="button" id="railBtnMini" class="btn ghost railmini" data-act="toggleRail" title="会话列表（展开/收起）">☰</button>
     <div id="emptyState" class="empty newchat">
-      <div class="nc-head"><span class="big">G</span></div>
-      <div class="nc-sub" data-i18n="从左侧选择会话，或在这里开始新的对话">从左侧选择会话，或在这里开始新的对话</div>
+      <div class="gantry-brand">
+        <div class="gantry-logo" aria-hidden="true"><span>[</span>G<span>]</span></div>
+        <h1 class="gantry-title">Gantry</h1>
+        <p class="gantry-slogan">The Copilot Bridge &amp; Pure-Python Agent Harness</p>
+      </div>
+      <div class="gantry-quick-cards">
+        <button type="button" class="gantry-card" data-quick="bridge">
+          <span class="gantry-card-ico" aria-hidden="true"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M9 7V4M15 7V4"/><path d="M6 7h12v5a6 6 0 0 1-12 0z"/><path d="M12 18v3"/></svg></span>
+          <h3>Provider Bridge</h3>
+          <p data-i18n="多端 API 桥接切换与连通性基准测试">多端 API 桥接切换与连通性基准测试</p>
+        </button>
+        <button type="button" class="gantry-card" data-quick="agent">
+          <span class="gantry-card-ico" aria-hidden="true"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7 9l3 3-3 3M12.5 15H17"/></svg></span>
+          <h3>Agent Harness</h3>
+          <p data-i18n="纯 Python 脚本加载与自动化 Tool 链条编排">纯 Python 脚本加载与自动化 Tool 链条编排</p>
+        </button>
+        <button type="button" class="gantry-card" data-quick="eval">
+          <span class="gantry-card-ico" aria-hidden="true"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg></span>
+          <h3>Evaluation</h3>
+          <p data-i18n="并发黑盒压力测试与知识库 RAG 命中率评估">并发黑盒压力测试与知识库 RAG 命中率评估</p>
+        </button>
+      </div>
       <div class="nc-box">
         <textarea id="task" aria-label="任务内容" rows="4"
                   data-act-key="taskKey" data-act-input="taskInput"

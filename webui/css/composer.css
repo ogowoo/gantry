@@ -7,9 +7,27 @@
 /* ── 新会话视图（DSH 式：空态就是编辑器，不套弹窗）────────────────── */
 .newchat{display:flex;flex-direction:column;align-items:center;justify-content:center;
   gap:12px;width:100%;padding:clamp(20px,5vh,56px) 24px;text-align:center}
-.newchat .nc-head .big{line-height:1}
-.newchat .nc-head{margin-bottom:-4px}
-.newchat .nc-sub{color:var(--muted);font-size:13px;margin-bottom:2px}
+/* 品牌区 */
+.gantry-brand{display:flex;flex-direction:column;align-items:center;gap:4px;margin-bottom:2px}
+.gantry-logo{font-family:var(--mono,ui-monospace,Consolas,monospace);font-size:26px;
+  font-weight:700;letter-spacing:1px;
+  color:var(--green);line-height:1;display:flex;align-items:baseline;gap:2px}
+.gantry-logo span{color:var(--faint);font-weight:500;opacity:.75}
+.gantry-title{margin:2px 0 0;font-size:24px;letter-spacing:.5px;font-weight:700;color:var(--text)}
+.gantry-slogan{margin:0;color:var(--muted);font-size:12.5px;
+  font-family:var(--mono,ui-monospace,Consolas,monospace);letter-spacing:0}
+/* 快捷卡片 */
+.gantry-quick-cards{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));
+  gap:10px;width:min(860px,94%);margin:8px 0 4px}
+.gantry-card{display:flex;flex-direction:column;align-items:flex-start;gap:4px;
+  text-align:left;padding:12px 14px;border:1px solid var(--line2);border-radius:12px;
+  background:var(--panel2);cursor:pointer;font-family:inherit;transition:all .18s ease}
+.gantry-card:hover{border-color:color-mix(in srgb,var(--green) 60%,var(--line2));
+  transform:translateY(-2px);box-shadow:0 6px 18px rgba(0,0,0,.08)}
+.gantry-card-ico{color:var(--green);display:inline-flex;margin-bottom:2px}
+.gantry-card h3{margin:0;font-size:13px;font-weight:600;color:var(--text)}
+.gantry-card p{margin:0;font-size:11.5px;line-height:1.45;color:var(--muted)}
+@media (max-width:760px){.gantry-quick-cards{grid-template-columns:1fr}}
 .newchat .nc-box{width:min(860px,94%);border:1px solid var(--line2);border-radius:18px;
   background:var(--panel2);padding:0;display:flex;flex-direction:column;
   gap:0;text-align:left;box-shadow:0 10px 30px rgba(0,0,0,.08);overflow:hidden}
