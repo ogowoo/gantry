@@ -245,6 +245,37 @@ function wireOnce() {
     clearBtn.dataset.kbWired = '1';
     clearBtn.addEventListener('click', kbClear);
   }
+  const backendSel = $id('#kbEmbBackend');
+  if (backendSel && !backendSel.dataset.kbWired) {
+    backendSel.dataset.kbWired = '1';
+    backendSel.addEventListener('change', async () => {
+      kbModelCustomMode = false;
+      const model = $id('#kbEmbModel');
+      const custom = $id('#kbEmbModelCustom');
+      if (backendSel.value === 'local') {
+        const current = (custom && custom.value) || '';
+        await kbPopulateLocalModels(model, current);
+      }
+      kbUpdateModelInput();
+    });
+  }
+  const toggleBtn = $id('#kbEmbModelToggle');
+  if (toggleBtn && !toggleBtn.dataset.kbWired) {
+    toggleBtn.dataset.kbWired = '1';
+    toggleBtn.addEventListener('click', () => {
+      kbModelCustomMode = !kbModelCustomMode;
+      const model = $id('#kbEmbModel');
+      const custom = $id('#kbEmbModelCustom');
+      if (kbModelCustomMode && custom) {
+        custom.value = (model && model.value !== '__custom__' ? model.value : '') || custom.value;
+      } else if (model && custom) {
+        // 切回下拉时，如果当前输入框值匹配某一项就选上
+        const opt = model.querySelector('option[value="' + custom.value.replace(/"/g, '\\"') + '"]');
+        if (opt) model.value = custom.value;
+      }
+      kbUpdateModelInput();
+    });
+  }
 }
 
 function fmtErr(e) {
@@ -255,32 +286,73 @@ function fmtErr(e) {
   try { return JSON.stringify(e); } catch (_) { return String(e); }
 }
 
+let kbModelCustomMode = false;
+
+async function kbPopulateLocalModels(select, current) {
+  if (!select) return;
+  try {
+    const lm = await api('/v1/plugins/kb/api/local-models');
+    const list = (lm && lm.models) || [];
+    const opts = list.map((m) => `<option value="${esc(m.path)}" ${m.path === current ? 'selected' : ''}>${esc(m.name)}</option>`);
+    // 保留一个“手动输入”项，方便选未扫描到的路径
+    opts.push(`<option value="__custom__" ${!list.some(m => m.path === current) && current ? 'selected' : ''}>${esc(tr('自定义…'))}</option>`);
+    select.innerHTML = opts.join('');
+  } catch (e) {
+    select.innerHTML = `<option value="">${esc(tr('读取失败: ') + fmtErr(e))}</option>`;
+  }
+}
+
+function kbUpdateModelInput() {
+  const backend = $id('#kbEmbBackend');
+  const sel = $id('#kbEmbModel');
+  const inp = $id('#kbEmbModelCustom');
+  const btn = $id('#kbEmbModelToggle');
+  if (!backend || !sel || !inp) return;
+  const isLocal = backend.value === 'local';
+  if (isLocal && !kbModelCustomMode) {
+    sel.style.display = '';
+    inp.style.display = 'none';
+    if (btn) btn.style.display = '';
+  } else {
+    sel.style.display = 'none';
+    inp.style.display = '';
+    if (btn) btn.style.display = isLocal ? '' : 'none';
+  }
+}
+
+function kbGetModelValue() {
+  const backend = $id('#kbEmbBackend');
+  const sel = $id('#kbEmbModel');
+  const inp = $id('#kbEmbModelCustom');
+  if (!backend || !sel || !inp) return '';
+  if (backend.value === 'local' && !kbModelCustomMode) {
+    const v = sel.value;
+    return v === '__custom__' ? inp.value.trim() : v;
+  }
+  return inp.value.trim();
+}
+
 async function kbLoadSettings() {
   const backend = $id('#kbEmbBackend');
   const model = $id('#kbEmbModel');
+  const custom = $id('#kbEmbModelCustom');
   const ocr = $id('#kbOcrEngine');
   const hint = $id('#kbSettingsHint');
   try {
     const d = await api('/v1/config');
     const vals = (d && d.values) || {};
     if (backend) backend.value = String(vals['kb.embedding.backend'] || 'fastembed');
-    if (model) model.value = String(vals['kb.embedding.model'] || '');
     if (ocr) ocr.value = String(vals['kb.ocr.engine'] || 'auto');
-    // 给 local 后端自动补全 data/models/*.gguf
-    try {
-      const lm = await api('/v1/plugins/kb/api/local-models');
-      const list = (lm && lm.models) || [];
-      let dl = $id('#kbEmbModelList');
-      if (!dl) {
-        dl = document.createElement('datalist');
-        dl.id = 'kbEmbModelList';
-        document.body.appendChild(dl);
-      }
-      dl.innerHTML = list.map((m) => `<option value="${esc(m.path)}">${esc(m.name)}</option>`).join('');
-      if (model) model.setAttribute('list', 'kbEmbModelList');
-    } catch (_) {
-      // 忽略本地模型列表失败
+    const currentModel = String(vals['kb.embedding.model'] || '');
+    // local 后端用下拉框列出 data/models/*.gguf
+    if (backend && backend.value === 'local') {
+      await kbPopulateLocalModels(model, currentModel);
+      if (custom) custom.value = currentModel;
+    } else {
+      if (model) model.innerHTML = '';
+      if (custom) custom.value = currentModel;
     }
+    kbUpdateModelInput();
     if (hint) {
       const eff = await api('/v1/plugins/kb/api/ocr');
       hint.textContent = (tr('Embedding') + ': ' + (vals['kb.embedding.backend'] || 'fastembed')
@@ -295,13 +367,12 @@ async function kbLoadSettings() {
 
 async function kbSaveSettings() {
   const backend = $id('#kbEmbBackend');
-  const model = $id('#kbEmbModel');
   const ocr = $id('#kbOcrEngine');
   const hint = $id('#kbSettingsHint');
   const payload = {
     values: {
       'kb.embedding.backend': (backend && backend.value) || 'fastembed',
-      'kb.embedding.model': (model && model.value) || '',
+      'kb.embedding.model': kbGetModelValue(),
       'kb.ocr.engine': (ocr && ocr.value) || 'auto',
     },
     persist: true,
