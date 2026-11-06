@@ -10,6 +10,12 @@
 .setnavsep{height:1px;background:var(--line);margin:8px 4px}
 .setnavact{color:var(--muted)}
 .setnavact:hover{color:var(--text)}
+.settings-toolpane{padding:0;border:0;background:transparent}
+.settings-embed .dlg{position:static!important;display:block!important;width:100%!important;
+  max-width:none!important;max-height:none!important;margin:0!important;padding:0!important;
+  border:0!important;border-radius:0!important;box-shadow:none!important;background:transparent!important}
+.settings-embed .dhead,.settings-embed .dfoot{display:none!important}
+.settings-embed .dbody{max-height:none!important;overflow:visible!important;padding:0!important}
 .setgroup{margin:0 0 12px;padding:0 0 8px;border-bottom:1px solid var(--line)}
 .setgroup:last-child{border-bottom:0}
 .setgroup h4{margin:8px 0 6px;font-size:12px;letter-spacing:.6px;text-transform:uppercase;
