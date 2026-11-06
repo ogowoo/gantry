@@ -51,6 +51,41 @@ details[open] > .model-download-summary::before{transform:rotate(90deg)}
 #modelsEmbedOcr #kbEmbModelCustom{order:2}
 #modelsEmbedOcr .setrow > .btn{justify-self:start;width:auto;padding:6px 20px}
 #kbSettingsHint{font-size:11.5px;color:var(--faint);line-height:1.55;margin:8px 0 0}
+/* 表单严格两栏：标签定宽、控件撑满 */
+.cfgrow{display:grid;grid-template-columns:160px minmax(0,1fr);gap:12px;align-items:center}
+.cfgrow > span:first-child{flex:none;width:auto;min-width:0;overflow-wrap:anywhere}
+.cfgrow select,.cfgrow input[type="number"],.cfgrow input[type="text"],.cfgrow textarea{
+  width:100%;max-width:none}
+.cfgrow input[type="checkbox"]{justify-self:start}
+.cfgrow textarea{min-height:80px;resize:vertical;font-family:var(--mono);font-size:12px}
+.setsection{margin:16px 0 4px!important}
+/* 外观：主题卡片 */
+.theme-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(118px,1fr));
+  gap:10px;margin:0 0 16px}
+.theme-card{display:flex;flex-direction:column;gap:8px;padding:9px;border:1px solid var(--line);
+  border-radius:12px;background:var(--panel);cursor:pointer;font-family:inherit;
+  color:var(--muted);text-align:left}
+.theme-card:hover{border-color:color-mix(in srgb,var(--accent) 45%,var(--line))}
+.theme-card.on{border-color:var(--accent);color:var(--text);
+  box-shadow:0 0 0 2px color-mix(in srgb,var(--accent) 22%,transparent)}
+.theme-swatch{height:46px;border-radius:8px;border:1px solid var(--line);display:block}
+.theme-name{font-size:12px;font-weight:600}
+.theme-swatch-auto{background:linear-gradient(135deg,#f7f8fa 50%,#20242c 50%)}
+.theme-swatch-light{background:#f7f8fa}
+.theme-swatch-dark{background:#20242c}
+.theme-swatch-solarized{background:#fdf6e3}
+.theme-swatch-mint{background:#e6f5ee}
+.theme-swatch-amber{background:#fff1d6}
+/* 记忆：卡片网格 */
+.embed-memMask #memList{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:10px}
+.embed-memMask .mem-row{background:var(--panel);border:1px solid var(--line);border-radius:12px;
+  padding:10px 12px;margin:0}
+.embed-memMask .mem-meta{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.embed-memMask .mem-text{margin-top:6px;font-size:12.5px;line-height:1.55}
+.embed-memMask .mem-toolbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:8px}
+.embed-memMask .mem-toolbar select{flex:0 0 auto}
+.embed-memMask .mem-toolbar input{flex:1 1 180px;min-width:0}
+.embed-memMask .mem-stats{font-size:11.5px;color:var(--faint);margin-bottom:8px}
 @media (max-width:920px){.tool-grid{grid-template-columns:1fr}.tool-side,.settings-tool-extra{border-left:0;padding-left:0}}
 /* 知识库：路径 chip、导入块、文档卡片、检索行统一对齐 */
 .embed-kbMask .dbody{display:flex;flex-direction:column;gap:16px}

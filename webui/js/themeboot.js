@@ -111,14 +111,14 @@ async function openMemory(){
    <div class="chead" style="border-bottom:1px solid var(--line)">${tr('长期记忆')}
     <span class="hint"><button class="btn ghost" id="memClose" style="padding:2px 10px;font-size:12px">${tr('关闭')}</button></span></div>
    <div style="padding:12px 15px;display:flex;flex-direction:column;gap:8px;min-height:0">
-    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+    <div class="mem-toolbar">
      <select id="memScopeSel" class="btn ghost" style="padding:4px 8px">
       <option value="all">${tr('全部作用域')}</option><option value="global">${tr('仅全局')}</option><option value="project">${tr('仅当前项目')}</option>
      </select>
-     <input id="memSearch" class="btn ghost" style="flex:1;min-width:150px;padding:4px 10px;text-align:left" placeholder="${tr('关键词检索…（回车）')}">
+     <input id="memSearch" class="btn ghost" style="padding:4px 10px;text-align:left" placeholder="${tr('关键词检索…（回车）')}">
      <button class="btn ghost" id="memReload" style="padding:4px 12px">${tr('检索')}</button>
     </div>
-    <div id="memStats"></div>
+    <div id="memStats" class="mem-stats"></div>
     <div id="memList"></div>
    </div>
   </div>`;
