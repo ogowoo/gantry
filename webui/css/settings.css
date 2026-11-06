@@ -18,6 +18,11 @@
 .tool-side{min-width:0;border-left:1px solid var(--line);padding-left:14px}
 .settings-tool-extra{min-width:0;border-left:1px solid var(--line);padding-left:14px}
 #modelsEmbedOcr{border-left:0;padding-left:0;margin-top:14px;border-top:1px solid var(--line);padding-top:14px}
+#modelsBody .setrow{flex-wrap:nowrap;min-width:0}
+#modelsBody .setrow > div:first-child{flex:1 1 auto;min-width:0}
+#modelsBody .setrow > div:last-child{flex:none}
+#modelsEmbedOcr .setrow{flex-wrap:wrap;row-gap:6px}
+#modelsEmbedOcr .setrow > span:first-child{flex:1 1 140px}
 @media (max-width:920px){.tool-grid{grid-template-columns:1fr}.tool-side,.settings-tool-extra{border-left:0;padding-left:0}}
 /* 知识库：导入、文档、检索按区块拉开 */
 .embed-kbMask .dbody{display:flex;flex-direction:column;gap:12px}
@@ -150,7 +155,7 @@
 .setnavbtn.danger{color:var(--red)}
 .setnavbtn.danger.on{background:color-mix(in srgb, var(--red) 12%, var(--panel));
   box-shadow:inset 2px 0 0 var(--red)}
-.setpane{flex:1 1 auto;min-width:0;overflow:auto;padding:14px 16px 6px}
+.setpane{flex:1 1 auto;min-width:0;overflow-x:hidden;overflow-y:auto;padding:14px 16px 6px}
 .setgroup{background:transparent;border:0;border-radius:0;padding:0;margin:0;
   box-shadow:none}
 .setgroup h4{display:flex;align-items:center;gap:8px;margin:0 0 6px;padding:0;
@@ -184,7 +189,7 @@
   outline-offset:2px}
 .setbtns{display:flex;flex-wrap:wrap;gap:8px;padding:2px 0 10px}
 .sethint{margin:0 0 10px;font-size:12px;color:var(--faint);line-height:1.6}
-.settingsdlg{max-width:780px}
+.settingsdlg{max-width:1120px}
 .settingsdlg .dbody{padding:0}
 .settingsdlg .dfoot{border-top:1px solid var(--line);background:var(--panel);
   padding:10px 14px;display:flex;align-items:center;gap:8px}
