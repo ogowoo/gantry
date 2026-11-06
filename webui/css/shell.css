@@ -122,7 +122,10 @@ header.topbar .topbarchev{flex:none;margin-left:2px}
 #title[data-act]{cursor:pointer}
 #title[data-act]:hover{color:var(--accent)}
 .trow{display:flex;align-items:center;gap:12px;min-width:0}
-.trow h1{margin:0;font-size:18px;font-weight:650;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+/* 标题再长也只能挤压自己：右侧 会话ID / 状态 pill / 模型选择 / 刷新 永远不被顶变形 */
+.trow h1{margin:0;font-size:18px;font-weight:650;white-space:nowrap;overflow:hidden;
+  text-overflow:ellipsis;flex:1 1 auto;min-width:0}
+.trow .retrychip,.trow .iconbtn,.trow .pill,.trow .sidbig{flex:none}
 .pill{flex:none;font-size:12px;border-radius:20px;padding:3px 11px;border:1px solid var(--line2);color:var(--muted)}
 .pill.run{color:#7ee787;border-color:#2ea04366;background:#3fb95014}
 .pill.warn{color:#e8b339;border-color:#9e6a0366;background:#d2992214}
