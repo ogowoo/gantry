@@ -247,6 +247,14 @@ function wireOnce() {
   }
 }
 
+function fmtErr(e) {
+  if (!e) return String(e);
+  if (typeof e.text === 'string') return e.text;
+  if (typeof e.detail === 'string') return e.detail;
+  if (typeof e.message === 'string') return e.message;
+  try { return JSON.stringify(e); } catch (_) { return String(e); }
+}
+
 async function kbLoadSettings() {
   const backend = $id('#kbEmbBackend');
   const model = $id('#kbEmbModel');
@@ -266,7 +274,7 @@ async function kbLoadSettings() {
         + ' · ' + tr('保存后 Embedding 改动需重建索引/重启生效'));
     }
   } catch (e) {
-    if (hint) hint.textContent = tr('读取设置失败: ') + (e.text || e.message || e);
+    if (hint) hint.textContent = tr('读取设置失败: ') + fmtErr(e);
   }
 }
 
@@ -285,17 +293,23 @@ async function kbSaveSettings() {
   };
   try {
     await api('/v1/config', { method: 'POST', body: JSON.stringify(payload) });
-    // OCR 切换立即生效
+    toast(tr('知识库设置已保存'), 'ok');
+  } catch (e) {
+    const msg = fmtErr(e);
+    toast(tr('保存失败: ') + msg, 'err', 8000);
+    if (hint) hint.textContent = tr('保存失败: ') + msg;
+    return;
+  }
+  // OCR 切换单独尝试，失败不影响 config 已保存的事实
+  try {
     await api('/v1/plugins/kb/api/ocr', {
       method: 'POST',
       body: JSON.stringify({ engine: payload.values['kb.ocr.engine'] }),
     });
-    toast(tr('知识库设置已保存'), 'ok');
-    await kbLoadSettings();
   } catch (e) {
-    toast(tr('保存失败: ') + (e.text || e.message || e), 'err', 8000);
-    if (hint) hint.textContent = tr('保存失败: ') + (e.text || e.message || e);
+    toast(tr('OCR 切换失败: ') + fmtErr(e), 'warn', 6000);
   }
+  await kbLoadSettings();
 }
 
 export async function openKb() {
