@@ -9,10 +9,11 @@
   gap:12px;width:100%;padding:clamp(20px,5vh,56px) 24px;text-align:center}
 /* 品牌区 */
 .gantry-brand{display:flex;flex-direction:column;align-items:center;gap:4px;margin-bottom:2px}
-.gantry-logo{font-family:var(--mono,ui-monospace,Consolas,monospace);font-size:26px;
-  font-weight:700;letter-spacing:1px;
-  color:var(--green);line-height:1;display:flex;align-items:baseline;gap:2px}
-.gantry-logo span{color:var(--faint);font-weight:500;opacity:.75}
+.gantry-logo{font-family:var(--mono,ui-monospace,Consolas,monospace);font-size:46px;
+  font-weight:700;letter-spacing:2px;
+  color:var(--green);line-height:1;display:flex;align-items:baseline;gap:5px;
+  margin-bottom:2px;text-shadow:0 0 22px color-mix(in srgb,var(--green) 35%,transparent)}
+.gantry-logo span{color:var(--faint);font-weight:500;opacity:.55;font-size:.78em}
 .gantry-title{margin:2px 0 0;font-size:24px;letter-spacing:.5px;font-weight:700;color:var(--text)}
 .gantry-slogan{margin:0;color:var(--muted);font-size:12.5px;
   font-family:var(--mono,ui-monospace,Consolas,monospace);letter-spacing:0}
