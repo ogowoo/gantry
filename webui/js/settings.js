@@ -4,7 +4,7 @@ import { SETTINGS_GROUPS, SANDBOX_UI, ENUM_LABEL } from './themeboot.js';
 import { CODE_EXT } from './codeux.js';
 import { stepFilterInput } from './steps.js';
 import { readAnimPrefs, applyAnimPrefs, setAnimPref, animPrefLabel, ANIM_RANGES } from './animprefs.js';
-import { openKb, closeKb, kbPick, kbRefresh, kbReindex, kbImportUrl, kbImportText, kbInbox, kbSearch, kbDelete } from './kb.js';
+import { openKb, closeKb, kbPick, kbRefresh, kbReindex, kbImportUrl, kbImportText, kbInbox, kbSearch, kbDelete, fmtErr } from './kb.js';
 import { kbSaveMsg as kbSaveMsgImpl } from './composer.js';
 function renderSandbox(){
  const mode=SANDBOX_UI[sandboxMode]?sandboxMode:'workspace-write';
@@ -175,6 +175,18 @@ async function renderSettings(){
    </div>
    <p class="sethint">${esc(tr('重启/终止都会中断正在跑的任务；状态已落库，重启后可恢复。'))}</p>`;
 
+ let rawHtml='';
+ try{
+  const raw=await api('/v1/config/raw');
+  window.settingsRaw=raw.config||{};
+  const text=JSON.stringify(window.settingsRaw,null,2);
+  rawHtml=`<h4>${esc(tr('原始配置'))}</h4>
+   <p class="sethint">${esc(tr('可直接编辑 config.json 全部内容。格式错误会导致保存失败；写入错误配置可能导致服务无法启动。'))}</p>
+   <textarea id="settingsRawConfig" class="code" data-raw="1" spellcheck="false" style="width:100%;min-height:320px;resize:vertical;font-family:var(--mono);font-size:13px">${esc(text)}</textarea>`;
+ }catch(e){
+  rawHtml=`<h4>${esc(tr('原始配置'))}</h4><p class="sethint">${esc(tr('读取失败: ')+fmtErr(e))}</p>`;
+ }
+
  const cfgPane=(gid,label)=>{
   const rows=(groups[gid]||[]).map(([k,spec])=>_cfgInput(k,spec,window.settingsValues[k])).join('');
   return rows?`<h4>${esc(tr(label))}</h4>${rows}`:'';
@@ -183,6 +195,7 @@ async function renderSettings(){
  box.innerHTML=visible.map(([gid,label])=>{
   if(gid==='ui')return pane('ui',uiHtml);
   if(gid==='entries')return pane('entries',entriesHtml);
+  if(gid==='raw')return pane('raw',rawHtml);
   if(gid==='danger'){
    // 危险区：先渲染 schema 里登记的高风险开关（如"允许自升级"），再放操作按钮
    const rows=(groups[gid]||[]).map(([k,spec])=>_cfgInput(k,spec,window.settingsValues[k])).join('');
@@ -259,6 +272,23 @@ async function saveSettings(){
   if(el)setAnimPref(k,el.value);
  });
  applyAnimPrefs();
+ // 原始 config.json 编辑（如果存在且内容有变化）
+ let rawSaved=0;
+ const rawTa=document.getElementById('settingsRawConfig');
+ if(rawTa){
+  let rawCfg;
+  try{ rawCfg=JSON.parse(rawTa.value); }
+  catch(e){ toast(tr('config.json 格式错误: ')+e.message,'err'); return; }
+  if(JSON.stringify(rawCfg)!==JSON.stringify(window.settingsRaw||{})){
+   try{
+    await api('/v1/config/raw',{method:'POST',
+     headers:{'Content-Type':'application/json'},
+     body:JSON.stringify({config:rawCfg})});
+    window.settingsRaw=rawCfg;
+    rawSaved=1;
+   }catch(e){ toast(tr('原始配置保存失败: ')+((e&&(e.text||e.detail||e.message))||String(e)),'err'); return; }
+  }
+ }
  // 只提交**改动过**的字段：整表提交时，空的文本/枚举控件会被后端校验拒掉
  // （实测 ``default_model: ""`` 让整批保存 400），也会把没动过的键来回写文件。
  const raw=collectSettings();
@@ -272,8 +302,13 @@ async function saveSettings(){
  const serverN=Object.keys(values).length;
  const localChanges=_localChanges();       // 主题/语言/动画：都已经即时生效并落库了
  if(!serverN){
-  // 只有本地改动：说清楚"存了什么"，不要再说"没有改动"（那是假话，用户已实测到）
-  if(localChanges.length){
+  // 只有本地改动或原始配置改动：说清楚"存了什么"，不要再说"没有改动"
+  if(rawSaved && localChanges.length){
+   _localSnap=_localSnapshot();
+   toast(tr('设置已保存（原始配置 · 本地 {n} 项）',{n:localChanges.length}),'ok');
+  }else if(rawSaved){
+   toast(tr('原始配置已保存'),'ok');
+  }else if(localChanges.length){
    _localSnap=_localSnapshot();
    toast(tr('本地设置已保存（{n} 项）',{n:localChanges.length}),'ok');
   }else{

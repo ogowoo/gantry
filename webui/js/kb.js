@@ -411,3 +411,5 @@ export function closeKb() {
   const mask = $id('#kbMask');
   if (mask) mask.classList.remove('open');
 }
+
+export { fmtErr };
