@@ -73,6 +73,7 @@ details[open] > .model-download-summary::before{transform:rotate(90deg)}
 .theme-swatch-auto{background:linear-gradient(135deg,#f7f8fa 50%,#20242c 50%)}
 .theme-swatch-light{background:#f7f8fa}
 .theme-swatch-dark{background:#20242c}
+.theme-swatch-jade{background:#1f3b34}
 .theme-swatch-solarized{background:#fdf6e3}
 .theme-swatch-mint{background:#e6f5ee}
 .theme-swatch-amber{background:#fff1d6}
