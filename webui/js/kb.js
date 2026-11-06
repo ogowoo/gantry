@@ -412,4 +412,4 @@ export function closeKb() {
   if (mask) mask.classList.remove('open');
 }
 
-export { fmtErr };
+export { fmtErr, wireOnce as wireKbSettings, kbLoadSettings };

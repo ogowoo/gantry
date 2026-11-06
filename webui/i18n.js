@@ -664,6 +664,7 @@ Object.assign(I18N_EN, {
  "已存入知识库：": "Saved to knowledge base: ",
  "存入失败：": "Save failed: ",
  "模型与索引设置": "Model & index settings",
+ "Embedding / OCR": "Embedding / OCR",
  "模型名 / GGUF 路径 / model id": "Model name / GGUF path / model id",
  "读取设置失败: ": "Failed to load settings: ",
  "保存后 Embedding 改动需重建索引/重启生效": "Embedding changes take effect after rebuild/restart",
