@@ -52,12 +52,45 @@ details[open] > .model-download-summary::before{transform:rotate(90deg)}
 #modelsEmbedOcr .setrow > .btn{justify-self:start;width:auto;padding:6px 20px}
 #kbSettingsHint{font-size:11.5px;color:var(--faint);line-height:1.55;margin:8px 0 0}
 @media (max-width:920px){.tool-grid{grid-template-columns:1fr}.tool-side,.settings-tool-extra{border-left:0;padding-left:0}}
-/* 知识库：导入、文档、检索按区块拉开 */
-.embed-kbMask .dbody{display:flex;flex-direction:column;gap:12px}
-.embed-kbMask #kbDrop{padding:18px}
-.embed-kbMask #kbDocs{max-height:30vh!important;border:1px solid var(--line);
-  border-radius:10px;padding:4px 6px;background:var(--panel)}
-.embed-kbMask #kbHits{margin-top:2px}
+/* 知识库：路径 chip、导入块、文档卡片、检索行统一对齐 */
+.embed-kbMask .dbody{display:flex;flex-direction:column;gap:16px}
+.kb-path-chip{display:block;max-width:100%;padding:8px 11px;border-radius:9px;
+  background:var(--panel);border:1px solid var(--line);color:var(--muted);
+  font-family:var(--mono);font-size:11.5px;line-height:1.45;overflow-wrap:anywhere}
+.kb-section{min-width:0}
+.kb-section-title{font-size:11px;letter-spacing:1px;text-transform:uppercase;
+  color:var(--faint);font-weight:700;margin:0 0 8px}
+.kbdrop{border:1.5px dashed color-mix(in srgb,var(--accent) 45%,var(--line));
+  border-radius:14px;padding:26px 16px;text-align:center;
+  background:color-mix(in srgb,var(--accent) 6%,var(--panel))}
+.kb-drop-icon{display:flex;align-items:center;justify-content:center;margin:0 auto 8px;
+  width:48px;height:48px;border-radius:14px;color:var(--accent);
+  background:color-mix(in srgb,var(--accent) 12%,transparent)}
+.kb-drop-title{font-size:13px;color:var(--text);margin-bottom:12px}
+.kb-drop-actions{display:flex;align-items:center;justify-content:center;gap:10px;flex-wrap:wrap}
+.kb-url-row{display:grid;grid-template-columns:minmax(0,1fr) 88px 88px;gap:8px;
+  align-items:center;margin-top:12px}
+.kb-search-row{display:grid;grid-template-columns:minmax(0,1fr) 88px 88px;gap:8px;
+  align-items:center}
+.kb-fixed-btn{width:88px;justify-content:center;padding-left:0;padding-right:0}
+.kb-paste{margin-top:12px}
+.kb-toolbar{display:flex;align-items:center;gap:10px;margin-bottom:8px}
+.kb-toolbar-title{flex:1 1 auto;min-width:0;font-size:12.5px;color:var(--text)}
+.kb-toolbar-actions{display:flex;gap:8px;flex:none}
+#kbDocs{display:flex;flex-direction:column;gap:8px}
+.kb-doc-card{display:flex;align-items:center;gap:10px;padding:10px 12px;
+  border:1px solid var(--line);border-radius:10px;background:var(--panel)}
+.kb-doc-main{flex:1 1 auto;min-width:0}
+.kb-doc-name{font-size:12.5px;font-weight:600;white-space:nowrap;overflow:hidden;
+  text-overflow:ellipsis;max-width:100%}
+.kb-doc-path{font-size:11px;color:var(--faint);font-family:var(--mono);
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:2px}
+.kb-doc-meta{flex:none;font-size:11.5px;color:var(--muted);white-space:nowrap}
+.kb-doc-del{flex:none;width:28px;height:28px;border-radius:50%;border:0;
+  background:transparent;color:var(--faint);display:inline-flex;align-items:center;
+  justify-content:center;cursor:pointer}
+.kb-doc-del:hover{background:color-mix(in srgb,var(--red) 12%,transparent);color:var(--red)}
+.embed-kbMask #kbHits{margin-top:8px}
 /* 记忆：设置页已经有标题，不再显示弹窗头 */
 .embed-memMask .chead{display:none!important}
 .embed-memMask .mem-row{padding:10px 2px}

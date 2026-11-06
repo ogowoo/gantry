@@ -53,7 +53,7 @@ export async function kbRefresh() {
       const chunks = st.chunks ?? 0;
       const chars = st.chars ?? 0;
       stats.textContent =
-        `${tr('目录')}: ${st.dir || '—'} · ${tr('文档')} ${docs} · ${tr('分块')} ${chunks} · ${chars} ${tr('字符')}`
+        `${tr('当前知识库')}: ${st.dir || '—'} · ${tr('文档')} ${docs} · ${tr('分块')} ${chunks} · ${chars} ${tr('字符')}`
         + (st.fts ? ' · FTS5' : ' · ' + tr('无全文索引'));
     }
   } catch (e) {
@@ -71,12 +71,20 @@ export async function kbRefresh() {
       box.innerHTML = `<div class="meta">${esc(tr('还没有文档：拖文件进来，或用上面的 URL / 粘贴文本'))}</div>`;
       return;
     }
-    box.innerHTML = docs.map((x) => `
-      <div class="kbrow" style="display:flex;gap:8px;align-items:center;padding:5px 2px;border-bottom:1px solid var(--line)">
-        <code style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(x.path)}</code>
-        <span class="hint">${x.chunks} ${esc(tr('块'))} · ${fmtBytes(x.chars)}</span>
-        <button type="button" class="btn ghost" data-act="kbDelete" data-arg="${esc(x.path)}" title="${esc(tr('删除'))}">✕</button>
-      </div>`).join('');
+    box.innerHTML = docs.map((x) => {
+      const path = String(x.path || '');
+      const name = path.split(/[\\/]/).pop() || path;
+      return `<div class="kb-doc-card">
+        <div class="kb-doc-main">
+          <div class="kb-doc-name" title="${esc(name)}">${esc(name)}</div>
+          <div class="kb-doc-path" title="${esc(path)}">${esc(path)}</div>
+        </div>
+        <span class="kb-doc-meta">${x.chunks} ${esc(tr('块'))} · ${fmtBytes(x.chars)}</span>
+        <button type="button" class="kb-doc-del" data-act="kbDelete" data-arg="${esc(x.path)}" title="${esc(tr('删除'))}" aria-label="${esc(tr('删除'))}">
+          <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h16M9 7V5h6v2M7 7l1 13h8l1-13M10 11v6M14 11v6"/></svg>
+        </button>
+      </div>`;
+    }).join('');
   } catch (e) {
     if (box) box.innerHTML = `<div class="meta">${esc(tr('读取文档列表失败: ') + (e.text || e))}</div>`;
   }
