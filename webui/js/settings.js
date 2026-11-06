@@ -193,13 +193,23 @@ async function renderSettings(){
  const visible=SETTINGS_GROUPS.filter(([gid])=>has(gid));
  if(!visible.some(([gid])=>gid===window.settingsTab))window.settingsTab=visible[0][0];
 
- // 左导航
- nav.innerHTML=visible.map(([gid,label])=>{
+ // 左导航：配置页签 + 工具动作（全部纯文字，无图标）
+ const tabsHtml=visible.map(([gid,label])=>{
   const on=gid===window.settingsTab;
   return `<button type="button" class="setnavbtn${on?' on':''}${gid==='danger'?' danger':''}"
      role="tab" aria-selected="${on?'true':'false'}" data-act="settingsTab" data-arg="${gid}">
      ${esc(tr(label))}</button>`;
  }).join('');
+ const toolsHtml=[
+  `<button type="button" class="setnavbtn setnavact" data-act="openManual">${esc(tr('使用手册'))}</button>`,
+  `<button type="button" class="setnavbtn setnavact" data-act="openModels">${esc(tr('本地模型'))}</button>`,
+  `<button type="button" class="setnavbtn setnavact" data-act="openPlugins">${esc(tr('插件管理'))}</button>`,
+  `<button type="button" class="setnavbtn setnavact" data-act="openKb">${esc(tr('知识库'))}</button>`,
+  `<button type="button" class="setnavbtn setnavact" data-act="openPanels">${esc(tr('插件面板'))}</button>`,
+  `<button type="button" class="setnavbtn setnavact" data-act="openWsBrowser">${esc(tr('工作区浏览'))}</button>`,
+  `<button type="button" class="setnavbtn setnavact" data-act="openMemory">${esc(tr('记忆面板'))}</button>`,
+ ].join('');
+ nav.innerHTML=tabsHtml+`<div class="setnavsep"></div>`+toolsHtml;
 
  // 右内容：所有分组都渲染，非当前的隐藏（值仍留在 DOM，保存不会丢）
  const pane=(gid,html)=>`<section class="setgroup${gid==='danger'?' danger':''}" data-pane="${gid}"
@@ -250,16 +260,7 @@ async function renderSettings(){
   return rows?`<h4>${esc(tr(label))}</h4>${rows}`:'';
  };
 
- const toolsHtml=`<div class="settings-tools">
-  <button type="button" class="btn ghost" data-act="openManual"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H19v15H6.5A2.5 2.5 0 0 0 4 20.5z"/><path d="M4 20.5A2.5 2.5 0 0 1 6.5 18H19v3H6.5A2.5 2.5 0 0 1 4 20.5z"/></svg><span>${esc(tr('使用手册'))}</span></button>
-  <button type="button" class="btn ghost" data-act="openModels"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="2"/><path d="M9 2v3M15 2v3M9 19v3M15 19v3M2 9h3M2 15h3M19 9h3M19 15h3"/><circle cx="12" cy="12" r="2.2"/></svg><span>${esc(tr('本地模型'))}</span></button>
-  <button type="button" class="btn ghost" data-act="openPlugins"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 3a2 2 0 1 1 4 0v2h3a1 1 0 0 1 1 1v3h2a2 2 0 1 1 0 4h-2v3a1 1 0 0 1-1 1h-3v2a2 2 0 1 1-4 0v-2H7a1 1 0 0 1-1-1v-3H4a2 2 0 1 1 0-4h2V6a1 1 0 0 1 1-1h3z"/></svg><span>${esc(tr('插件管理'))}</span></button>
-  <button type="button" class="btn ghost" data-act="openKb"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 4.5A1.5 1.5 0 0 1 5.5 3H20v18H5.5A1.5 1.5 0 0 1 4 19.5z"/><path d="M4 17.5A1.5 1.5 0 0 1 5.5 16H20"/><path d="M8 7h8"/></svg><span>${esc(tr('知识库'))}</span></button>
-  <button type="button" class="btn ghost" data-act="openPanels"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="8" height="8" rx="1.5"/><rect x="13" y="3" width="8" height="8" rx="1.5"/><rect x="3" y="13" width="8" height="8" rx="1.5"/><rect x="13" y="13" width="8" height="8" rx="1.5"/></svg><span>${esc(tr('插件面板'))}</span></button>
-  <button type="button" class="btn ghost" data-act="openWsBrowser"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 7.5A1.5 1.5 0 0 1 4.5 6h4l1.6 2h9.4A1.5 1.5 0 0 1 21 9.5v8A1.5 1.5 0 0 1 19.5 19h-15A1.5 1.5 0 0 1 3 17.5z"/></svg><span>${esc(tr('工作区浏览'))}</span></button>
-  <button type="button" class="btn ghost" data-act="openMemory"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3a4 4 0 0 0-4 4v1a4 4 0 0 0 0 8v1a4 4 0 0 0 8 0v-1a4 4 0 0 0 0-8V7a4 4 0 0 0-4-4z"/><path d="M12 7v10M9 10h6M9 14h6"/></svg><span>${esc(tr('记忆面板'))}</span></button>
- </div>`;
- box.innerHTML=toolsHtml+visible.map(([gid,label])=>{
+ box.innerHTML=visible.map(([gid,label])=>{
   if(gid==='ui')return pane('ui',uiHtml);
   if(gid==='raw')return pane('raw',rawHtml);
   if(gid==='danger'){
