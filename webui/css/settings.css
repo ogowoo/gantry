@@ -7,10 +7,9 @@
 /* SETTINGS-DIALOG: 设置页（齿轮入口）。分组标题 + 一行一个设置项，
    标签在左、控件在右；危险区分隔并染红。 */
 .settingsbody{max-height:64vh;overflow:auto;padding:4px 2px 10px}
-.settings-tools{display:flex;flex-wrap:wrap;gap:6px;padding:0 0 12px;margin:0 0 12px;
-  border-bottom:1px solid var(--line)}
-.settings-tools .btn{display:inline-flex;align-items:center;gap:6px;font-size:12px;padding:6px 9px}
-.settings-tools .btn svg{flex:none;opacity:.85}
+.setnavsep{height:1px;background:var(--line);margin:8px 4px}
+.setnavact{color:var(--muted)}
+.setnavact:hover{color:var(--text)}
 .setgroup{margin:0 0 12px;padding:0 0 8px;border-bottom:1px solid var(--line)}
 .setgroup:last-child{border-bottom:0}
 .setgroup h4{margin:8px 0 6px;font-size:12px;letter-spacing:.6px;text-transform:uppercase;
