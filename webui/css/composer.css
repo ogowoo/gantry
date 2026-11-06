@@ -9,14 +9,11 @@
   gap:12px;width:100%;padding:clamp(20px,5vh,56px) 24px;text-align:center}
 /* 品牌区 */
 .gantry-brand{display:flex;flex-direction:column;align-items:center;gap:4px;margin-bottom:2px}
-.gantry-logo{display:flex;align-items:center;justify-content:center;margin:0 0 14px}
-.gantry-logo-mark{width:68px;height:68px;border-radius:17px;display:flex;align-items:center;
-  justify-content:center;font-family:var(--mono,ui-monospace,Consolas,monospace);
-  font-size:36px;font-weight:800;letter-spacing:0;color:var(--green);line-height:1;
-  background:color-mix(in srgb,var(--green) 10%,var(--panel));
-  border:1px solid color-mix(in srgb,var(--green) 30%,var(--line2));
-  box-shadow:0 4px 14px color-mix(in srgb,var(--green) 16%,transparent),
-    inset 0 1px 0 color-mix(in srgb,#fff 40%,transparent)}
+.gantry-logo{font-family:var(--mono,ui-monospace,Consolas,monospace);font-size:46px;
+  font-weight:700;letter-spacing:2px;color:var(--green);line-height:1;display:flex;
+  align-items:baseline;justify-content:center;gap:5px;margin:0 0 8px;
+  text-shadow:0 0 22px color-mix(in srgb,var(--green) 35%,transparent)}
+.gantry-logo span{color:var(--faint);font-weight:500;opacity:.55;font-size:.78em}
 .gantry-title{margin:2px 0 0;font-size:24px;letter-spacing:.5px;font-weight:700;color:var(--text)}
 .gantry-slogan{margin:0;color:var(--muted);font-size:12.5px;
   font-family:var(--mono,ui-monospace,Consolas,monospace);letter-spacing:0}
