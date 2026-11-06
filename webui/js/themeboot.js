@@ -71,14 +71,26 @@ const MEM_ICON='<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stro
 const MEM_CSS=`
 #memBtn svg{width:16px;height:16px;display:block}
 #memStats{color:var(--muted);font-size:12px;margin:6px 0;font-variant-numeric:tabular-nums}
-#memList{overflow:auto;flex:1;min-height:120px}
-.mem-row{border-top:1px solid var(--line);padding:9px 2px}
-.mem-row:first-child{border-top:0}
-.mem-meta{display:flex;gap:8px;align-items:center;flex-wrap:wrap;font-size:12px;color:var(--muted)}
-.mem-meta .sp{margin-left:auto}
+#memList{overflow:auto;flex:1;min-height:120px;display:flex;flex-direction:column;gap:10px}
+/* 记忆条目卡片化：头=元信息+操作组，标签独立成行，正文等宽底框 */
+.mem-row{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:12px 14px}
+.mem-head{display:flex;justify-content:space-between;align-items:flex-start;gap:10px;margin-bottom:6px}
+.mem-meta{display:flex;gap:8px;align-items:center;flex-wrap:wrap;font-size:12px;color:var(--muted);min-width:0}
 .mem-kind{color:var(--accent)}
 .mem-pin{color:var(--amber)}
-.mem-text{white-space:pre-wrap;margin-top:4px;line-height:1.5;font-size:13px}
+.mem-actions{display:flex;align-items:center;gap:6px;flex:none}
+.mem-actions .btn{padding:3px 10px;font-size:12px;border-radius:6px}
+.mem-actions .mem-pin-btn:hover{border-color:var(--green);color:var(--green);
+  background:color-mix(in srgb,var(--green) 10%,transparent)}
+.mem-actions .mem-del-btn{color:var(--danger-text);border-color:color-mix(in srgb,var(--red) 35%,var(--line2))}
+.mem-actions .mem-del-btn:hover{background:color-mix(in srgb,var(--red) 10%,transparent);
+  border-color:var(--red)}
+.mem-tags{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 8px}
+.mem-tag{font-size:11px;font-weight:500;color:var(--green);padding:2px 7px;border-radius:5px;
+  background:color-mix(in srgb,var(--green) 10%,transparent)}
+.mem-text{white-space:pre-wrap;line-height:1.6;font-size:12.5px;margin:0;padding:10px 12px;
+  border-radius:8px;background:var(--panel2);color:var(--text);
+  font-family:var(--mono,ui-monospace,Consolas,monospace)}
 .mem-empty{color:var(--muted);padding:14px 2px}
 `;
 function memInjectCss(){
@@ -144,14 +156,17 @@ async function loadMemory(){
  if(!(d.items||[]).length){
   box.innerHTML=('<div class="mem-empty">'+esc(tr('没有匹配的记忆。Agent 完成任务时会自动沉淀，也可以直接让它「记到长期记忆」。'))+'</div>');return}
  box.innerHTML=d.items.map(m=>`<div class="mem-row">
-   <div class="mem-meta">
-    <span>#${esc(m.id)}</span><span class="mem-kind">${esc(m.kind)}</span><span>${esc(m.scope)}</span>
-    <span>${tr('命中 {n}',{n:m.use_count||0})}</span>${m.pinned?'<span class="mem-pin">★ '+tr('置顶')+'</span>':''}
-    ${(m.tags||[]).map(t=>`<span>#${esc(t)}</span>`).join('')}
-    <span class="sp"></span>
-    <button class="btn ghost" data-pin="${m.id}" data-v="${m.pinned?1:0}" style="padding:2px 10px;font-size:12px">${m.pinned?tr('取消置顶'):tr('置顶')}</button>
-    <button class="btn ghost" data-del="${m.id}" style="padding:2px 10px;font-size:12px;color:var(--danger-text);border-color:var(--danger-border)">${tr('删除')}</button>
+   <div class="mem-head">
+    <div class="mem-meta">
+     <span>#${esc(m.id)}</span><span class="mem-kind">${esc(m.kind)}</span><span>${esc(m.scope)}</span>
+     <span>${tr('命中 {n}',{n:m.use_count||0})}</span>${m.pinned?'<span class="mem-pin">★ '+tr('置顶')+'</span>':''}
+    </div>
+    <div class="mem-actions">
+     <button class="btn ghost mem-pin-btn" data-pin="${m.id}" data-v="${m.pinned?1:0}">${m.pinned?tr('取消置顶'):tr('置顶')}</button>
+     <button class="btn ghost mem-del-btn" data-del="${m.id}">${tr('删除')}</button>
+    </div>
    </div>
+   ${(m.tags&&m.tags.length)?`<div class="mem-tags">${m.tags.map(t=>`<span class="mem-tag">#${esc(t)}</span>`).join('')}</div>`:''}
    <div class="mem-text">${esc(m.text)}</div>
   </div>`).join('');
   box.querySelectorAll('[data-del]').forEach(b=>b.onclick=async()=>{
