@@ -51,7 +51,10 @@ class FrontendParityTests(unittest.TestCase):
         self.assertEqual(bad[:3], [], "app.js 仍有旧品牌兜底")
 
     def test_empty_state_monogram(self):
-        m = re.search(r'<div class="nc-head"><span class="big">([^<]+)</span></div>', HTML)
+        # 上游新版首页：gantry-brand / gantry-logo 内的大号 G
+        # 结构：<div class="gantry-logo"><span>[</span>G<span>]</span></div>
+        m = re.search(r'<div class="gantry-logo"[^>]*>.*?<span>\[</span>([^<]+)<span>\]</span>.*?</div>',
+                      HTML, re.S)
         self.assertIsNotNone(m, "找不到空态徽标")
         self.assertEqual(m.group(1).strip(), "G", "首页徽标应为 G（旧的是 CB）")
 
