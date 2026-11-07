@@ -110,6 +110,9 @@ MODELS = {
     },
 }
 
+# 记录内置模型 ID，后续缓存/自定义模型不会覆盖已有内置项
+_BUILTIN_MODEL_IDS = set(MODELS.keys())
+
 # Optional config.json extension. This lets you add or override models without
 # editing app.py. Example:
 # "models": {"copilot-custom": {"ui_names": ["Custom"], "description": "Custom model"}}
@@ -119,6 +122,91 @@ for custom_id, custom_item in CFG.get("models", {}).items():
             "ui_names": list(custom_item["ui_names"]),
             "description": custom_item.get("description", custom_id),
         }
+
+# 模型菜单扫描缓存：把一次成功的枚举结果落盘，重启后可直接复用，跳过启动扫描。
+# 缓存有效期由 config.json 的 "model_scan_cache_hours" 控制（默认 24 小时）。
+MODEL_CACHE_MAX_AGE_HOURS = float(CFG.get("model_scan_cache_hours", 24))
+DISCOVERY_CACHE_FILE = BASE / "data" / "discovered_models.json"
+
+
+def _load_model_cache() -> None:
+    """导入时加载上次成功扫描的模型菜单缓存。"""
+    global DISCOVERED_LABELS, DISCOVERY_MATCHED
+    try:
+        if not DISCOVERY_CACHE_FILE.exists():
+            return
+        data = json.loads(DISCOVERY_CACHE_FILE.read_text(encoding="utf-8"))
+        if not isinstance(data, dict):
+            return
+        ts = data.get("at")
+        if not ts:
+            return
+        try:
+            saved = datetime.fromisoformat(ts)
+        except Exception:
+            return
+        if (datetime.now() - saved).total_seconds() > MODEL_CACHE_MAX_AGE_HOURS * 3600:
+            return
+        labels = data.get("labels") or []
+        if len(labels) < 2:
+            return
+        DISCOVERED_LABELS = {str(l).casefold() for l in labels}
+        for mid, item in (data.get("models") or {}).items():
+            if mid in MODELS:
+                continue
+            if isinstance(item, dict) and item.get("ui_names"):
+                MODELS[mid] = {
+                    "ui_names": list(item["ui_names"]),
+                    "description": item.get("description", mid),
+                }
+        DISCOVERY_MATCHED = int(data.get("matched") or 0)
+        log(f"已从缓存加载模型菜单（{len(DISCOVERED_LABELS)} 个标签），本次启动跳过扫描")
+    except Exception as exc:
+        log(f"加载模型菜单缓存失败（将重新扫描）: {exc}")
+
+
+def _save_model_cache(result: dict) -> None:
+    """把扫描结果写入缓存，供下次启动复用。
+
+    只保存成功枚举到 ≥2 个叶子标签的结果，避免前端未就绪时把空菜单写进缓存。
+    """
+    try:
+        labels = result.get("labels") or []
+        if len(labels) < 2:
+            return
+        DISCOVERY_CACHE_FILE.parent.mkdir(parents=True, exist_ok=True)
+        payload = {
+            "at": datetime.now().isoformat(),
+            "labels": sorted(result.get("labels") or []),
+            "models": {
+                mid: {"ui_names": list(item["ui_names"]),
+                      "description": item.get("description", mid)}
+                for mid, item in MODELS.items()
+                if mid not in _BUILTIN_MODEL_IDS
+            },
+            "matched": int(result.get("matched_builtins") or DISCOVERY_MATCHED or 0),
+        }
+        DISCOVERY_CACHE_FILE.write_text(
+            json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    except Exception as exc:
+        log(f"保存模型菜单缓存失败: {exc}")
+
+
+def model_cache_fresh() -> bool:
+    """缓存是否存在、未过期且包含有效菜单（≥2 个叶子标签）。"""
+    try:
+        if not DISCOVERY_CACHE_FILE.exists():
+            return False
+        data = json.loads(DISCOVERY_CACHE_FILE.read_text(encoding="utf-8"))
+        ts = data.get("at")
+        labels = data.get("labels") or []
+        if not ts or len(labels) < 2:
+            return False
+        saved = datetime.fromisoformat(ts)
+        return (datetime.now() - saved).total_seconds() <= MODEL_CACHE_MAX_AGE_HOURS * 3600
+    except Exception:
+        return False
+
 
 # Backward compatibility with the model name used by v7.0.0.
 MODEL_ALIASES = {
@@ -556,6 +644,9 @@ def normalize_model_soft(model_id) -> str:
 DISCOVERED_LABELS: set | None = None
 # 本次扫描命中的内置模型数：为 0 说明菜单整体改名/大改版，此时放行全部内置模型
 DISCOVERY_MATCHED: int = 0
+
+# 启动时尝试复用上次扫描结果，减少每次启动都开菜单的耗时。
+_load_model_cache()
 
 
 def copilot_model_available(item: dict) -> bool:

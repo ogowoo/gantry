@@ -266,18 +266,19 @@ async def _visible_menu_items():
     角色并不统一：一级项多为 menuitemradio/option，二级飞出的子菜单项在不同
     租户/版本里可能是 menuitemcheckbox，甚至只是菜单容器里的普通子元素。
     因此先按角色收集，再对可见菜单容器的直接子项做兜底扫描，按标签去重。
+
+    优化：对同一角色的所有条目用一次 evaluate_all 拿到可见性、首行标签和父项
+    特征，避免每个条目都发起 is_visible/inner_text/evaluate 三次往返。
+    evaluate_all 失败时仍回退到原来的逐条定位。
     """
     entries = []
     seen: set = set()
 
-    async def add(item):
+    async def add_one(item):
         try:
             if not await item.is_visible():
                 return
             raw_text = (await item.inner_text() or "")
-            # 先取第一行再规整空白：inner_text 会把 标题/描述/已展开子项
-            # 拼成多行；若先折叠空白，多行会拼成一个不存在的假模型名
-            # （例如 "GPT-5.6 Sol Think deeper"），之后选择必失败。
             first_line = raw_text.splitlines()[0] if raw_text else ""
             label = re.sub(r"\s+", " ", first_line).strip()
             if not label or len(label) > 40 or label in seen:
@@ -287,21 +288,91 @@ async def _visible_menu_items():
         except Exception:
             pass
 
+    def hinted_from(d: dict) -> bool:
+        popup = str(d.get("popup") or "").lower()
+        if popup in {"menu", "true", "listbox", "tree", "dialog"}:
+            return True
+        return bool(d.get("expanded") or d.get("icon"))
+
+    js_snapshot = """(els) => els.map(el => {
+        try {
+            const st = getComputedStyle(el);
+            const visible = typeof el.checkVisibility === 'function'
+                ? el.checkVisibility()
+                : !(st.display === 'none' || st.visibility === 'hidden' || !el.offsetParent);
+            const raw = (el.innerText || '').split('\\n')[0];
+            const label = raw.replace(/\\s+/g, ' ').trim();
+            const popup = (el.getAttribute('aria-haspopup') || '').toLowerCase();
+            const expanded = el.hasAttribute('aria-expanded');
+            const icon = !!el.querySelector(
+                '[data-icon-name*="Chevron" i],[class*="submenuIndicator" i],' +
+                '[class*="Chevron" i],[class*="expandIcon" i]');
+            return {visible, label, popup, expanded, icon};
+        } catch (e) {
+            return {visible: false, label: '', popup: '', expanded: false, icon: false};
+        }
+    })"""
+
     for role in b.MENU_ITEM_ROLES:
         items = b.page.get_by_role(role)
-        for i in range(await items.count()):
-            await add(items.nth(i))
+        try:
+            count = await items.count()
+        except Exception:
+            continue
+        if not count:
+            continue
+        try:
+            data = await items.evaluate_all(js_snapshot)
+        except Exception:
+            data = None
+        if data is None:
+            for i in range(count):
+                await add_one(items.nth(i))
+            continue
+        for i, d in enumerate(data):
+            if not isinstance(d, dict):
+                continue
+            label = d.get("label") or ""
+            if not d.get("visible") or not label or len(label) > 40 or label in seen:
+                continue
+            seen.add(label)
+            entries.append((items.nth(i), label, hinted_from(d)))
+
     # 兜底：可见菜单容器内的直接子项（role 命名不统一时靠结构识别）
     for sel in b.MENU_CONTAINER_SEL:
         containers = b.page.locator(sel)
-        for ci in range(min(await containers.count(), 6)):
+        try:
+            ccount = await containers.count()
+        except Exception:
+            continue
+        for ci in range(min(ccount, 6)):
             container = containers.nth(ci)
             try:
                 if not await container.is_visible():
                     continue
                 kids = container.locator("> *")
-                for ki in range(await kids.count()):
-                    await add(kids.nth(ki))
+                try:
+                    kcount = await kids.count()
+                except Exception:
+                    continue
+                if not kcount:
+                    continue
+                try:
+                    data = await kids.evaluate_all(js_snapshot)
+                except Exception:
+                    data = None
+                if data is None:
+                    for ki in range(kcount):
+                        await add_one(kids.nth(ki))
+                    continue
+                for i, d in enumerate(data):
+                    if not isinstance(d, dict):
+                        continue
+                    label = d.get("label") or ""
+                    if not d.get("visible") or not label or len(label) > 40 or label in seen:
+                        continue
+                    seen.add(label)
+                    entries.append((kids.nth(i), label, hinted_from(d)))
             except Exception:
                 continue
     return entries
@@ -533,7 +604,7 @@ async def discover_models() -> dict:
                 if label in probed:
                     continue
                 probed.add(label)
-                if await b._probe_submenu(item, await b._submenu_hinted(item), base_labels):
+                if await b._probe_submenu(item, hinted, base_labels):
                     parents.add(label)
                     grew = True
                     break   # 菜单结构已变，重新收集后再继续探测
@@ -587,6 +658,8 @@ async def discover_models() -> dict:
     result.update({"added": added, "scanned": True, "labels": labels,
                    "menu_dump": result_menu_dump, "parents": sorted(parents),
                    "matched_builtins": b.DISCOVERY_MATCHED})
+    # 把本次成功扫描结果持久化，下次启动即可复用
+    b._save_model_cache(result)
     if not labels:
         result["reason"] = "模型菜单打开了但没有枚举到任何选项（可能是渲染延迟或前端改版）"
         await b.diagnostics("models_refresh_empty_menu")
@@ -658,8 +731,8 @@ async def select_model(model_id):
         # 不再依赖 aria-haspopup 判定父项——悬停安全，按效果确认是否父项。
         entries = await b._visible_menu_items()
         base_labels = {lbl for _i, lbl, _h in entries}
-        for parent, label, _hint in entries:
-            if not await b._probe_submenu(parent, await b._submenu_hinted(parent), base_labels):
+        for parent, label, hinted in entries:
+            if not await b._probe_submenu(parent, hinted, base_labels):
                 continue
             # 子菜单展开有动画延迟，立刻找可能落空：短轮询三次
             for _try in range(3):

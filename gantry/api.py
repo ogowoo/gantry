@@ -78,14 +78,19 @@ async def boot_browser() -> None:
             BOOT["browser_state"] = "ready"
             b.log("API 与浏览器已就绪")
             try:
-                disc = await b.discover_models()
-                added = disc.get("added") or []
-                if added:
-                    b.log(f"从 Copilot 菜单自动发现新模型: {', '.join(added)}")
-                elif disc.get("scanned"):
-                    b.log("模型菜单未发现新模型")
+                if b.model_cache_fresh():
+                    b.log("模型菜单缓存仍新鲜，启动时跳过扫描；"
+                          "可调用 POST /v1/models/refresh 强制刷新")
+                    disc = None
                 else:
-                    b.log(f"模型菜单扫描未完成（不影响已有模型）: {disc.get('reason') or '未知原因'}")
+                    disc = await b.discover_models()
+                    added = disc.get("added") or []
+                    if added:
+                        b.log(f"从 Copilot 菜单自动发现新模型: {', '.join(added)}")
+                    elif disc.get("scanned"):
+                        b.log("模型菜单未发现新模型")
+                    else:
+                        b.log(f"模型菜单扫描未完成（不影响已有模型）: {disc.get('reason') or '未知原因'}")
             except Exception as exc:
                 b.log(f"模型菜单自动发现失败（不影响已有模型）: {exc}")
             if bool(b.AGENT_CFG.get("auto_resume", False)):
