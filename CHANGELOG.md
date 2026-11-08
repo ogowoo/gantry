@@ -14,6 +14,31 @@
 ### Fixed
 - 
 
+## [11.0.0-preview.79] - 2026-11-08
+
+### Fixed
+
+- **Teams 连接器 operationId 错误**：`post_message` 原用已下线的 `PostMessageV3`，
+  导入时报 `WorkflowOperationInputsApiOperationNotFound`（The API operation
+  'PostMessageV3' could not be found in API 'teams'）。改为当前正式操作
+  **`PostMessageToConversation`**；同步更新模板与 SKILL。
+- 已实测：旧版导入包成功导入 示例租户 (Example) 环境，My flows 出现 **Teams 通知**。
+
+### Added
+
+- `gantry/power_automate_ui.py`：maker 门户 UI 自动化（probe / login / dom /
+  import 流程）；登录态保存到 `data/pa-auth.json`（已被 `.gitignore` 的 `data/` 忽略），
+  服务重启后自动注入，不用反复登录。
+- 端点：`POST /v1/power-automate/{probe,login,goto,click,dom,frames,html,select,
+  select-connection,import/open,import/run}`。
+- 导入流程已自动完成：打开 My flows → Import → Legacy、上传 zip、Flow 选
+  “Create as new”；连接选择器与最终 Import 目前仍需人工点两下（自定义 Angular
+  控件对合成点击不响应）。
+
+### 实测
+
+- 全套 **1622**（skipped=1）OK；不变量 25 条全绿。
+
 ## [11.0.0-preview.78] - 2026-11-08
 
 ### Added

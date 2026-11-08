@@ -36,7 +36,7 @@
       "inputs": {
         "host": {
           "connectionName": "shared_teams",
-          "operationId": "PostMessageV3",
+          "operationId": "PostMessageToConversation",
           "apiId": "/providers/Microsoft.PowerApps/apis/shared_teams"
         },
         "parameters": {

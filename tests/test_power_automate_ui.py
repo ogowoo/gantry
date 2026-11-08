@@ -14,13 +14,17 @@ from gantry import bridge as b  # noqa: E402
 
 class ProbeTests(unittest.TestCase):
     def test_probe_without_browser_returns_error(self):
-        old_fn, old_ctx = getattr(b, "ENSURE_BROWSER", None), getattr(b, "ctx", None)
+        old_fn = getattr(b, "ENSURE_BROWSER", None)
+        old_raw = getattr(b, "ENSURE_BROWSER_RAW", None)
+        old_ctx = getattr(b, "ctx", None)
         b.ENSURE_BROWSER = None
+        b.ENSURE_BROWSER_RAW = None
         b.ctx = None
         try:
             out = asyncio.run(power_automate_ui.probe())
         finally:
             b.ENSURE_BROWSER = old_fn
+            b.ENSURE_BROWSER_RAW = old_raw
             b.ctx = old_ctx
         self.assertFalse(out["ok"])
         self.assertIn("浏览器未就绪", out["error"])
@@ -30,6 +34,14 @@ class ProbeTests(unittest.TestCase):
         self.assertIn('@router.post("/v1/power-automate/probe")', src)
         self.assertIn('@router.post("/v1/power-automate/dom")', src)
         self.assertIn('@router.post("/v1/power-automate/login")', src)
+        self.assertIn('@router.post("/v1/power-automate/goto")', src)
+        self.assertIn('@router.post("/v1/power-automate/click")', src)
+        self.assertIn('@router.post("/v1/power-automate/import/open")', src)
+        self.assertIn('@router.post("/v1/power-automate/import/run")', src)
+        self.assertIn('@router.post("/v1/power-automate/frames")', src)
+        self.assertIn('@router.post("/v1/power-automate/select")', src)
+        self.assertIn('@router.post("/v1/power-automate/select-connection")', src)
+        self.assertIn('@router.post("/v1/power-automate/html")', src)
 
 
 if __name__ == "__main__":

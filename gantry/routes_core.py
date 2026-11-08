@@ -535,7 +535,12 @@ async def agent_completions(req: a.AgentRequest, request: HttpRequest = None):
 @router.post("/v1/power-automate/probe")
 async def power_automate_probe():
     from . import power_automate_ui
-    return await power_automate_ui.probe()
+    try:
+        return await power_automate_ui.probe()
+    except Exception as exc:
+        import traceback
+        return {"ok": False, "error": f"{type(exc).__name__}: {exc}",
+                "traceback": traceback.format_exc()[-2500:]}
 
 
 @router.post("/v1/power-automate/dom")
@@ -548,4 +553,66 @@ async def power_automate_dom():
 async def power_automate_login():
     from . import power_automate_ui
     return await power_automate_ui.login()
+
+
+@router.post("/v1/power-automate/goto")
+async def power_automate_goto(payload: dict):
+    from . import power_automate_ui
+    return await power_automate_ui.goto_path(str(payload.get("path") or "/"))
+
+
+@router.post("/v1/power-automate/click")
+async def power_automate_click(payload: dict):
+    from . import power_automate_ui
+    return await power_automate_ui.click_text(str(payload.get("text") or ""),
+                                              role=str(payload.get("role") or ""))
+
+
+@router.post("/v1/power-automate/import/open")
+async def power_automate_import_open():
+    from . import power_automate_ui
+    return await power_automate_ui.import_open()
+
+
+@router.post("/v1/power-automate/frames")
+async def power_automate_frames():
+    from . import power_automate_ui
+    return await power_automate_ui.frames_debug()
+
+
+@router.post("/v1/power-automate/select")
+async def power_automate_select(payload: dict):
+    from . import power_automate_ui
+    return await power_automate_ui.select_option(
+        label=str(payload.get("label") or ""),
+        value=str(payload.get("value") or ""),
+        index=int(payload.get("index") or 0))
+
+
+@router.post("/v1/power-automate/select-connection")
+async def power_automate_select_connection(payload: dict):
+    from . import power_automate_ui
+    return await power_automate_ui.select_connection(str(payload.get("label") or ""))
+
+
+@router.post("/v1/power-automate/html")
+async def power_automate_html(payload: dict):
+    from . import power_automate_ui
+    return await power_automate_ui.html_snippet(
+        str(payload.get("needle") or ""),
+        radius=int(payload.get("radius") or 1500))
+
+
+@router.post("/v1/power-automate/import/run")
+async def power_automate_import_run(payload: dict):
+    from pathlib import Path as _Path
+    from . import power_automate_ui
+    raw = str(payload.get("zip") or "")
+    if not raw:
+        raise HTTPException(400, "缺少 zip")
+    target = _Path(raw)
+    if not target.is_absolute():
+        target = _Path(str(b.AGENT_TOOLS.root)) / target
+    return await power_automate_ui.import_run(str(target),
+                                              dry_run=bool(payload.get("dry_run", True)))
 

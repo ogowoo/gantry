@@ -91,6 +91,13 @@ async def _start_browser(headless: bool) -> bool:
         b.log("无头模式启动失败，已回退为有窗口模式；请升级 Edge 或将 headless 改回 false")
         launch_kwargs["headless"] = False
         b.ctx = await b.pw.chromium.launch_persistent_context(**launch_kwargs)
+    # Power Automate 的 Entra 会话 cookie 是会话级的：启动后注入上次保存的
+    # data/pa-auth.json，登录才能跨服务重启保留（失败不影响浏览器启动）。
+    try:
+        from .power_automate_ui import restore_auth_state
+        await restore_auth_state(b.ctx)
+    except Exception:
+        pass
     b.HEADLESS_CURRENT = launch_kwargs["headless"]
     b.log("浏览器模式：" + ("无头（不显示窗口）" if b.HEADLESS_CURRENT else "有窗口"))
     b.set_shared_page(b.ctx.pages[0] if b.ctx.pages else await b.ctx.new_page())

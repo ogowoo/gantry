@@ -104,7 +104,7 @@ python scripts/power_automate_gen.py spec.json --workspace workspace --target al
 |---|---|---|---|
 | Office 365 Outlook | `outlook` | `shared_office365` | `send_email`（SendEmailV2）、`send_email_with_options` |
 | SharePoint | `sharepoint` | `shared_sharepointonline` | `get_items`、`create_item`、`update_item`、`get_file_content` |
-| Microsoft Teams | `teams` | `shared_teams` | `post_message`（PostMessageV3） |
+| Microsoft Teams | `teams` | `shared_teams` | `post_message`（PostMessageToConversation） |
 | Dataverse | `dataverse` | `shared_commondataserviceforapps` | `list_records`、`add_row`、`update_row`、`get_row` |
 | Approvals | `approvals` | `shared_approvals` | `start_and_wait` |
 | Microsoft Forms | `forms` | `shared_microsoftforms` | `get_response_details` |

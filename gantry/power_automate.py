@@ -36,7 +36,7 @@ CONNECTORS: dict[str, dict[str, Any]] = {
         "api_id": APIS_PREFIX + "shared_teams",
         "operations": {
             "post_message": {
-                "operation_id": "PostMessageV3",
+                "operation_id": "PostMessageToConversation",
                 "summary": "在 Teams 频道或群聊发消息",
                 "parameters": {
                     "poster": "Flow bot",
