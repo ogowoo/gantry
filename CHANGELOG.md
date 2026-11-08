@@ -14,6 +14,27 @@
 ### Fixed
 - 
 
+## [11.0.0-preview.80] - 2026-11-08
+
+### Added
+
+- **Power Automate 开发参考**：新增 [docs/POWER_AUTOMATE_DEV.md](docs/POWER_AUTOMATE_DEV.md)，
+  包含已核对的 operationId 表、spec 约定、两种包格式、常见导入错误对照、扩展连接器步骤。
+- Teams 连接器目录补齐已核对操作：`list_teams`（GetAllTeams）、`get_team`（GetTeam）、
+  `list_channels`（GetChannelsForGroup）、`list_channel_messages`（GetMessagesFromChannel）、
+  `list_chats`（GetChats）、`list_members`（ListMembers）。
+- `validate_definition()`：校验每个连接器动作的 `apiId`/`operationId` 是否在已知目录内，
+  并列出待替换占位符；`power_automate_validate` 返回 `warnings`。
+
+### Changed
+
+- `power_automate_validate` 的校验从“JSON 可解析 + 必填键”升级为“operationId 有效性 +
+  占位符提醒”，避免再出现 `PostMessageV3` 这类已下线操作直到导入才暴露。
+
+### 实测
+
+- 全套 **1625**（skipped=1）OK；不变量 25 条全绿。
+
 ## [11.0.0-preview.79] - 2026-11-08
 
 ### Fixed

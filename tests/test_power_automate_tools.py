@@ -83,6 +83,41 @@ class DefinitionTests(unittest.TestCase):
             pa.build_definition({"name": "x", "trigger": {"type": "manual"}, "actions": []})
 
 
+class ValidationTests(unittest.TestCase):
+    def test_unknown_operation_id_is_a_problem(self):
+        definition = pa.build_definition(_spec())
+        # 手工把 Teams 操作改成已下线的 PostMessageV3（历史真实故障）
+        definition["actions"]["send_mail"]["inputs"]["host"]["apiId"] = \
+            "/providers/Microsoft.PowerApps/apis/shared_teams"
+        definition["actions"]["send_mail"]["inputs"]["host"]["connectionName"] = "shared_teams"
+        definition["actions"]["send_mail"]["inputs"]["host"]["operationId"] = "PostMessageV3"
+        report = pa.validate_definition(definition)
+        self.assertFalse(report["ok"])
+        self.assertTrue(any("PostMessageV3" in x for x in report["problems"]), report)
+
+    def test_placeholders_are_warnings_not_errors(self):
+        definition = pa.build_definition({
+            "name": "teams-msg", "trigger": {"type": "manual"},
+            "actions": [{"name": "post", "connector": "teams", "operation": "post_message"}],
+        })
+        report = pa.validate_definition(definition)
+        self.assertTrue(report["ok"])
+        self.assertTrue(any("占位符" in x for x in report["warnings"]), report)
+        self.assertTrue(report["placeholders"])
+
+    def test_teams_extra_operations_are_known(self):
+        spec = {"name": "teams-read", "trigger": {"type": "manual"}, "actions": [
+            {"name": "teams", "connector": "teams", "operation": "list_teams"},
+            {"name": "channels", "connector": "teams", "operation": "list_channels",
+             "parameters": {"groupId": "g"}},
+        ]}
+        d = pa.build_definition(spec)
+        self.assertEqual(d["actions"]["teams"]["inputs"]["host"]["operationId"], "GetAllTeams")
+        self.assertEqual(d["actions"]["channels"]["inputs"]["host"]["operationId"],
+                         "GetChannelsForGroup")
+        self.assertTrue(pa.validate_definition(d)["ok"])
+
+
 class ProjectTests(unittest.TestCase):
     def setUp(self):
         self.ws = Path(tempfile.mkdtemp(prefix="cbp_pa_"))

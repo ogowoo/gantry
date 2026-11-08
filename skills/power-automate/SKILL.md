@@ -104,7 +104,7 @@ python scripts/power_automate_gen.py spec.json --workspace workspace --target al
 |---|---|---|---|
 | Office 365 Outlook | `outlook` | `shared_office365` | `send_email`（SendEmailV2）、`send_email_with_options` |
 | SharePoint | `sharepoint` | `shared_sharepointonline` | `get_items`、`create_item`、`update_item`、`get_file_content` |
-| Microsoft Teams | `teams` | `shared_teams` | `post_message`（PostMessageToConversation） |
+| Microsoft Teams | `teams` | `shared_teams` | `post_message`（PostMessageToConversation）、`list_teams`、`list_channels`、`list_channel_messages`、`list_chats`、`list_members` |
 | Dataverse | `dataverse` | `shared_commondataserviceforapps` | `list_records`、`add_row`、`update_row`、`get_row` |
 | Approvals | `approvals` | `shared_approvals` | `start_and_wait` |
 | Microsoft Forms | `forms` | `shared_microsoftforms` | `get_response_details` |
@@ -154,3 +154,9 @@ for p in pathlib.Path("flows/<flow-name>").rglob("*.json"):
 - `examples/teams-notify.json`：Teams 通知流 spec；
 - `examples/outlook-daily.json`：Outlook 每日邮件 spec；
 - `examples/sharepoint-to-teams.json`：SharePoint 列表 → Teams 通知 spec。
+
+## 开发参考
+
+维护/扩展连接器、包格式与常见导入错误见
+[docs/POWER_AUTOMATE_DEV.md](../../docs/POWER_AUTOMATE_DEV.md)：
+operationId 核对表、spec 约定、旧版包/解决方案包结构、错误对照。

@@ -46,6 +46,36 @@ CONNECTORS: dict[str, dict[str, Any]] = {
                     "body/messageBody": "<占位：消息正文>",
                 },
             },
+            "list_teams": {
+                "operation_id": "GetAllTeams",
+                "summary": "列出当前用户加入的 Teams 团队",
+                "parameters": {},
+            },
+            "get_team": {
+                "operation_id": "GetTeam",
+                "summary": "按 ID 读取团队信息",
+                "parameters": {"teamId": "<占位：Team ID>"},
+            },
+            "list_channels": {
+                "operation_id": "GetChannelsForGroup",
+                "summary": "列出某个团队的频道",
+                "parameters": {"groupId": "<占位：Team ID>"},
+            },
+            "list_channel_messages": {
+                "operation_id": "GetMessagesFromChannel",
+                "summary": "读取频道消息",
+                "parameters": {"groupId": "<占位：Team ID>", "channelId": "<占位：Channel ID>"},
+            },
+            "list_chats": {
+                "operation_id": "GetChats",
+                "summary": "列出最近聊天",
+                "parameters": {"chatType": "all", "topic": "all"},
+            },
+            "list_members": {
+                "operation_id": "ListMembers",
+                "summary": "列出群聊成员",
+                "parameters": {"threadType": "groupchat", "body/recipient": "<占位：Chat ID>"},
+            },
         },
     },
     "outlook": {
@@ -898,10 +928,67 @@ def build_solution_package(root: Path, spec: dict[str, Any],
 
 
 # ── 校验 ──────────────────────────────────────────────────────────
+def _connector_for_api(api_id: str) -> dict[str, Any] | None:
+    for conn in CONNECTORS.values():
+        if conn["api_id"] == api_id:
+            return conn
+    return None
+
+
+def _walk_actions(actions: Any):
+    if not isinstance(actions, dict):
+        return
+    for name, action in actions.items():
+        if not isinstance(action, dict):
+            continue
+        yield str(name), action
+        yield from _walk_actions(action.get("actions"))
+        if isinstance(action.get("else"), dict):
+            yield from _walk_actions(action["else"].get("actions"))
+        if isinstance(action.get("cases"), dict):
+            for case in action["cases"].values():
+                if isinstance(case, dict):
+                    yield from _walk_actions(case.get("actions"))
+        if isinstance(action.get("default"), dict):
+            yield from _walk_actions(action["default"].get("actions"))
+
+
+def validate_definition(definition: dict[str, Any]) -> dict[str, Any]:
+    """校验 definition 里的连接器操作与占位符；problems 是硬错误，warnings 是提醒。"""
+    problems: list[str] = []
+    warnings: list[str] = []
+    if not isinstance(definition, dict):
+        return {"ok": False, "problems": ["definition 不是对象"], "warnings": []}
+    for key in ("triggers", "actions", "$schema", "contentVersion"):
+        if key not in definition:
+            problems.append(f"definition 缺少 {key}")
+    for name, action in _walk_actions(definition.get("actions") or {}):
+        if action.get("type") not in ("OpenApiConnection", "OpenApiConnectionWebhook"):
+            continue
+        host = (action.get("inputs") or {}).get("host") or {}
+        api_id = str(host.get("apiId") or "")
+        op = str(host.get("operationId") or "")
+        conn = _connector_for_api(api_id)
+        if conn is None:
+            warnings.append(f"动作 {name}: 未收录的 apiId {api_id}（本地无法校验 operationId）")
+            continue
+        known = {o["operation_id"] for o in conn["operations"].values()}
+        if op not in known:
+            problems.append(
+                f"动作 {name}: operationId {op!r} 不在 {conn['display_name']} 的已知操作里"
+                f"（可用：{', '.join(sorted(known))}）")
+    placeholders = sorted(set(re.findall(r"<占位：[^>]*>", json.dumps(definition, ensure_ascii=False))))
+    if placeholders:
+        warnings.append(f"还有 {len(placeholders)} 个占位符待替换")
+    return {"ok": not problems, "problems": problems, "warnings": warnings,
+            "placeholders": placeholders}
+
+
 def validate_project(root: Path, name: str, output_dir: str = "flows") -> dict[str, Any]:
-    """校验工程目录里的 JSON 是否可解析、必填键是否齐全。"""
+    """校验工程目录里的 JSON 是否可解析、definition 必填键与连接器操作是否有效。"""
     base = Path(root) / output_dir / name
     problems: list[str] = []
+    warnings: list[str] = []
     if not base.is_dir():
         raise PowerAutomateError(f"工程目录不存在: {base}")
     checked = []
@@ -913,7 +1000,8 @@ def validate_project(root: Path, name: str, output_dir: str = "flows") -> dict[s
             continue
         checked.append(p.name)
         if p.name == "definition.json":
-            for key in ("triggers", "actions", "$schema", "contentVersion"):
-                if key not in data:
-                    problems.append(f"definition.json 缺少 {key}")
-    return {"ok": not problems, "checked": checked, "problems": problems}
+            report = validate_definition(data)
+            problems.extend(report["problems"])
+            warnings.extend(report["warnings"])
+    return {"ok": not problems, "checked": checked, "problems": problems,
+            "warnings": warnings}
