@@ -84,12 +84,25 @@ class CloneRebindTests(unittest.TestCase):
 
     def test_tools_rebound_to_clone(self):
         clone = self.reg.clone()
+
+        def bound_to(fn, reg):
+            """绑定方法看 __self__；插件闭包看捕获的 registry。"""
+            if getattr(fn, "__self__", None) is reg:
+                return True
+            for cell in (getattr(fn, "__closure__", None) or []):
+                try:
+                    if cell.cell_contents is reg:
+                        return True
+                except ValueError:
+                    continue
+            return False
+
         for name in ("read_text", "write_text", "list_directory", "run_unittest"):
             fn = clone._tools.get(name)
             self.assertIsNotNone(fn, f"缺工具 {name}")
-            self.assertIs(fn.__self__, clone, f"{name} 仍绑定在原始注册表上")
+            self.assertTrue(bound_to(fn, clone), f"{name} 仍绑定在原始注册表上")
         # 原注册表不受影响
-        self.assertIs(self.reg._tools["read_text"].__self__, self.reg)
+        self.assertTrue(bound_to(self.reg._tools["read_text"], self.reg))
 
     def test_clone_root_controls_writes(self):
         clone = self.reg.clone()

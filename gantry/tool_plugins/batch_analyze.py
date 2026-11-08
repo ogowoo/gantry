@@ -6,7 +6,7 @@ def register(registry):
         limit = max(1, min(int(max_bytes), 10485760))
         results = []
         for path in list(paths)[:200]:
-            target = registry._resolve(path)
+            target = registry._path(path)
             if not target.is_file():
                 results.append({'path': path, 'error': 'not_a_file'})
                 continue

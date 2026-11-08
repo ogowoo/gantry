@@ -944,7 +944,8 @@ gantry/              核心套件
   agent_parse.py    ParseMixin：JSON 動作協議 / 容錯解析 / 批次復原
   agent_text.py     TextMixin：token 估算 / spill / 保頭保尾壓縮
   tools.py          工具註冊表／分派、路徑沙箱與權限閘（核心 mixin）
-  tools_files.py    檔案讀寫／取代／修補／縮排／目錄操作
+  tools_files.py    檔案工具相容層（真實實作已拆到 tool_plugins/）
+  tool_plugins/     每個檔案工具一個檔案（read_text / write_text / apply_patch …），自動註冊
   tools_exec.py     validate_python / run_unittest / run_code / run_python
   tools_office.py   Excel / Word / PPT / PDF
   tools_outlook.py  Outlook（COM + OWA）

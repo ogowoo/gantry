@@ -14,6 +14,35 @@
 ### Fixed
 - 
 
+## [11.0.0-preview.75] - 2026-11-08
+
+### Changed
+
+- **文件工具拆成独立插件文件**：`gantry/tools_files.py` 里 19 个文件读写/编辑工具
+  全部迁到 `gantry/tool_plugins/`，每个工具一个文件（`read_text.py`、`write_text.py`、
+  `apply_patch.py`、`convert_indentation.py` …），由 `tool_plugin_loader` 在
+  `ToolRegistry.__init__` 统一注册；`tools_files.py` 只保留 `FilesMixin` 兼容 shim，
+  历史调用 `registry.read_text(...)` 与单测继续可用。
+- `ToolRegistry.clone()` 会按克隆后的 registry 重新注册插件工具，保证
+  `set_root(会话工作区)` 后文件工具仍写在正确的工作区（插件闭包不再捕获旧 registry）。
+
+### Added
+
+- `list_directory_tree(path, max_depth=3, include_hidden=false, max_entries=1000)`：
+  递归列出目录树（扁平列表带 depth），解决模型幻觉出不存在的 `self_list_tree` 后
+  只能逐层 `list_directory` 的问题；同时在提示词里明确“不存在 self_list_tree”。
+
+### Fixed
+
+- `gantry/tool_plugins/_files_utils.py` 统一承载 `guard_printable` / `hash_file` /
+  `require_read` / `diff_payload` / `decode_b64` 等共享辅助，避免多份实现漂移。
+- 工具 i18n 补 `list_directory_tree` / `delete_path` / `list_directory.since_mtime`
+  英文描述与参数提示，英文模式不再露中文。
+
+### 实测
+
+- 全套 **1591**（skipped=1）OK；不变量 25 条全绿。
+
 ## [11.0.0-preview.74] - 2026-11-06
 
 ### Changed

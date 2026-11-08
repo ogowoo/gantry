@@ -163,7 +163,7 @@ async def adversarial_audit(target: str = "", objective: str = "", auditors: int
             (f"你是一名对抗式代码审计员（角度：{label}（{desc}））。\n"
              f"审计目标：{objective}\n审查范围：{target}\n"
              "要求：\n"
-             "1. 只读探索，绝不修改文件（read_text / find_files / list_directory / grep）。\n"
+             "1. 只读探索，绝不修改文件（read_text / find_files / list_directory / list_directory_tree / grep）。\n"
              "2. 先列出你检查了哪些文件，再逐个报告问题。\n"
              "3. 只报**有证据**的问题：必须给出文件路径与行号；不要猜、不要泛泛。\n"
              "4. severity：p0=数据损坏/安全/服务不可用；p1=明显缺陷/错误；p2=小问题/风格。\n"

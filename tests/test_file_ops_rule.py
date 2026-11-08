@@ -30,20 +30,24 @@ class FileToolsArePurePythonTests(unittest.TestCase):
     SPAWN_ATTRS = {"create_subprocess_exec", "create_subprocess_shell", "run", "Popen",
                    "call", "check_output", "system", "popen"}
 
-    # 文件工具已拆到 gantry/tools_files.py（tools.py 第四批解耦），两处都要查
+    # 文件工具已拆到 gantry/tool_plugins/*.py（tools_files.py 只留兼容 shim），
+    # 核心工具仍在 tools.py。
     SOURCES = ("tools.py", "tools_files.py")
 
     def _tree(self):
         import ast
-        return [ast.parse((BASE / "gantry" / name).read_text(encoding="utf-8"))
-                for name in self.SOURCES]
+        trees = [ast.parse((BASE / "gantry" / name).read_text(encoding="utf-8"))
+                 for name in self.SOURCES]
+        for p in sorted((BASE / "gantry" / "tool_plugins").glob("*.py")):
+            trees.append(ast.parse(p.read_text(encoding="utf-8")))
+        return trees
 
     def test_file_tools_never_spawn_a_process(self):
         import ast
         targets = {"read_text", "write_text", "append_text", "write_text_b64",
                    "append_text_b64", "replace_text", "replace_lines", "list_directory",
-                   "find_files", "make_directory", "copy_path", "move_path", "delete_path",
-                   "grep"}
+                   "list_directory_tree", "find_files", "make_directory", "copy_path",
+                   "move_path", "delete_path", "grep"}
         offenders = []
         for tree in self._tree():
             for node in ast.walk(tree):
@@ -82,6 +86,8 @@ class FileToolsArePurePythonTests(unittest.TestCase):
     def test_file_tools_use_pathlib_with_explicit_utf8(self):
         src = "".join((BASE / "gantry" / name).read_text(encoding="utf-8")
                       for name in self.SOURCES)
+        for p in sorted((BASE / "gantry" / "tool_plugins").glob("*.py")):
+            src += p.read_text(encoding="utf-8")
         # 写/读必须显式指定编码，否则中文在 GBK 机器上会乱码
         self.assertIn('encoding="utf-8"', src)
         self.assertIn("newline=", src,

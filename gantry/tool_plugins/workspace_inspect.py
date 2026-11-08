@@ -3,7 +3,7 @@
 
 def register(registry):
     async def workspace_inspect(path='.', max_entries=200):
-        target = registry._resolve(path)
+        target = registry._path(path)
         limit = max(1, min(int(max_entries), 1000))
         items = [target] if target.is_file() else target.rglob('*')
         entries = []

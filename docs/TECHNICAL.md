@@ -91,7 +91,8 @@ FastAPI 路由层  app.py(shim) → gantry/api.py
 | `gantry/agent_parse.py` | ~450 | `ParseMixin`：JSON 动作协议、容错解析、批量成组、截断恢复、非法转义修复 |
 | `gantry/agent_text.py` | ~75 | `TextMixin`：token 估算、结果 spill、保头保尾 `retain_text`、`compact_value` |
 | `gantry/tools.py` | ~760 | 工具注册表与分派、路径沙箱/权限门、计划模式、工具分组（核心 mixin） |
-| `gantry/tools_files.py` | ~660 | 文件读写/替换/补丁/缩进/目录操作 |
+| `gantry/tools_files.py` | ~110 | 文件工具兼容层：`FilesMixin` shim 转发到 `tool_plugins/` 的独立实现 |
+| `gantry/tool_plugins/` | 每工具一文件 | 文件读写/替换/补丁/缩进/目录操作（`read_text.py`、`write_text.py`、`apply_patch.py` …），由 `tool_plugin_loader` 自动注册 |
 | `gantry/tools_exec.py` | ~95 | validate_python / run_unittest / run_code / run_python |
 | `gantry/tools_office.py` | ~200 | Excel / Word / PPT / PDF |
 | `gantry/tools_outlook.py` | ~250 | Outlook（COM + OWA 双后端） |
@@ -122,7 +123,7 @@ FastAPI 路由层  app.py(shim) → gantry/api.py
   - `ParseMixin`：只负责“把模型返回解析成可执行动作”；
   - `TextMixin`：只负责“文本/结果太长时怎么压缩”。
   新增行为时先判断属于哪一类，优先放进对应 mixin；跨 mixin 的调用通过继承后的 `self` 完成。
-- `gantry/tools.py` 同样被拆成 `tools_files.py`、`tools_exec.py`、`tools_office.py`、`tools_outlook.py`、`tools_skills.py`、`tools_memory.py`、`tools_self.py` 七个 mixin，`ToolRegistry` 继承全部 mixin 后统一注册。
+- `gantry/tools.py` 的核心工具拆成 `tools_exec.py`、`tools_office.py`、`tools_outlook.py`、`tools_skills.py`、`tools_memory.py`、`tools_self.py` 六个 mixin；**文件读写/编辑工具进一步拆到 `gantry/tool_plugins/`（每个工具一个文件）**，由 `tool_plugin_loader.load_tool_plugins()` 在 `ToolRegistry.__init__` 里自动注册。`tools_files.py` 只保留兼容 shim（`FilesMixin` 转发到 `_tools[...]`），保证历史调用与单测继续可用。
 - `gantry/api.py` 把端点按域拆成 `routes_core.py`、`routes_config.py`、`routes_agents.py`、`routes_sessions.py`；`api.py` 只做应用组装与中间件。
 
 拆分后单文件职责单一，黄金测试（如 `test_prompt_stability.py`、`test_agent_parse.py`）能更精准地锁定回归范围。

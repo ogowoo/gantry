@@ -74,6 +74,65 @@ class DirIncrementalTests(unittest.TestCase):
         self.assertIn("mtime", out["items"][0])
 
 
+class DirTreeTests(unittest.TestCase):
+    def test_list_directory_tree_basic(self):
+        ws = Path(tempfile.mkdtemp(prefix="cbp_tree_"))
+        (ws / "a.txt").write_text("a", encoding="utf-8")
+        (ws / "sub").mkdir()
+        (ws / "sub" / "b.txt").write_text("b", encoding="utf-8")
+        (ws / "sub" / ".hidden").write_text("h", encoding="utf-8")
+
+        reg = ToolRegistry(ws, {})
+        out = asyncio.run(reg.list_directory_tree(".", max_depth=3))
+        paths = {(i["path"], i["type"], i["depth"]) for i in out["items"]}
+        self.assertIn((".", "directory", 0), paths)
+        self.assertIn(("a.txt", "file", 1), paths)
+        self.assertIn(("sub", "directory", 1), paths)
+        self.assertIn(("sub/b.txt", "file", 2), paths)
+        # 默认不包含隐藏文件
+        self.assertNotIn(("sub/.hidden", "file", 2), paths)
+        self.assertFalse(out.get("truncated"))
+
+    def test_list_directory_tree_hidden_and_depth(self):
+        ws = Path(tempfile.mkdtemp(prefix="cbp_tree2_"))
+        (ws / "sub").mkdir()
+        (ws / "sub" / "deep").mkdir()
+        (ws / "sub" / "deep" / "c.txt").write_text("c", encoding="utf-8")
+        (ws / ".hidden_root").write_text("h", encoding="utf-8")
+
+        reg = ToolRegistry(ws, {})
+        # max_depth=1：只到 sub 这一层，sub/deep/c.txt 不出现
+        out = asyncio.run(reg.list_directory_tree(".", max_depth=1, include_hidden=False))
+        paths = {i["path"] for i in out["items"]}
+        self.assertIn(".", paths)
+        self.assertIn("sub", paths)
+        self.assertNotIn("sub/deep", paths)
+        self.assertNotIn("sub/deep/c.txt", paths)
+        self.assertNotIn(".hidden_root", paths)
+
+        # include_hidden=true 且 max_depth=2
+        out2 = asyncio.run(reg.list_directory_tree(".", max_depth=2, include_hidden=True))
+        paths2 = {i["path"] for i in out2["items"]}
+        self.assertIn(".hidden_root", paths2)
+        self.assertIn("sub/deep", paths2)
+        self.assertIn("sub/deep/c.txt", paths2)
+
+    def test_list_directory_tree_truncation(self):
+        ws = Path(tempfile.mkdtemp(prefix="cbp_tree3_"))
+        for i in range(5):
+            (ws / f"f{i}.txt").write_text("x", encoding="utf-8")
+        reg = ToolRegistry(ws, {})
+        out = asyncio.run(reg.list_directory_tree(".", max_entries=3))
+        self.assertTrue(out["truncated"])
+        self.assertLessEqual(len(out["items"]), 3)
+
+    def test_list_directory_tree_sandbox_escape(self):
+        ws = Path(tempfile.mkdtemp(prefix="cbp_tree4_"))
+        reg = ToolRegistry(ws, {})
+        with self.assertRaises(Exception):
+            asyncio.run(reg.list_directory_tree("../.."))
+
+
 class GrepFirstPromptTests(unittest.TestCase):
     def test_rule_present(self):
         self.assertIn("定位优先用 grep", P.AGENT_PROTOCOL)

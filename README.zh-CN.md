@@ -966,7 +966,8 @@ gantry/              核心包
   agent_parse.py    ParseMixin：JSON 动作协议 / 容错解析 / 批量恢复
   agent_text.py     TextMixin：token 估算 / spill / 保头保尾压缩
   tools.py          工具注册表/分派、路径沙箱与权限门（核心 mixin）
-  tools_files.py    文件读写/替换/补丁/缩进/目录操作
+  tools_files.py    文件工具兼容层（真实实现已拆到 tool_plugins/）
+  tool_plugins/     每个文件工具一个文件（read_text / write_text / apply_patch …），自动注册
   tools_exec.py     validate_python / run_unittest / run_code / run_python
   tools_office.py   Excel / Word / PPT / PDF
   tools_outlook.py  Outlook（COM + OWA）

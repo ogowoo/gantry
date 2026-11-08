@@ -940,8 +940,8 @@ class AgentRunner(PromptMixin, ParseMixin, TextMixin):
                         "不要任何解释、不要代码围栏、不要多个对象并列。例："
                         '{"type":"tool","tool":"read_text","arguments":{"path":"REL/PATH","line_start":1,'
                         '"line_count":80},"reason":"看实现"}。'
-                        "常用工具名：list_directory / read_text / grep / find_files / replace_text / "
-                        "write_text_b64 / validate_python / run_unittest / todo_write / pwsh。"
+                        "常用工具名：list_directory / list_directory_tree / read_text / grep / find_files / "
+                        "replace_text / write_text_b64 / validate_python / run_unittest / todo_write / pwsh。"
                         '整个任务做完才用 {"type":"final","markdown":"结论"}。')
                 step = {"step": total + 1, "status": "invalid_action", "error": _msg,
                         "raw_tail": (raw or "")[-2000:]}

@@ -197,9 +197,9 @@ NON_IDEMPOTENT_TOOLS = ("pwsh", "outlook_send", "delete_path", "move_path", "app
                         "append_text_b64", "copy_path")
 
 # 只读动作：它们成功即说明"当前真实状态"已核对过，可以解除上面的封锁。
-READ_ONLY_TOOLS = ("read_text", "list_directory", "find_files", "outlook_unread",
-                   "read_excel", "read_csv", "read_pdf", "read_docx", "memory_search",
-                   "skill_list", "tool_list", "validate_python", "run_unittest")
+READ_ONLY_TOOLS = ("read_text", "list_directory", "list_directory_tree", "find_files",
+                   "outlook_unread", "read_excel", "read_csv", "read_pdf", "read_docx",
+                   "memory_search", "skill_list", "tool_list", "validate_python", "run_unittest")
 
 class ToolsCoreMixin:
     def __init__(self, root: Path, config: dict[str, Any]):
@@ -291,25 +291,8 @@ class ToolsCoreMixin:
         self.session_id_fn = None            # () -> str | None
         self.web_copilot_allowed_fn = None    # () -> bool
         self.self_denylist = ("config.json", "data/", "EdgeProfile/", "for debug/", ".git/", "__pycache__/")
+        # 文件类工具已拆到 gantry/tool_plugins/*.py，由插件加载器在下面统一注册。
         self._tools: dict[str, Callable[..., Awaitable[Any]]] = {
-            "list_directory": self.list_directory,
-            "find_files": self.find_files,
-            "read_text": self.read_text,
-            "write_text": self.write_text,
-            "append_text": self.append_text,
-            "write_text_b64": self.write_text_b64,
-            "append_text_b64": self.append_text_b64,
-            "replace_text": self.replace_text,
-            "replace_lines": self.replace_lines,
-            "apply_patch": self.apply_patch,
-            "python_symbols": self.python_symbols,
-            "replace_python_symbol": self.replace_python_symbol,
-            "convert_indentation": self.convert_indentation,
-            "indent_lines": self.indent_lines,
-            "make_directory": self.make_directory,
-            "copy_path": self.copy_path,
-            "move_path": self.move_path,
-            "delete_path": self.delete_path,
             "exit_plan_mode": self.exit_plan_mode,
             "run_python": self.run_python,
             "run_code": self.run_code,
@@ -348,6 +331,20 @@ class ToolsCoreMixin:
                 "self_find_files": self.self_find_files,
                 "self_search_text": self.self_search_text,
             })
+        # 统一加载 gantry/tool_plugins/ 下的独立工具插件（文件读写/编辑等）。
+        # 其中 batch_analyze / capability_probe / workspace_inspect 仍由
+        # plugins/coding-harness-tools 负责注册（历史行为），这里跳过，避免重复
+        # 或把 command_capabilities 之类工具塞进每个测试注册表。
+        try:
+            from .tool_plugin_loader import load_tool_plugins
+            _cfg = dict(self.config)
+            _tp = dict(_cfg.get("tool_plugins") or {})
+            _tp["disabled"] = sorted(set(_tp.get("disabled") or []) | {
+                "batch_analyze", "capability_probe", "workspace_inspect"})
+            _cfg["tool_plugins"] = _tp
+            self.tool_plugin_report = load_tool_plugins(self, _cfg)
+        except Exception as exc:  # 不让插件加载失败拖垮整个注册表
+            self.tool_plugin_report = {"failed": [{"plugin": "<loader>", "error": str(exc)}]}
 
     def clone(self) -> "ToolRegistry":
         r"""复制一份注册表给**并行任务**用（root / 沙箱 / 计划模式 / 记忆作用域互不干扰）。
@@ -371,6 +368,26 @@ class ToolsCoreMixin:
                     new._tools[name] = getattr(new, getattr(fn, "__name__", name))
                 except Exception:
                     pass
+        # 插件注册的闭包捕获的是**原** registry，克隆后必须按新 registry 重新注册，
+        # 否则 clone.set_root(会话工作区) 后文件工具仍在旧工作区里读写。
+        # 先把插件注册过的工具从副本里摘掉，避免加载器判成“重复注册”而整批失败。
+        report = getattr(self, "tool_plugin_report", None) or {}
+        plugin_tools = set(report.get("tools") or [])
+        for name in plugin_tools:
+            new._tools.pop(name, None)
+            new._approval_extra.discard(name)
+        new._extra_descriptions = [d for d in new._extra_descriptions
+                                   if d.get("name") not in plugin_tools]
+        try:
+            from .tool_plugin_loader import load_tool_plugins
+            _cfg = dict(new.config)
+            _tp = dict(_cfg.get("tool_plugins") or {})
+            _tp["disabled"] = sorted(set(_tp.get("disabled") or []) | {
+                "batch_analyze", "capability_probe", "workspace_inspect"})
+            _cfg["tool_plugins"] = _tp
+            new.tool_plugin_report = load_tool_plugins(new, _cfg)
+        except Exception:
+            pass
         return new
 
     def register(self, name: str, fn: Callable[..., Awaitable[Any]],
@@ -385,6 +402,9 @@ class ToolsCoreMixin:
         self._tools[name] = fn
         if approval:
             self._approval_extra.add(name)
+        # 幂等：同名工具重复注册（clone 后重载插件、插件覆盖等）只保留最新描述
+        self._extra_descriptions = [d for d in self._extra_descriptions
+                                    if d.get("name") != name]
         self._extra_descriptions.append(
             {"name": name, "description": description, "arguments": arguments})
 
@@ -532,36 +552,15 @@ class ToolsCoreMixin:
         return items
 
     def _descriptions_all(self) -> list[dict[str, Any]]:
+        # 文件类工具（list_directory/read_text/write_text/...）的描述由
+        # gantry/tool_plugins/*.py 通过 registry.register() 注入，这里不再重复声明。
         items = [
-            {"name": "list_directory", "description": "列出工作区目录", "arguments": {"path": "相对路径，默认 ."}},
-            {"name": "find_files", "description": "按 glob 查找文件", "arguments": {"pattern": "如 **/*.log"}},
-            {"name": "read_text", "description": "读取 UTF-8 文本；默认读全文件（上限 max_read_chars）。超大文件用 offset/limit 按字符分段，或 line_start/line_count 按行读（带行号，便于精确改某几行）", "arguments": {"path": "相对路径", "offset": "字符偏移，默认0", "limit": "本次最多返回字符数，默认120000", "line_start": "按行读：起始行号，1 起（传了就忽略 offset）", "line_count": "按行读：读多少行，默认到文件末尾", "reveal_whitespace": "把空格显示成 ·、制表符显示成 →（查缩进必用）"}},
-            {"name": "write_text", "description": "写入 UTF-8 明文；**只用于新建文件**。已存在的文件必须先 read_text，再用 apply_patch/replace_text/replace_lines 局部修改；确实要整体重写才传 overwrite=true。文档类（.md/.txt/.log）可整篇写，代码类仅限 ≤1500 字符（更长用 b64）", "arguments": {"path": "相对路径", "content": "文本", "overwrite": "仅整体重写现有文件时传 true（默认 false 会拒绝覆盖）"}},
-            {"name": "append_text", "description": "追加 UTF-8 明文；文档类分块续写用它，代码类仅限 ≤1500 字符（更长用 append_text_b64）", "arguments": {"path": "相对路径", "content": "文本"}},
-            {"name": "write_text_b64", "description": "Base64 解码后写入 UTF-8；**只用于新建文件**。修改现有文件必须先 read_text，再用 apply_patch/replace_text/replace_lines；确实要整体重写才传 overwrite=true", "arguments": {"path": "相对路径", "content_b64": "UTF-8 内容的 Base64", "overwrite": "仅整体重写现有文件时传 true（默认 false 会拒绝覆盖）"}},
-            {"name": "append_text_b64", "description": "Base64 解码后追加 UTF-8；代码、JSON、HTML、Markdown 必须用此工具", "arguments": {"path": "相对路径", "content_b64": "UTF-8 内容的 Base64"}},
-            {"name": "replace_text", "description": "在现有文件中精确替换短文本，修改代码时优先使用", "arguments": {"path": "相对路径", "old": "原文本", "new": "新文本", "count": "替换次数，默认1"}},
-            {"name": "apply_patch", "description": "一次调用完成多处修改（原子：任一失败则不写入）；支持补丁或 edits 列表，四处以上小改用它省回合",
-             "arguments": {"path": "相对路径",
-                           "patch": "补丁文本：*** Begin Patch / *** Update File: x / @@ 分块，行首 ' '=上下文 '-'=旧 '+'=新",
-                           "edits": "或改用数组 [{old,new,count?}]（与 patch 二选一）",
-                           "count": "每条替换次数，默认 1（0=全部）"}},
-            {"name": "convert_indentation", "description": "把**行首**缩进在制表符/空格之间一次转换完（只动行首，不碰行内与字符串）；修缩进别再用 replace_text 一处一处改", "arguments": {"path": "相对路径", "mode": "tabs2spaces（默认）或 spaces2tabs", "width": "制表位宽度，默认4", "line_start": "只改这一段：起始行，1 起（可省略）", "line_count": "改多少行（可省略）"}},
-            {"name": "indent_lines", "description": "给指定行区间**增减行首空格**（delta 正=加缩进，负=减）；修缩进用它，别在 replace_text 里塞空格", "arguments": {"path": "相对路径", "line_start": "起始行，1 起", "line_count": "多少行，默认1", "delta": "加减几个空格（正=加，负=减）"}},
-            {"name": "replace_lines", "description": "按行号替换整行区间（1 起，含首尾），保留文件原有换行风格；改缩进/整段替换时用它，比 replace_text 更稳；不需要 shell", "arguments": {"path": "相对路径", "start": "起始行号，1 起", "count": "替换几行，默认1", "content": "新内容（可含多行；传空串表示删除这几行）"}},
-            {"name": "python_symbols", "description": "按 AST 列出 .py 文件里的函数/类及其行区间（含 Class.method 限定名）；改整个函数/类前先用它定位", "arguments": {"path": "相对路径"}},
-            {"name": "replace_python_symbol", "description": "按 AST 定位并整段替换一个 Python 函数/类；比文本匹配更稳，改整段实现优先用它", "arguments": {"path": "相对路径", "name": "符号名，如 Class.method 或 func", "content": "新的完整符号源码（含 def/class 行与缩进）"}},
-            {"name": "make_directory", "description": "创建目录", "arguments": {"path": "相对路径"}},
-            {"name": "copy_path", "description": "复制文件或目录", "arguments": {"source": "相对路径", "destination": "相对路径"}},
-            {"name": "move_path", "description": "移动文件或目录", "arguments": {"source": "相对路径", "destination": "相对路径"}},
             {"name": "validate_python", "description": "检查 Python 文件或目录语法；仅在文件全部写完后执行（写了一半的文件必然失败，不是缺陷）", "arguments": {"path": "相对路径，默认 ."}},
             {"name": "run_unittest", "description": "执行 unittest 测试发现；仅在文件全部写完后执行", "arguments": {"path": "测试目录，默认 tests", "pattern": "默认 test_*.py"}},
             {"name": "exit_plan_mode",
              "description": "结束计划模式：提交方案并解除只读限制（计划阶段只读探索后调用）",
              "arguments": {"plan": "要执行的方案（Markdown）", "notes": "补充说明（可选）"}},
         ]
-        if self.allow_delete:
-            items.append({"name": "delete_path", "description": "删除路径", "arguments": {"path": "相对路径"}})
         if self.allow_run_code:
             items.append({"name": "run_code",
                           "description": "在子进程里跑一段 Python，可批量调用只读工具"

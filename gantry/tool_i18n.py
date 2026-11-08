@@ -22,6 +22,9 @@ DESC_EN: dict[str, str] = {
     'command_capabilities': 'Probe commands',
     'workspace_inspect': 'Inspect files',
     "list_directory": "List entries of a workspace directory",
+    "list_directory_tree": ("Recursively list a directory tree (subdirectories and files) for a full "
+                            "project review; use find_files for precise lookups (there is no "
+                            "self_list_tree tool)"),
     "find_files": "Find files by glob pattern",
     "read_text": ("Read UTF-8 text; reads the whole file by default (up to max_read_chars). "
                   "For huge files page by characters with offset/limit, or read by line with "
@@ -58,6 +61,7 @@ DESC_EN: dict[str, str] = {
     "make_directory": "Create a directory",
     "copy_path": "Copy a file or directory",
     "move_path": "Move a file or directory",
+    "delete_path": "Delete a path",
     "validate_python": ("Check Python syntax of a file or directory; run it only after all files "
                         "are complete (a half-written file always fails — that is not a defect)"),
     "run_unittest": "Run unittest discovery; run it only after all files are complete",
@@ -91,6 +95,11 @@ ARG_EN: dict[str, str] = {
     'workspace_inspect.path': 'Relative path',
     'workspace_inspect.max_entries': 'Entry limit',
     "list_directory.path": "Relative path, defaults to .",
+    "list_directory.since_mtime": "Only return entries modified after this timestamp (optional)",
+    "list_directory_tree.path": "Relative path, defaults to .",
+    "list_directory_tree.max_depth": "Maximum recursion depth, default 3 (0-8)",
+    "list_directory_tree.include_hidden": "Include hidden files/directories, default false",
+    "list_directory_tree.max_entries": "Maximum entries returned, default 1000",
     "find_files.pattern": "e.g. **/*.log",
     "read_text.path": "Relative path",
     "read_text.offset": "Character offset, default 0",
@@ -139,6 +148,7 @@ ARG_EN: dict[str, str] = {
     "copy_path.destination": "Relative path",
     "move_path.source": "Relative path",
     "move_path.destination": "Relative path",
+    "delete_path.path": "Relative path",
     "validate_python.path": "Relative path, defaults to .",
     "run_unittest.path": "Test directory, defaults to tests",
     "run_unittest.pattern": "Defaults to test_*.py",
