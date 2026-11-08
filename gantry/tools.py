@@ -72,6 +72,8 @@ TOOL_GROUPS: dict[str, tuple[str, ...]] = {
     "outlook": ("outlook_unread", "outlook_read", "outlook_search", "outlook_send"),
     # copilot 组只剩"上传文件给 Copilot 分析"，关键字围绕附件/图片
     "copilot": ("copilot_attach",),
+    "session": ("session_search", "session_read", "session_changes"),
+    "notebook": ("notebook_read", "notebook_edit"),
     "self": ("self_read_text", "self_write_text_b64", "self_append_text_b64",
              "self_replace_text", "self_validate", "self_unittest", "self_rollback",
              "self_find_files", "self_search_text"),
@@ -83,6 +85,8 @@ GROUP_KEYWORDS: dict[str, tuple[str, ...]] = {
     "copilot": ("图片", "截图", "扫描件", "附件", "上传给 copilot", "由 copilot", "copilot 生成"),
     "delete": ("删除", "清理", "移除"),
     "python": ("python 脚本", "脚本处理", "批量处理", "计算"),
+    "session": ("上次", "之前做过", "以前做过", "历史会话", "复盘", "上次那个", "之前的会话"),
+    "notebook": ("notebook", "ipynb", "jupyter", "笔记本"),
 }
 
 
@@ -188,6 +192,7 @@ MUTATING_TOOLS = {
     "write_docx", "write_excel", "make_directory", "move_path", "copy_path", "delete_path",
     "run_python", "pwsh", "outlook_send", "save_workspace_file",
     "image_generate", "schedule_add", "schedule_remove", "schedule_run", "memory_write",
+    "notebook_edit", "subagent_interrupt",
 }
 
 APPROVAL_REQUIRED_TOOLS = ("delete_path", "outlook_send", "run_python")
@@ -199,7 +204,9 @@ NON_IDEMPOTENT_TOOLS = ("pwsh", "outlook_send", "delete_path", "move_path", "app
 # 只读动作：它们成功即说明"当前真实状态"已核对过，可以解除上面的封锁。
 READ_ONLY_TOOLS = ("read_text", "list_directory", "list_directory_tree", "find_files",
                    "outlook_unread", "read_excel", "read_csv", "read_pdf", "read_docx",
-                   "memory_search", "skill_list", "tool_list", "validate_python", "run_unittest")
+                   "memory_search", "skill_list", "tool_list", "validate_python", "run_unittest",
+                   "session_search", "session_read", "session_changes",
+                   "list_subagent_models", "notebook_read", "todo_read")
 
 class ToolsCoreMixin:
     def __init__(self, root: Path, config: dict[str, Any]):

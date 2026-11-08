@@ -14,6 +14,30 @@
 ### Fixed
 - 
 
+## [11.0.0-preview.76] - 2026-11-08
+
+### Added
+
+- 参考 DSH / Claude Code 补齐的高价值工具（均为 `gantry/tool_plugins/` 独立文件）：
+  - `session_search`：跨会话搜索历史消息与 Agent 步骤（`SessionStore.search_steps` 新增），
+    找“上次/之前怎么解决”时不用再翻界面；
+  - `session_read`：读取指定会话（默认当前会话）的消息与步骤，便于复盘；
+  - `session_changes`：列出本会话被文件工具改过的文件与最后一次结果，收尾 review 用；
+  - `subagent_interrupt`：协作式终止运行中的子代理（置 `cancel_requested`，终态会话不动）；
+  - `list_subagent_models`：列出子代理可用的提供商/内置模型路由；
+  - `notebook_read` / `notebook_edit`：读取与按索引编辑 Jupyter `.ipynb` 单元格
+    （Claude Code `NotebookRead/NotebookEdit` 的对应实现）；
+  - `todo_read`：读取当前 `todo_write` 清单。
+
+### Changed
+
+- 工具分组新增 `session` / `notebook` 两组，按关键词裁剪，避免常驻提示词；
+- `notebook_edit` / `subagent_interrupt` 归入变更类工具（受只读档位与计划模式约束）。
+
+### 实测
+
+- 全套 **1607**（skipped=1）OK；不变量 25 条全绿。
+
 ## [11.0.0-preview.75] - 2026-11-08
 
 ### Changed

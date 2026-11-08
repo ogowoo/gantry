@@ -217,7 +217,7 @@ token 比较使用 `hmac.compare_digest`；访问日志对 `token=` 做脱敏。
 
 | 组 | 工具 | 开关 |
 |---|---|---|
-| 文件 | `list_directory` `find_files` `read_text` `write_text` `append_text` `write_text_b64` `append_text_b64` `replace_text` `make_directory` `copy_path` `move_path` | 始终可用（受工作区沙箱） |
+| 文件 | `list_directory` `list_directory_tree` `find_files` `read_text` `write_text` `append_text` `write_text_b64` `append_text_b64` `replace_text` `replace_lines` `apply_patch` `python_symbols` `replace_python_symbol` `convert_indentation` `indent_lines` `make_directory` `copy_path` `move_path` | 始终可用（受工作区沙箱） |
 | 删除 | `delete_path` | `allow_delete` |
 | 校验 | `validate_python` `run_unittest` | 始终可用 |
 | 执行 | `run_python` | `allow_python` |
@@ -225,8 +225,11 @@ token 比较使用 `hmac.compare_digest`；访问日志对 `token=` 做脱敏。
 | Outlook | `outlook_unread` `outlook_read` `outlook_search` `outlook_send` | `allow_outlook`（发送另需 `allow_outlook_send`） |
 | 技能 | `skill_list` `skill_read` `skill_create` | `allow_skill_write`（全局技能另需 `allow_self_upgrade`） |
 | 记忆 | `memory_write` `memory_search` `memory_forget` | `allow_memory_write` |
+| 会话 | `session_search` `session_read` `session_changes` | 始终可用 |
+| Notebook | `notebook_read` `notebook_edit` | 始终可用（`notebook_edit` 属变更类，受沙箱/计划模式约束） |
+| 子代理 | `subagent` `subagent_fork` `subagent_many` `subagent_send` `subagent_list` `subagent_interrupt` `list_subagent_models` | 始终可用（深度上限 1） |
 | Copilot | `copilot_attach` `copilot_file` | `allow_copilot_file` |
-| 自升级 | `self_read_text` `self_write_text_b64` `self_append_text_b64` `self_replace_text` `self_validate` `self_unittest` `self_rollback` | `allow_self_upgrade`（默认关，关闭时**不注册**） |
+| 自升级 | `self_read_text` `self_write_text_b64` `self_append_text_b64` `self_replace_text` `self_validate` `self_unittest` `self_rollback` `self_find_files` `self_search_text` | `allow_self_upgrade`（默认关，关闭时**不注册**） |
 
 ### 6.2 权限边界
 

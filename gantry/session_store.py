@@ -512,6 +512,40 @@ CREATE TABLE IF NOT EXISTS conv_stats (
                                        + ("…" if start + 240 < len(text) else "")})
             return out
 
+    def search_steps(self, keyword: str, limit: int = 30) -> list[dict]:
+        """跨会话搜索 Agent 步骤载荷（steps.payload 是 JSON 文本）。
+
+        与 search_messages 互补：Agent 任务的正文在 steps 里，WebUI 对话在
+        messages 里。命中片段在 Python 侧截取，避免把整段 JSON 灌给模型。
+        """
+        kw = str(keyword or "")
+        if not kw:
+            return []
+        esc = kw.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        pattern = f"%{esc}%"
+        with self.lock, self._connect() as con:
+            rows = con.execute(
+                "SELECT st.id, st.session_id, st.step_no, st.tool, st.status, st.payload, "
+                "st.created, s.title, s.state "
+                "FROM steps st JOIN sessions s ON s.id = st.session_id "
+                "WHERE st.payload LIKE ? ESCAPE '\\' AND s.archived = 0 "
+                "ORDER BY st.created DESC LIMIT ?", (pattern, int(limit)))
+            out = []
+            low = kw.lower()
+            for rid, sid, step_no, tool, status, payload, created, title, state in rows:
+                text = str(payload or "")
+                idx = text.lower().find(low)
+                if idx < 0:
+                    idx = 0
+                start = max(0, idx - 80)
+                snippet = text[start:start + 300]
+                out.append({"step_id": rid, "session_id": sid, "step_no": step_no,
+                            "tool": tool, "status": status, "created": created,
+                            "title": title, "state": state,
+                            "snippet": ("…" if start > 0 else "") + snippet
+                                       + ("…" if start + 300 < len(text) else "")})
+            return out
+
     def update_message(self, sid: str, message_id: int, content: str) -> bool:
         """更新一条消息内容（供队列中待处理消息的编辑）。"""
         with self.lock, self._connect() as con:

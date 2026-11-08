@@ -62,6 +62,22 @@ DESC_EN: dict[str, str] = {
     "copy_path": "Copy a file or directory",
     "move_path": "Move a file or directory",
     "delete_path": "Delete a path",
+    "session_search": ("Search prior sessions (chat messages and agent steps) for a literal keyword; "
+                       "use it when the task refers to what was done before"),
+    "session_read": ("Read a session's messages and steps (defaults to the current session) to review "
+                     "what happened and what was concluded"),
+    "session_changes": ("List files changed by file tools in this (or another) session with the last "
+                        "result; useful for a final review"),
+    "subagent_interrupt": ("Stop a running subagent (cooperative cancel; terminal sessions are left "
+                           "untouched)"),
+    "list_subagent_models": ("List model routes available to subagents (providers and built-in models); "
+                             "check before passing an explicit model"),
+    "notebook_read": ("Read Jupyter notebook (.ipynb) cells: type, source, execution count and output "
+                      "counts; use it to locate cells before editing"),
+    "notebook_edit": ("Edit Jupyter notebook cells by index: replace / insert / delete; read the file "
+                      "first with read_text or notebook_read"),
+    "todo_read": ("Read the current task list written by todo_write; check remaining items before "
+                  "continuing a long task"),
     "validate_python": ("Check Python syntax of a file or directory; run it only after all files "
                         "are complete (a half-written file always fails — that is not a defect)"),
     "run_unittest": "Run unittest discovery; run it only after all files are complete",
@@ -149,6 +165,23 @@ ARG_EN: dict[str, str] = {
     "move_path.source": "Relative path",
     "move_path.destination": "Relative path",
     "delete_path.path": "Relative path",
+    "session_search.query": "Literal keyword",
+    "session_search.limit": "Max results per category, default 10 (max 50)",
+    "session_read.session_id": "Session id (defaults to the current session)",
+    "session_read.limit": "Max messages/steps returned, default 50",
+    "session_read.include_steps": "Return steps too, default true",
+    "session_changes.session_id": "Session id (defaults to the current session)",
+    "subagent_interrupt.agent_id": "Subagent session id",
+    "subagent_interrupt.reason": "Reason for the interrupt (optional)",
+    "list_subagent_models.provider": "Provider id (optional; omit to list all)",
+    "list_subagent_models.model": "Exact model id (optional, for availability check)",
+    "notebook_read.path": "Relative path (.ipynb)",
+    "notebook_read.max_chars": "Max characters per cell, default 2000",
+    "notebook_edit.path": "Relative path (.ipynb)",
+    "notebook_edit.cell_index": "Cell index (0-based)",
+    "notebook_edit.action": "replace / insert / delete, default replace",
+    "notebook_edit.cell_type": "code / markdown / raw, default code",
+    "notebook_edit.source": "New cell source (required for replace/insert)",
     "validate_python.path": "Relative path, defaults to .",
     "run_unittest.path": "Test directory, defaults to tests",
     "run_unittest.pattern": "Defaults to test_*.py",
