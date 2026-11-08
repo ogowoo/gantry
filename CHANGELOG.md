@@ -14,6 +14,31 @@
 ### Fixed
 - 
 
+## [11.0.0-preview.77] - 2026-11-08
+
+### Added
+
+- **Power Automate 工程生成器**（同租户，不调用真实 API）：
+  - `gantry/power_automate.py`：连接器目录（Teams/Outlook/SharePoint/Dataverse/Approvals/
+    Forms/Excel/OneDrive/Planner/Office 365 Users）、控制动作（compose/delay/condition/
+    foreach/scope/变量/terminate/response/http）、definition 生成、工程写入、
+    旧版导入包（Import Package (Legacy)）与解决方案 zip 打包、JSON 校验；
+  - 工具：`power_automate_catalog`（查连接器/操作）、`power_automate_generate`
+    （按 spec 生成工程 + 两种导入包）、`power_automate_validate`（校验工程）；
+  - CLI：`scripts/power_automate_gen.py`，支持 `--target project|legacy|solution|all`；
+  - 模板/示例：`skills/power-automate/templates/apis.json`、
+    `examples/teams-notify.json`、`examples/outlook-daily.json`、
+    `examples/sharepoint-to-teams.json`；
+  - `skills/power-automate/SKILL.md` 重写，覆盖 spec 结构、连接器目录、两种导入方式。
+
+### Changed
+
+- 工具分组新增 `power_automate`，按关键词裁剪；`power_automate_generate` 归入变更类工具。
+
+### 实测
+
+- 全套 **1620**（skipped=1）OK；不变量 25 条全绿。
+
 ## [11.0.0-preview.76] - 2026-11-08
 
 ### Added

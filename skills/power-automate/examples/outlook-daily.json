@@ -1,0 +1,24 @@
+{
+  "name": "outlook-daily",
+  "display_name": "每日 Outlook 提醒",
+  "description": "每天 09:00 发一封提醒邮件",
+  "trigger": {
+    "type": "recurrence",
+    "frequency": "Day",
+    "interval": 1,
+    "timeZone": "China Standard Time",
+    "startTime": "2026-01-01T09:00:00Z"
+  },
+  "actions": [
+    {
+      "name": "发送提醒邮件",
+      "connector": "outlook",
+      "operation": "send_email",
+      "parameters": {
+        "emailMessage/To": "<占位：收件人邮箱>",
+        "emailMessage/Subject": "每日提醒",
+        "emailMessage/Body": "请处理今天的待办事项。"
+      }
+    }
+  ]
+}

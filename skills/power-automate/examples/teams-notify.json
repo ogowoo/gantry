@@ -1,0 +1,35 @@
+{
+  "name": "teams-notify",
+  "display_name": "Teams 通知",
+  "description": "手动触发，向指定 Teams 频道发一条消息",
+  "trigger": {
+    "type": "manual",
+    "inputs": {
+      "schema": {
+        "type": "object",
+        "properties": {
+          "message": {
+            "type": "string",
+            "title": "消息内容",
+            "description": "要发送到 Teams 的文字"
+          }
+        },
+        "required": ["message"]
+      }
+    }
+  },
+  "actions": [
+    {
+      "name": "发送 Teams 消息",
+      "connector": "teams",
+      "operation": "post_message",
+      "parameters": {
+        "poster": "Flow bot",
+        "location": "Channel",
+        "body/recipient/groupId": "<占位：Team ID>",
+        "body/recipient/channelId": "<占位：Channel ID>",
+        "body/messageBody": "@{triggerBody()['message']}"
+      }
+    }
+  ]
+}

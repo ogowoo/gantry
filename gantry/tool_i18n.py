@@ -78,6 +78,12 @@ DESC_EN: dict[str, str] = {
                       "first with read_text or notebook_read"),
     "todo_read": ("Read the current task list written by todo_write; check remaining items before "
                   "continuing a long task"),
+    "power_automate_catalog": ("List built-in Power Automate connectors/operations and control "
+                               "actions available in the same tenant; check it before generating"),
+    "power_automate_generate": ("Generate a Power Automate project under flows/<name>/ and package it "
+                                "as a legacy import package and/or solution zip; never calls real APIs"),
+    "power_automate_validate": ("Validate a generated Power Automate project: JSON parses and the "
+                                "definition has required keys"),
     "validate_python": ("Check Python syntax of a file or directory; run it only after all files "
                         "are complete (a half-written file always fails — that is not a defect)"),
     "run_unittest": "Run unittest discovery; run it only after all files are complete",
@@ -182,6 +188,16 @@ ARG_EN: dict[str, str] = {
     "notebook_edit.action": "replace / insert / delete, default replace",
     "notebook_edit.cell_type": "code / markdown / raw, default code",
     "notebook_edit.source": "New cell source (required for replace/insert)",
+    "power_automate_catalog.connector": "Connector key (optional; omit to list all)",
+    "power_automate_generate.name": "Project name (lowercase kebab-case)",
+    "power_automate_generate.spec": "Object or JSON string: trigger + actions",
+    "power_automate_generate.target": "project / legacy / solution / all, default all",
+    "power_automate_generate.output_dir": "Output directory, default flows",
+    "power_automate_generate.publisher": "Solution publisher (default GantryPublisher)",
+    "power_automate_generate.prefix": "Solution prefix (default new)",
+    "power_automate_generate.version": "Solution version (default 1.0.0.0)",
+    "power_automate_validate.name": "Project name",
+    "power_automate_validate.output_dir": "Project directory, default flows",
     "validate_python.path": "Relative path, defaults to .",
     "run_unittest.path": "Test directory, defaults to tests",
     "run_unittest.pattern": "Defaults to test_*.py",

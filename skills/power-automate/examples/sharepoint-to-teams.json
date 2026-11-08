@@ -1,0 +1,37 @@
+{
+  "name": "sharepoint-to-teams",
+  "display_name": "SharePoint 列表 → Teams 通知",
+  "description": "定时读取 SharePoint 列表，把最新一条发到 Teams 频道",
+  "trigger": {
+    "type": "recurrence",
+    "frequency": "Day",
+    "interval": 1,
+    "timeZone": "China Standard Time",
+    "startTime": "2026-01-01T08:30:00Z"
+  },
+  "actions": [
+    {
+      "name": "读取列表",
+      "connector": "sharepoint",
+      "operation": "get_items",
+      "parameters": {
+        "dataset": "https://<租户>.sharepoint.com/sites/<站点>",
+        "table": "<占位：列表名>",
+        "$top": 1,
+        "$orderby": "Modified desc"
+      }
+    },
+    {
+      "name": "发 Teams 消息",
+      "connector": "teams",
+      "operation": "post_message",
+      "parameters": {
+        "poster": "Flow bot",
+        "location": "Channel",
+        "body/recipient/groupId": "<占位：Team ID>",
+        "body/recipient/channelId": "<占位：Channel ID>",
+        "body/messageBody": "最新一条：@{first(outputs('读取列表')?['body/value'])?['Title']}"
+      }
+    }
+  ]
+}

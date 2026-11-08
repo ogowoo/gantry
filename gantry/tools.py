@@ -74,6 +74,8 @@ TOOL_GROUPS: dict[str, tuple[str, ...]] = {
     "copilot": ("copilot_attach",),
     "session": ("session_search", "session_read", "session_changes"),
     "notebook": ("notebook_read", "notebook_edit"),
+    "power_automate": ("power_automate_catalog", "power_automate_generate",
+                       "power_automate_validate"),
     "self": ("self_read_text", "self_write_text_b64", "self_append_text_b64",
              "self_replace_text", "self_validate", "self_unittest", "self_rollback",
              "self_find_files", "self_search_text"),
@@ -87,6 +89,8 @@ GROUP_KEYWORDS: dict[str, tuple[str, ...]] = {
     "python": ("python 脚本", "脚本处理", "批量处理", "计算"),
     "session": ("上次", "之前做过", "以前做过", "历史会话", "复盘", "上次那个", "之前的会话"),
     "notebook": ("notebook", "ipynb", "jupyter", "笔记本"),
+    "power_automate": ("power automate", "powerautomate", "云端流", "自动化流",
+                       "审批流", "流程自动化", "pa 流", "make.powerautomate"),
 }
 
 
@@ -192,7 +196,7 @@ MUTATING_TOOLS = {
     "write_docx", "write_excel", "make_directory", "move_path", "copy_path", "delete_path",
     "run_python", "pwsh", "outlook_send", "save_workspace_file",
     "image_generate", "schedule_add", "schedule_remove", "schedule_run", "memory_write",
-    "notebook_edit", "subagent_interrupt",
+    "notebook_edit", "subagent_interrupt", "power_automate_generate",
 }
 
 APPROVAL_REQUIRED_TOOLS = ("delete_path", "outlook_send", "run_python")
@@ -206,7 +210,8 @@ READ_ONLY_TOOLS = ("read_text", "list_directory", "list_directory_tree", "find_f
                    "outlook_unread", "read_excel", "read_csv", "read_pdf", "read_docx",
                    "memory_search", "skill_list", "tool_list", "validate_python", "run_unittest",
                    "session_search", "session_read", "session_changes",
-                   "list_subagent_models", "notebook_read", "todo_read")
+                   "list_subagent_models", "notebook_read", "todo_read",
+                   "power_automate_catalog", "power_automate_validate")
 
 class ToolsCoreMixin:
     def __init__(self, root: Path, config: dict[str, Any]):

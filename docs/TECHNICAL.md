@@ -227,6 +227,7 @@ token 比较使用 `hmac.compare_digest`；访问日志对 `token=` 做脱敏。
 | 记忆 | `memory_write` `memory_search` `memory_forget` | `allow_memory_write` |
 | 会话 | `session_search` `session_read` `session_changes` | 始终可用 |
 | Notebook | `notebook_read` `notebook_edit` | 始终可用（`notebook_edit` 属变更类，受沙箱/计划模式约束） |
+| Power Automate | `power_automate_catalog` `power_automate_generate` `power_automate_validate` | 始终可用（只生成工程/导入包，不调用真实 API） |
 | 子代理 | `subagent` `subagent_fork` `subagent_many` `subagent_send` `subagent_list` `subagent_interrupt` `list_subagent_models` | 始终可用（深度上限 1） |
 | Copilot | `copilot_attach` `copilot_file` | `allow_copilot_file` |
 | 自升级 | `self_read_text` `self_write_text_b64` `self_append_text_b64` `self_replace_text` `self_validate` `self_unittest` `self_rollback` `self_find_files` `self_search_text` | `allow_self_upgrade`（默认关，关闭时**不注册**） |

@@ -1,0 +1,7 @@
+{
+  "shared_teams": {
+    "displayName": "Microsoft Teams",
+    "apiId": "/providers/Microsoft.PowerApps/apis/shared_teams",
+    "apiName": "shared_teams"
+  }
+}
