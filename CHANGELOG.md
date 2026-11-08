@@ -14,6 +14,22 @@
 ### Fixed
 - 
 
+## [11.0.0-preview.78] - 2026-11-08
+
+### Added
+
+- **Power Automate maker 门户 UI 探测**（复用现有 `EdgeProfile` 的同租户 SSO，不接 API）：
+  - `gantry/power_automate_ui.py`：`probe()` 打开 `make.powerautomate.com`，判断
+    登录/许可/首页状态并截图到 `data/pa-probe.png`；`login()` 自动点选“选择帐户”
+    磁贴；`dom_snapshot()` 导出可见按钮/链接/输入框，供后续导入流程定位；
+  - 端点：`POST /v1/power-automate/probe`、`/login`、`/dom`；
+  - 实测：当前租户已进入 Entra 账号选择页（`user@example.com`），
+    完成一次登录/MFA 后即可继续做导入自动化。
+
+### 实测
+
+- 定向 18 个测试 OK；不变量 25 条全绿。
+
 ## [11.0.0-preview.77] - 2026-11-08
 
 ### Added

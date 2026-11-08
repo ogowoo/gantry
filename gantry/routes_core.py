@@ -529,3 +529,23 @@ async def agent_completions(req: a.AgentRequest, request: HttpRequest = None):
             "created": int(time.time()), "model": req.model,
             "choices": [{"index": 0, "message": {"role": "assistant", "content": result.content}, "finish_reason": "stop"}],
             "agent_steps": result.steps, "session_id": sid, "workspace": str(b.AGENT_TOOLS.root)}
+
+
+# ── Power Automate maker 门户探测（复用共享 EdgeProfile 的租户 SSO）──
+@router.post("/v1/power-automate/probe")
+async def power_automate_probe():
+    from . import power_automate_ui
+    return await power_automate_ui.probe()
+
+
+@router.post("/v1/power-automate/dom")
+async def power_automate_dom():
+    from . import power_automate_ui
+    return await power_automate_ui.dom_snapshot()
+
+
+@router.post("/v1/power-automate/login")
+async def power_automate_login():
+    from . import power_automate_ui
+    return await power_automate_ui.login()
+
