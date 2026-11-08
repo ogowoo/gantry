@@ -295,6 +295,7 @@ CONTROL_ACTIONS = {
     "initialize_variable": "初始化变量",
     "set_variable": "设置变量",
     "append_to_string_variable": "追加字符串变量",
+    "filter_array": "筛选数组",
     "terminate": "终止",
     "response": "响应",
     "http": "HTTP 请求",
@@ -412,6 +413,10 @@ def _build_action(item: dict[str, Any], used: set[str]) -> dict[str, Any]:
                 "inputs": {"statusCode": int(item.get("status_code", 200)),
                            "body": item.get("body", ""),
                            "headers": item.get("headers") or {}}}
+    if kind in ("filter_array", "query"):
+        return {"type": "Query",
+                "inputs": {"from": item.get("from", "@triggerBody()"),
+                           "where": item.get("where", "@equals(item(), null)")}}
     if kind == "http":
         return {"type": "Http",
                 "inputs": {"method": str(item.get("method") or "GET"),

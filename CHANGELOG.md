@@ -14,6 +14,30 @@
 ### Fixed
 - 
 
+## [11.0.0-preview.81] - 2026-11-08
+
+### Added
+
+- `filter_array` 控制动作（Logic Apps `Query`），用于按名称过滤 Teams/SharePoint 结果。
+- 示例 `skills/power-automate/examples/teams-by-name.json`：按团队名/频道名动态查 ID
+  再发消息（`GetAllTeams` → `filter_array` → `GetChannelsForGroup` → `filter_array` →
+  `PostMessageToConversation`），避免写死 Team/Channel ID。
+- 验证工具 `scripts/power_automate_verify.py`：为每个连接器生成一个最小导入包
+  （`workspace/pa-verify/` + `CHECKLIST.md`），用于逐个验证 operationId。
+- 状态表 `docs/POWER_AUTOMATE_VERIFIED.md`：区分“文档值”与“真实导入成功”。
+
+### Changed
+
+- `import_upload` 在导入页没有 `input[type=file]` 时，改用 Playwright 的
+  `filechooser` 事件上传（覆盖新版导入页）。
+
+### 实测
+
+- Teams `post_message` 已实测成功；Outlook 因租户**没有 Office 365 Outlook 连接**
+  暂无法实测（导入页连接列表 No items）；SharePoint 包上传/选项通过，连接映射仍是
+  手动步骤。其余连接器需先建连接。
+- 全套 **1627**（skipped=1）OK；不变量 25 条全绿。
+
 ## [11.0.0-preview.80] - 2026-11-08
 
 ### Added

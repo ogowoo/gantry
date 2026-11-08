@@ -117,6 +117,34 @@ class ValidationTests(unittest.TestCase):
                          "GetChannelsForGroup")
         self.assertTrue(pa.validate_definition(d)["ok"])
 
+    def test_teams_by_name_example(self):
+        spec = json.loads((EXAMPLES / "teams-by-name.json").read_text(encoding="utf-8"))
+        d = pa.build_definition(spec)
+        self.assertEqual(d["actions"]["Filter_teams"]["type"], "Query")
+        self.assertIn("@equals(item()?['displayName'], triggerBody()?['teamName'])",
+                      json.dumps(d["actions"]["Filter_teams"], ensure_ascii=False))
+        self.assertEqual(d["actions"]["List_channels"]["inputs"]["host"]["operationId"],
+                         "GetChannelsForGroup")
+        self.assertIn("@first(outputs('Filter_teams')",
+                      str(d["actions"]["List_channels"]["inputs"]["parameters"]))
+        self.assertEqual(d["actions"]["Post_message"]["inputs"]["host"]["operationId"],
+                         "PostMessageToConversation")
+        self.assertTrue(pa.validate_definition(d)["ok"])
+
+    def test_verify_harness_cases_are_valid(self):
+        import importlib.util
+        path = ROOT / "scripts" / "power_automate_verify.py"
+        spec = importlib.util.spec_from_file_location("pa_verify", path)
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        for key, case in mod.CASES.items():
+            definition = pa.build_definition({
+                "name": case["name"], "trigger": {"type": "manual"},
+                "actions": [{"name": "Step", **case["action"]}],
+            })
+            report = pa.validate_definition(definition)
+            self.assertTrue(report["ok"], f"{key}: {report['problems']}")
+
 
 class ProjectTests(unittest.TestCase):
     def setUp(self):

@@ -640,8 +640,21 @@ async def import_upload(zip_path: str) -> dict[str, Any]:
             break
         await asyncio.sleep(1)
     if not file_inputs:
-        return await _snap(page, uploaded=False,
-                           error="页面/iframe 里没有 file input（可能还停在 My flows 或菜单层）")
+        # 有些导入页不暴露 input[type=file]，点 Upload 会弹原生文件选择器；
+        # 用 Playwright 的 filechooser 事件直接塞文件。
+        try:
+            async with page.expect_file_chooser(timeout=8000) as fc_info:
+                await _click_texts(page, ("Upload", "上传"), role="button")
+            chooser = await fc_info.value
+            await chooser.set_files(str(p))
+            await asyncio.sleep(3)
+            next_clicked = await _click_texts(page, _NEXT_TEXTS)
+            await asyncio.sleep(3)
+            return await _snap(page, uploaded=True, next_clicked=next_clicked,
+                               via="filechooser")
+        except Exception as exc:
+            return await _snap(page, uploaded=False,
+                               error=f"没有 file input，filechooser 也失败: {exc}")
     try:
         await file_inputs[0].first.set_input_files(str(p))
     except Exception as exc:

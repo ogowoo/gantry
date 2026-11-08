@@ -28,7 +28,11 @@
 
 > 实测状态：Teams `post_message`（`PostMessageToConversation`）已在 示例租户
 > 成功导入并创建流；其余 operationId 来自官方连接器文档/公开实现，首次使用
-> 建议先导入验证一次，确认无误后再沉淀到本表。
+> 建议先导入验证一次，确认无误后再沉淀到本表。逐项状态见
+> [POWER_AUTOMATE_VERIFIED.md](POWER_AUTOMATE_VERIFIED.md)。
+>
+> 验证工具：`python scripts/power_automate_verify.py` 会为每个连接器生成一个最小
+> 导入包（`workspace/pa-verify/` + `CHECKLIST.md`），导入后把结果记到上面的状态表。
 
 > 关键教训：`PostMessageV3` 已下线，导入报
 > `WorkflowOperationInputsApiOperationNotFound`。加新操作时务必核对
@@ -60,7 +64,7 @@
 | `planner` | `shared_planner` | `create_task`、`update_task` |
 | `office365users` | `shared_office365users` | `get_profile`、`search_users` |
 
-控制动作：`compose`、`delay`、`condition`、`foreach`、`scope`、
+控制动作：`compose`、`delay`、`condition`、`foreach`、`scope`、`filter_array`、
 `initialize_variable`、`set_variable`、`append_to_string_variable`、
 `terminate`、`response`、`http`。
 
@@ -102,6 +106,21 @@
 - `runAfter` 省略时按数组顺序串行；显式给 `["上一步名字"]` 可改 DAG。
 - 动作名会被规整为 `[A-Za-z0-9_]`；中文名可能变成只剩英文/数字，建议直接给英文名。
 - 占位符统一用 `<占位：说明>`，README/校验会列出来。
+
+### 按名称解析 Team/Channel ID
+
+示例：`skills/power-automate/examples/teams-by-name.json`。流程：
+
+1. `list_teams`（GetAllTeams）；
+2. `filter_array`（Query）按 `displayName` 过滤团队：
+   `@equals(item()?['displayName'], triggerBody()?['teamName'])`；
+3. `list_channels`（GetChannelsForGroup），`groupId` 用
+   `@first(outputs('Filter_teams')?['body'])?['id']`；
+4. `filter_array` 过滤频道；
+5. `post_message`，`groupId`/`channelId` 分别取两个过滤结果的首项。
+
+注意：表达式里的动作名必须是**生成后**的名字（空格 → 下划线），例如
+`List teams` → `List_teams`。
 
 ## 6. 包格式
 

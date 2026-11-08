@@ -94,7 +94,7 @@ python scripts/power_automate_gen.py spec.json --workspace workspace --target al
 1. **连接器动作**：`{"name":"...", "connector":"teams", "operation":"post_message", "parameters":{...}, "runAfter":["上一步"]}`
    - `runAfter` 省略时按数组顺序串行；
    - `connector`/`operation` 可用 `power_automate_catalog` 查。
-2. **控制动作**：`{"name":"...", "type":"compose|delay|condition|foreach|scope|initialize_variable|set_variable|append_to_string_variable|terminate|response|http", ...}`
+2. **控制动作**：`{"name":"...", "type":"compose|delay|condition|foreach|scope|filter_array|initialize_variable|set_variable|append_to_string_variable|terminate|response|http", ...}`
 
 ## 同租户内置连接器
 
@@ -153,7 +153,9 @@ for p in pathlib.Path("flows/<flow-name>").rglob("*.json"):
 - `templates/apis.json`：连接器 API 清单模板；
 - `examples/teams-notify.json`：Teams 通知流 spec；
 - `examples/outlook-daily.json`：Outlook 每日邮件 spec；
-- `examples/sharepoint-to-teams.json`：SharePoint 列表 → Teams 通知 spec。
+- `examples/sharepoint-to-teams.json`：SharePoint 列表 → Teams 通知 spec；
+- `examples/teams-by-name.json`：按团队名/频道名动态查 ID 再发消息（用 `GetAllTeams` +
+  `GetChannelsForGroup` + `filter_array`，避免写死 Team/Channel ID）。
 
 ## 开发参考
 

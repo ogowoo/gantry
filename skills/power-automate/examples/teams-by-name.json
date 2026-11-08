@@ -1,0 +1,70 @@
+{
+  "name": "teams-by-name",
+  "display_name": "按名称发 Teams 消息",
+  "description": "手动输入团队名/频道名/消息，先查 Teams 再查频道，按名称匹配后发送",
+  "trigger": {
+    "type": "manual",
+    "inputs": {
+      "schema": {
+        "type": "object",
+        "properties": {
+          "teamName": {
+            "type": "string",
+            "title": "团队名称",
+            "description": "Teams 团队显示名，如 IT Support"
+          },
+          "channelName": {
+            "type": "string",
+            "title": "频道名称",
+            "description": "频道显示名，如 General"
+          },
+          "message": {
+            "type": "string",
+            "title": "消息内容",
+            "description": "要发送的文字"
+          }
+        },
+        "required": ["teamName", "channelName", "message"]
+      }
+    }
+  },
+  "actions": [
+    {
+      "name": "List teams",
+      "connector": "teams",
+      "operation": "list_teams"
+    },
+    {
+      "name": "Filter teams",
+      "type": "filter_array",
+      "from": "@outputs('List_teams')?['body/value']",
+      "where": "@equals(item()?['displayName'], triggerBody()?['teamName'])"
+    },
+    {
+      "name": "List channels",
+      "connector": "teams",
+      "operation": "list_channels",
+      "parameters": {
+        "groupId": "@first(outputs('Filter_teams')?['body'])?['id']"
+      }
+    },
+    {
+      "name": "Filter channels",
+      "type": "filter_array",
+      "from": "@outputs('List_channels')?['body/value']",
+      "where": "@equals(item()?['displayName'], triggerBody()?['channelName'])"
+    },
+    {
+      "name": "Post message",
+      "connector": "teams",
+      "operation": "post_message",
+      "parameters": {
+        "poster": "Flow bot",
+        "location": "Channel",
+        "body/recipient/groupId": "@first(outputs('Filter_teams')?['body'])?['id']",
+        "body/recipient/channelId": "@first(outputs('Filter_channels')?['body'])?['id']",
+        "body/messageBody": "@triggerBody()?['message']"
+      }
+    }
+  ]
+}
