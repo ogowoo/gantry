@@ -26,6 +26,10 @@
 
 ## 3. 连接器与 operationId（已核对的常用项）
 
+> 实测状态：Teams `post_message`（`PostMessageToConversation`）已在 示例租户
+> 成功导入并创建流；其余 operationId 来自官方连接器文档/公开实现，首次使用
+> 建议先导入验证一次，确认无误后再沉淀到本表。
+
 > 关键教训：`PostMessageV3` 已下线，导入报
 > `WorkflowOperationInputsApiOperationNotFound`。加新操作时务必核对
 > operationId，不要凭记忆写。
