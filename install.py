@@ -1,11 +1,12 @@
-"""安装脚本：基础依赖 + Playwright 浏览器；OCR/embedding 为可选。
+"""安装脚本：基础依赖 + Playwright 浏览器；OCR/embedding/local 模型为可选。
 
 用法：
     python install.py                 # 基础（服务 + 浏览器自动化）
     python install.py --ocr           # 额外装 RapidOCR（扫描件/图片，20 MB）
     python install.py --xiaomi        # 额外装 Xiaomi-OCR-0 依赖（torch/transformers，较大）
     python install.py --embed         # 额外装进程内 embedding（知识库语义检索，约 50 MB）
-    python install.py --all           # 基础 + Xiaomi + embedding
+    python install.py --local         # 额外装进程内 GGUF 本地聊天模型（llama-cpp-python）
+    python install.py --all           # 基础 + Xiaomi + embedding + local
     python install.py --no-browser    # 跳过 Playwright 浏览器下载（离线/已有浏览器）
 """
 from __future__ import annotations
@@ -41,8 +42,10 @@ def main() -> int:
                     help="额外安装 Xiaomi-OCR-0 依赖（torch + transformers，用于表格/公式解析）")
     ap.add_argument("--embed", action="store_true",
                     help="额外安装进程内 embedding（fastembed，知识库语义检索）")
+    ap.add_argument("--local", action="store_true",
+                    help="额外安装进程内 GGUF 本地聊天模型（llama-cpp-python，模型文件另下）")
     ap.add_argument("--all", action="store_true",
-                    help="= --xiaomi + --embed（已含 rapidocr）")
+                    help="= --xiaomi + --embed + --local（已含 rapidocr）")
     ap.add_argument("--no-browser", action="store_true", help="跳过 Playwright 浏览器下载")
     args = ap.parse_args()
 
@@ -53,6 +56,8 @@ def main() -> int:
         pip("-r", str(BASE / "requirements-ocr.txt"))
     if args.embed or args.all:
         pip("-r", str(BASE / "requirements-embed.txt"))
+    if args.local or args.all:
+        pip("-r", str(BASE / "requirements-local.txt"))
 
     if not args.no_browser:
         subprocess.check_call([sys.executable, "-m", "playwright", "install", "chromium"])
