@@ -81,7 +81,7 @@ skills/                         Agent 技能说明与模板
 | `downloads.py` | downloads.py — Copilot 回答区下载：候选链接解析、href 落盘、调试快照、copilot_file（生成文件并下载进工作区） | _answer_area_html, _download_candidates, _resolve_href, pathlib_basename, debug_download_now, debug_page_snapshot |
 | `editmatch.py` | 文本替换/补丁匹配（含模糊匹配）。 |  |
 | `envfile.py` | `.env` 支持：密钥放 .env（不入库），config.json 里用 ${VAR} 引用。 | load_env_file, resolve_placeholders, warn_plaintext_secrets |
-| `fanout.py` | 确定性扇出：**不经模型判断**，把 N 个任务直接派给 N 个子代理。 | _normalize, fanout |
+| `fanout.py` | 显式扇出：调用方直接给 N 个独立任务，各交给一个子代理。 | _normalize, fanout |
 | `fileview.py` | 识别"给我看某个本地文件"的意图，并把文件内容回给界面渲染成卡片。 | _candidates, _resolve, _kind, maybe_file_view, render_message |
 | `i18n.py` | 后端国际化。 |  |
 | `interrupts.py` | 强行插入指令的"立即中断"信号（Ctrl+J）。 | _interrupt_event, request_interrupt, interrupt_pending, clear_interrupt, discard_interrupts, _await_interruptible |
@@ -502,6 +502,7 @@ Web 控制台；`index.html` + `css/` + `js/`（ES 模块）。
 | `diag_ui.py` | 诊断探针：当前页面的会话列表/时间线/工具记录是否真的画出来了（含 console 错误）。 |  |
 | `e2e_stop_at.py` | 端到端：@ 引用展开 + 发送按钮运行中变停止。 | call |
 | `eval.py` | 轨迹级回归评测：把"Agent 该怎么做"固化成可重跑的断言。 | check_task, main |
+| `gen_file_map.py` | 生成 docs/FILE_MAP.md：按目录列出每个文件的功能与关键入口。 | files, py_info, js_info, md_info, describe, main |
 | `gen_s2t.py` | 从 webui/i18n.js 的 S2T_CHARS 生成 gantry/s2t_data.py（简→繁对照）。 | main |
 | `health.py` | 会话健康巡检：事件日志 vs 数据库列的一致性（P2-10 第二期的运行时验收）。 | load_sessions, check_session, main |
 | `i18n_coverage.py` | 多语言覆盖审计：在英文模式下把每个界面状态都过一遍，抓出仍然显示中文的文本。 | states, main |
@@ -580,6 +581,7 @@ Web 控制台；`index.html` + `css/` + `js/`（ES 模块）。
 | `CSS-SPLIT.md` | 样式结构：`webui/css/*.css`（12 个文件） |  |
 | `DELIVERY-SUMMARY.md` | 交付物登记与遗留问题汇总 |  |
 | `ESM-MIGRATION.md` | app.js → ES Modules 迁移（已完成） |  |
+| `FILE_MAP.md` | 项目文件功能地图 |  |
 | `MULTI-WINDOW.md` | Copilot 通道多窗口并行（`agent.copilot_windows`） |  |
 | `POWER_AUTOMATE_DEV.md` | Power Automate 开发指南 |  |
 | `POWER_AUTOMATE_VERIFIED.md` | Power Automate operationId 实测状态 |  |

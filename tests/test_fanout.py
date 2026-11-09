@@ -64,6 +64,13 @@ class FanoutTests(unittest.TestCase):
         with self.assertRaises(b.ToolError):
             asyncio.run(fanout_mod.fanout([f"t{i}" for i in range(9)], model="m"))
 
+    def test_workspace_root_restored(self):
+        other = self.tmp / "other"
+        other.mkdir()
+        before = Path(b.AGENT_TOOLS.root)
+        asyncio.run(fanout_mod.fanout(["任务甲"], model="m", workspace=str(other)))
+        self.assertEqual(Path(b.AGENT_TOOLS.root), before)
+
 
 if __name__ == "__main__":
     unittest.main()

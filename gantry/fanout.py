@@ -1,9 +1,10 @@
 # -*- coding: utf-8 -*-
-"""确定性扇出：**不经模型判断**，把 N 个任务直接派给 N 个子代理。
+"""显式扇出：调用方直接给 N 个独立任务，各交给一个子代理。
 
-为什么需要：提示词 + 运行时提示能让模型"想起"子代理，但实测弱模型（Kimi）在有捷径时
-仍然选择自己串行做完（30 步 vs 扇出）。所以给一个**显式入口**：用户直接给几段任务，
-服务就把它们各自丢给一个子代理，跑完汇总到同一个父会话里——不依赖模型是否愿意拆。
+“不经模型判断”只指**任务拆分**：弱模型（如 Kimi）在有捷径时经常选择自己串行做完，
+所以给用户/CLI 一个显式入口，不依赖模型是否愿意拆。每个子任务的执行仍由子代理模型完成。
+
+调用方需保证任务彼此独立、不会并发写同一文件；需要模型自主拆任务时用 `subagent_many`。
 
     POST /v1/agent/fanout {"tasks": ["...", "..."], "model": "kimi-coding/k3"}
     gantry fanout --task "..." --task "..."
@@ -45,6 +46,7 @@ async def fanout(tasks: list | None, model: str = "", workspace: str = "",
     if len(items) > 8:
         raise b.ToolError(f"一次最多 8 个子任务（收到 {len(items)} 个）")
 
+    prev_root = b.AGENT_TOOLS.root
     root = str(b.AGENT_TOOLS.root)
     use_ws = str(workspace or "").strip()
     if use_ws:
@@ -130,6 +132,12 @@ async def fanout(tasks: list | None, model: str = "", workspace: str = "",
         except Exception:
             pass
         b.ACTIVE_SESSION_ID = prev_active
+        if use_ws:
+            # workspace 参数改的是全局工具根；不恢复会污染其它会话
+            try:
+                b.AGENT_TOOLS.root = prev_root
+            except Exception:
+                pass
     ok = [r for r in results if r["ok"]]
     b.AGENT_SESSIONS.patch(parent_sid, state="completed")
     return {"session_id": parent_sid, "requested": len(items), "succeeded": len(ok),
