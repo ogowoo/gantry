@@ -232,8 +232,12 @@ def detach(args: list[str]) -> int:
         print(f"提示：当前 Python 缺依赖，已自动改用 {child_py}")
     flags = 0
     if os.name == "nt":
+        # DETACHED_PROCESS：不继承父控制台；CREATE_NO_WINDOW：即使目标 pythonw.exe
+        # 其实是 console 子系统的垫片（uv/conda 等工具建的 venv 可能是），也不给它
+        # 分配控制台窗口。两者同时用对真正的 pythonw.exe 无副作用。
         flags = (getattr(subprocess, "DETACHED_PROCESS", 0)
-                 | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0))
+                 | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+                 | getattr(subprocess, "CREATE_NO_WINDOW", 0))
     env = dict(os.environ)
     env["GANTRY_TRAY_CHILD"] = "1"
     cmd = build_detach_command(args)
