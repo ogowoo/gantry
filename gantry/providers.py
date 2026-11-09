@@ -617,12 +617,50 @@ class LocalProvider(ApiProvider):
         return str(msg.get("content") or "")
 
 
+def _autodiscover_local(merged: dict[str, dict[str, Any]]) -> None:
+    """data/models/ 里有 GGUF 且没人配过本地提供商时，自动注册 `local/` 提供商。
+
+    约定：文件名含 embed / bge / e5 / mmproj 的视为向量或辅助模型，不做聊天模型。
+    config.json 里显式配了 backend=local 或 model_path 时以配置为准，不重复注册。
+    """
+    for c in merged.values():
+        if not isinstance(c, dict):
+            continue
+        if str(c.get("backend") or "").lower() == "local" or c.get("model_path"):
+            return
+    import importlib.util
+
+    if importlib.util.find_spec("llama_cpp") is None:
+        return  # 没装 llama-cpp-python：注册了也只会报"缺依赖"，不如不列
+    root = Path(__file__).resolve().parent.parent
+    mdir = root / "data" / "models"
+    if not mdir.is_dir():
+        return
+
+    def _is_embed(name: str) -> bool:
+        n = name.lower()
+        return any(k in n for k in ("embed", "bge-", "bge_", "e5-", "mmproj"))
+
+    chat = sorted(p for p in mdir.glob("*.gguf") if p.is_file() and not _is_embed(p.name))
+    if not chat:
+        return
+    pick = chat[0]                      # 多个聊天 GGUF 时取排序第一个，其余仍走显式配置
+    model_id = pick.stem.lower().replace(" ", "-")
+    merged["local"] = {
+        "backend": "local",
+        "models": [model_id],
+        "model_path": str(pick),
+        "description": "进程内 GGUF（data/models 自动发现）",
+    }
+
+
 def build_providers(cfg: dict[str, Any]) -> dict[str, ApiProvider]:
     """内置预设与 config.json 的 providers 段合并（后者覆盖/新增）。"""
     merged: dict[str, dict[str, Any]] = {name: dict(preset) for name, preset in PRESETS.items()}
     for name, custom in (cfg.get("providers") or {}).items():
         if isinstance(custom, dict):
             merged.setdefault(name, {}).update(custom)
+    _autodiscover_local(merged)
     out: dict[str, ApiProvider] = {}
     for name, c in merged.items():
         cfg2 = dict(c)
