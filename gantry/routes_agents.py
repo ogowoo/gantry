@@ -68,17 +68,27 @@ async def subagent_fork(sid: str, payload: dict | None = None):
 
 @router.post("/v1/agent/fanout")
 async def agent_fanout(payload: dict | None = None):
-    """确定性扇出：把 N 个任务直接各派一个子代理（不经模型判断）。
+    """显式扇出：把 N 个独立任务各派一个子代理（拆分不依赖模型）。
 
-    {tasks: ["任务1", "任务2"] | [{task, description}], model?, workspace?, max_steps?}
-    返回父会话 id 与每个子任务的结果；结果同时写进父会话消息，可在会话列表里查看。
+    {tasks: ["任务1", "任务2"] | [{task, description, depends_on}],
+     goal?, split?: "model"|"none", model?, workspace?, max_steps?,
+     serial?, isolate_workspace?, merge?, summary?}
     """
     data = payload or {}
     try:
-        return await b.fanout(data.get("tasks") or [], str(data.get("model") or ""),
-                              str(data.get("workspace") or ""),
-                              int(data.get("max_steps") or 40),
-                              str(data.get("title") or ""))
+        return await b.fanout(
+            data.get("tasks") or [],
+            model=str(data.get("model") or ""),
+            workspace=str(data.get("workspace") or ""),
+            max_steps=int(data.get("max_steps") or 40),
+            parent_title=str(data.get("title") or ""),
+            isolate_workspace=bool(data.get("isolate_workspace") or False),
+            merge=bool(data.get("merge") or False),
+            summary=bool(data.get("summary") or False),
+            serial=bool(data.get("serial") or False),
+            goal=str(data.get("goal") or ""),
+            split=str(data.get("split") or "none"),
+        )
     except b.ToolError as exc:
         raise HTTPException(400, str(exc))
 

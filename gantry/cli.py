@@ -105,13 +105,21 @@ def cmd_serve(args) -> int:
 
 
 def cmd_fanout(args) -> int:
-    """确定性扇出：每个 --task 派一个子代理，结果写回一个父会话。"""
+    """显式扇出：每个 --task 派一个子代理，结果写回一个父会话。"""
     tasks = [t for t in (args.task or []) if t.strip()]
-    if len(tasks) < 2:
-        return _fail("至少给两个 --task（每个任务一个子代理）")
+    if len(tasks) < 2 and not (args.goal and args.split == "model"):
+        return _fail("至少给两个 --task，或用 --goal + --split model 让模型拆分")
     body = {"tasks": tasks, "model": args.model or "", "max_steps": args.max_steps}
     if args.workspace:
         body["workspace"] = args.workspace
+    if args.goal:
+        body["goal"] = args.goal
+    if args.split:
+        body["split"] = args.split
+    for key, flag in (("serial", args.serial), ("isolate_workspace", args.isolate),
+                      ("merge", args.merge), ("summary", args.summary)):
+        if flag:
+            body[key] = True
     with _client(args) as c:
         try:
             d = c.post("/v1/agent/fanout", json=body)
@@ -276,12 +284,19 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--json", action="store_true")
     p.set_defaults(func=cmd_status)
 
-    p = sub.add_parser("fanout", help="确定性扇出：多个任务各派一个子代理")
-    p.add_argument("--task", action="append", required=True,
-                   help="子任务（可重复；至少两个）")
+    p = sub.add_parser("fanout", help="显式扇出：多个任务各派一个子代理")
+    p.add_argument("--task", action="append", default=[],
+                   help="子任务（可重复；与 --goal 二选一）")
+    p.add_argument("--goal", default="", help="目标；配合 --split model 让模型拆分")
+    p.add_argument("--split", default="none", choices=["none", "model"],
+                   help="none=用 --task；model=让模型拆 --goal")
     p.add_argument("--model", default="")
     p.add_argument("--workspace", default="")
     p.add_argument("--max-steps", type=int, default=40)
+    p.add_argument("--serial", action="store_true", help="强制顺序执行")
+    p.add_argument("--isolate", action="store_true", help="每个子任务独立工作区副本")
+    p.add_argument("--merge", action="store_true", help="任务成功后把副本合并回父工作区")
+    p.add_argument("--summary", action="store_true", help="让模型汇总结果")
     p.add_argument("--json", action="store_true")
     p.set_defaults(func=cmd_fanout)
 

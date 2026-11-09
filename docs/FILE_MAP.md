@@ -81,7 +81,7 @@ skills/                         Agent 技能说明与模板
 | `downloads.py` | downloads.py — Copilot 回答区下载：候选链接解析、href 落盘、调试快照、copilot_file（生成文件并下载进工作区） | _answer_area_html, _download_candidates, _resolve_href, pathlib_basename, debug_download_now, debug_page_snapshot |
 | `editmatch.py` | 文本替换/补丁匹配（含模糊匹配）。 |  |
 | `envfile.py` | `.env` 支持：密钥放 .env（不入库），config.json 里用 ${VAR} 引用。 | load_env_file, resolve_placeholders, warn_plaintext_secrets |
-| `fanout.py` | 显式扇出：调用方直接给 N 个独立任务，各交给一个子代理。 | _normalize, fanout |
+| `fanout.py` | 显式扇出：调用方直接给 N 个独立任务，各交给一个子代理。 | _normalize, _resolve_deps, _waves, _parse_tasks, _split_goal, _copy_workspace |
 | `fileview.py` | 识别"给我看某个本地文件"的意图，并把文件内容回给界面渲染成卡片。 | _candidates, _resolve, _kind, maybe_file_view, render_message |
 | `i18n.py` | 后端国际化。 |  |
 | `interrupts.py` | 强行插入指令的"立即中断"信号（Ctrl+J）。 | _interrupt_event, request_interrupt, interrupt_pending, clear_interrupt, discard_interrupts, _await_interruptible |

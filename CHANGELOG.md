@@ -14,6 +14,27 @@
 ### Fixed
 - 
 
+## [11.0.0-preview.85] - 2026-11-10
+
+### Added
+
+- `fanout` 增强：
+  - 任务去重；`depends_on` 依赖（拓扑波次，失败依赖自动跳过）；
+  - `serial` 强制顺序；`isolate_workspace` 每个子任务独立工作区副本，`merge` 成功后合并；
+  - `summary` 让模型把子任务结果汇总到父会话；
+  - `split="model"` + `goal`：由模型把目标拆成 2-8 个子任务。
+- HTTP/CLI 支持上述参数（`--goal`、`--split`、`--isolate`、`--merge`、`--summary`、`--serial`）。
+
+### Changed
+
+- `fanout` 不再修改全局 `AGENT_TOOLS.root`：通过 `_TOOLS_CTX` 给每个任务绑定工作区，
+  `workspace` 参数不再污染其它会话。
+- 并行仍仅限 API 提供商模型；网页 Copilot 通道保持顺序。
+
+### 实测
+
+- 全套 **1650** 测试 OK（skipped=1）；不变量 25 条全绿。
+
 ## [11.0.0-preview.84] - 2026-11-09
 
 ### Added

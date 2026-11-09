@@ -22,9 +22,17 @@ class FanoutTests(unittest.TestCase):
         b.AGENT_SESSIONS = SessionStore(self.tmp / "a.db")
         b.AGENT_TOOLS.set_root(self.ws, False)
         self.calls = []
+        self.roots = []
 
         async def fake(task, description="", model="", max_steps=40):
             self.calls.append(task)
+            if "任务规划器" in task:
+                return {"agent_id": "planner", "steps": 1,
+                        "content": '[{"task": "甲", "description": "A"},'
+                                   ' {"task": "乙", "description": "B"}]'}
+            if "请给父会话写一段简洁汇总" in task:
+                return {"agent_id": "summary", "steps": 1, "content": "SUMMARY"}
+            self.roots.append(str(b.task_tools().root))
             if "boom" in task:
                 raise b.ToolError("模拟失败")
             return {"agent_id": "sub-fake", "steps": 1, "content": "答:" + task}
@@ -70,6 +78,47 @@ class FanoutTests(unittest.TestCase):
         before = Path(b.AGENT_TOOLS.root)
         asyncio.run(fanout_mod.fanout(["任务甲"], model="m", workspace=str(other)))
         self.assertEqual(Path(b.AGENT_TOOLS.root), before)
+
+    def test_rejects_duplicate_tasks(self):
+        with self.assertRaises(b.ToolError):
+            asyncio.run(fanout_mod.fanout(["甲", "甲"], model="m"))
+
+    def test_depends_on_order_and_cycle(self):
+        out = asyncio.run(fanout_mod.fanout(
+            [{"task": "甲"}, {"task": "乙", "depends_on": [1]}], model="m"))
+        self.assertEqual(self.calls, ["甲", "乙"])
+        self.assertEqual(out["succeeded"], 2)
+        with self.assertRaises(b.ToolError):
+            asyncio.run(fanout_mod.fanout(
+                [{"task": "甲", "depends_on": [2]},
+                 {"task": "乙", "depends_on": [1]}], model="m"))
+
+    def test_serial_disables_parallel(self):
+        out = asyncio.run(fanout_mod.fanout(
+            ["甲", "乙"], model="deepseek/x", serial=True))
+        self.assertFalse(out["parallel"])
+        self.assertTrue(out["serial"])
+        self.assertEqual(self.calls, ["甲", "乙"])
+
+    def test_isolate_workspace_roots(self):
+        out = asyncio.run(fanout_mod.fanout(
+            ["甲", "乙"], model="m", isolate_workspace=True))
+        self.assertTrue(out["isolated"])
+        self.assertEqual(len(self.roots), 2)
+        self.assertNotEqual(self.roots[0], self.roots[1])
+        self.assertTrue(all(".fanout" in r for r in self.roots))
+
+    def test_summary_written(self):
+        out = asyncio.run(fanout_mod.fanout(["甲", "乙"], model="m", summary=True))
+        msgs = b.AGENT_SESSIONS.messages(out["session_id"])
+        self.assertTrue(any("汇总" in str(m.get("content") or "") for m in msgs))
+
+    def test_model_split_goal(self):
+        out = asyncio.run(fanout_mod.fanout(
+            tasks=[], goal="做两件事", split="model", model="m"))
+        self.assertEqual(out["requested"], 2)
+        self.assertIn("任务规划器", self.calls[0])
+        self.assertEqual(out["succeeded"], 2)
 
 
 if __name__ == "__main__":
