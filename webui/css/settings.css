@@ -42,6 +42,8 @@
   transition:transform .15s ease}
 details[open] > .model-download-summary::before{transform:rotate(90deg)}
 .model-download-summary:hover{background:color-mix(in srgb,var(--menu-hover) 70%,var(--line));color:var(--text)}
+.model-presets{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:0 0 10px}
+.model-presets .btn{gap:6px}
 #modelsEmbedOcr .setrow{display:grid;grid-template-columns:160px minmax(0,1fr);gap:12px;
   align-items:center;flex-wrap:nowrap}
 #modelsEmbedOcr .setrow > span:first-child{flex:none;width:auto}

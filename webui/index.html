@@ -418,6 +418,17 @@
       <div id="modelsBody" style="margin-bottom:10px">—</div>
       <details style="margin-top:22px;border-top:1px solid var(--line);padding-top:16px">
         <summary class="hint model-download-summary" data-i18n="下载新模型">下载新模型</summary>
+        <div class="model-presets">
+          <span class="hint" data-i18n="推荐：">推荐：</span>
+          <button type="button" class="btn ghost" data-act="modelPreset"
+                  data-url="https://hf-mirror.com/Qwen/Qwen3-Embedding-0.6B-GGUF/resolve/main/Qwen3-Embedding-0.6B-Q8_0.gguf"
+                  data-name="Qwen3-Embedding-0.6B-Q8_0.gguf">
+            Qwen3-Embedding-0.6B <span class="hint">向量 · 610 MB</span></button>
+          <button type="button" class="btn ghost" data-act="modelPreset"
+                  data-url="https://hf-mirror.com/unsloth/Qwen3-4B-Instruct-2507-GGUF/resolve/main/Qwen3-4B-Instruct-2507-Q4_K_M.gguf"
+                  data-name="Qwen3-4B-Instruct-2507-Q4_K_M.gguf">
+            Qwen3-4B-Instruct-2507 <span class="hint">对话 · 2.4 GB</span></button>
+        </div>
         <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
           <input id="modelDownloadUrl" class="kbinput" placeholder="https://hf-mirror.com/.../xxx.gguf" style="flex:2 1 320px;min-width:200px">
           <input id="modelDownloadName" class="kbinput" placeholder="保存文件名（可选）" style="flex:1 1 160px;min-width:120px;max-width:220px">

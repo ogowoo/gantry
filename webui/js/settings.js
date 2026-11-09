@@ -5,7 +5,7 @@ import { CODE_EXT } from './codeux.js';
 import { stepFilterInput } from './steps.js';
 import { readAnimPrefs, applyAnimPrefs, setAnimPref, animPrefLabel, ANIM_RANGES } from './animprefs.js';
 import { openKb, closeKb, kbPick, kbRefresh, kbReindex, kbImportUrl, kbImportText, kbInbox, kbSearch, kbDelete, fmtErr, wireKbSettings, kbLoadSettings, kbSaveSettings } from './kb.js';
-import { openModels, closeModels, renderModels, modelDelete, modelCopyPath, modelDownload } from './models.js';
+import { openModels, closeModels, renderModels, modelDelete, modelCopyPath, modelDownload, modelPreset } from './models.js';
 import { kbSaveMsg as kbSaveMsgImpl, THEMES } from './composer.js';
 
 /* 设置左侧的“工具页”：不弹窗，直接把对应面板的 .dlg 移进设置右侧渲染。 */
@@ -689,6 +689,7 @@ const ACTIONS={
  modelDelete:(el)=>modelDelete(el),
  modelCopyPath:(el)=>modelCopyPath(el),
  modelDownload:()=>modelDownload(),
+ modelPreset:(el)=>modelPreset(el),
 };
 document.addEventListener('click',e=>{
  const el=e.target.closest?e.target.closest('[data-act]'):null;

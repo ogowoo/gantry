@@ -85,6 +85,17 @@ export async function modelCopyPath(el) {
   }
 }
 
+export function modelPreset(el) {
+  const url = el && el.dataset && el.dataset.url;
+  if (!url) return;
+  const urlEl = document.getElementById('modelDownloadUrl');
+  const nameEl = document.getElementById('modelDownloadName');
+  if (urlEl) urlEl.value = url;
+  if (nameEl) nameEl.value = (el.dataset.name || '');
+  const hint = document.getElementById('modelDownloadHint');
+  if (hint) hint.textContent = tr('已填入推荐下载地址，点「下载」开始');
+}
+
 export async function modelDownload() {
   const urlEl = document.getElementById('modelDownloadUrl');
   const nameEl = document.getElementById('modelDownloadName');
