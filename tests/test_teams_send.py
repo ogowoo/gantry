@@ -32,6 +32,16 @@ class TitleMatchTests(unittest.TestCase):
         ok, _ = ts._title_matches("Lynn", {"peer": "Lynn Ling - Example"})
         self.assertFalse(ok)
 
+    def test_topic_near_match_rejected(self):
+        ok, _ = ts._title_matches("IT 支持群 2", {"topic": "IT 支持群"})
+        self.assertFalse(ok, "topic 子串不应通过（会发到同名/近名群）")
+        ok, _ = ts._title_matches("IT 支持群", {"topic": "IT 支持群"})
+        self.assertTrue(ok)
+
+    def test_peer_substring_rejected(self):
+        ok, _ = ts._title_matches("AI GROUP Chat", {"peer": "AI"})
+        self.assertFalse(ok, "peer 子串不应通过")
+
 
 if __name__ == "__main__":
     unittest.main()

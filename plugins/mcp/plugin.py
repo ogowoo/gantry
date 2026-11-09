@@ -671,7 +671,20 @@ def setup(ctx):
         except Exception:
             body = {}
         name = str((body or {}).get("name") or "")
-        spec = (body or {}).get("spec") or {}
+        spec = dict((body or {}).get("spec") or {})
+        # 安全边界：HTTP 接口不接收 env/cwd，且 stdio 命令只允许常见解释器。
+        # 任意 command 等于本机任意进程执行；高级需求走插件配置文件。
+        if spec.get("env") or spec.get("cwd"):
+            return {"name": name, "connected": False,
+                    "error": "HTTP 接口不允许 env/cwd；请在 MCP 插件配置里设置"}
+        if not spec.get("url"):
+            base = os.path.basename(str(spec.get("command") or "")).lower()
+            allowed = {"python", "python.exe", "node", "node.exe", "npx", "npx.cmd",
+                       "uv", "uvx", "uvx.exe", "deno", "deno.exe", "bun", "bun.exe"}
+            if base not in allowed:
+                return {"name": name, "connected": False,
+                        "error": f"HTTP 接口不允许 command={base or '(空)'}；"
+                                 "请在 MCP 插件配置里设置"}
         manager.add(name, spec)
         ctx.save_state(servers=manager.servers)
         try:

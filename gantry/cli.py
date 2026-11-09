@@ -117,7 +117,8 @@ def cmd_fanout(args) -> int:
     if args.split:
         body["split"] = args.split
     for key, flag in (("serial", args.serial), ("isolate_workspace", args.isolate),
-                      ("merge", args.merge), ("summary", args.summary)):
+                      ("merge", args.merge), ("summary", args.summary),
+                      ("keep_workspace", args.keep_workspace)):
         if flag:
             body[key] = True
     with _client(args) as c:
@@ -296,6 +297,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--serial", action="store_true", help="强制顺序执行")
     p.add_argument("--isolate", action="store_true", help="每个子任务独立工作区副本")
     p.add_argument("--merge", action="store_true", help="任务成功后把副本合并回父工作区")
+    p.add_argument("--keep-workspace", action="store_true",
+                   help="保留隔离副本（默认清理）")
     p.add_argument("--summary", action="store_true", help="让模型汇总结果")
     p.add_argument("--json", action="store_true")
     p.set_defaults(func=cmd_fanout)

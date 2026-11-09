@@ -216,6 +216,13 @@ class DirectTests(BotTestCase):
         out = self.run_cycle(dry_run=True)
         self.assertEqual(out["would"], [])
 
+    def test_mentions_metadata_without_my_name_fail_closed(self):
+        c = conv(dm(), "你好")
+        c["lastMentions"] = [{"displayName": "李四"}]
+        self.fake.conversations = [c]
+        out = self.run_cycle(dry_run=True, my_name="")
+        self.assertEqual(out["would"], [], "my_name 为空时不能把别人的 mention 当成 @我")
+
     def test_read_conversation_ignored(self):
         """only_unread 默认开启：已读会话的历史消息不能回。"""
         self.fake.conversations = [conv(dm(), "@Gantry 旧消息", unread=False)]
@@ -452,9 +459,23 @@ class SetupTests(BotTestCase):
         ctx = FakeCtx(dry_run=True)
         plugin.setup(ctx)
         fn = dict((n, f) for n, f, _ in ctx.tools)["teams_reply"]
-        res = asyncio.new_event_loop().run_until_complete(fn(chat="", text="hi"))
+        res = asyncio.new_event_loop().run_until_complete(
+            fn(chat="Chen, Alex", text="hi"))
         self.assertFalse(res["ok"])
         self.assertIn("dry_run", res["error"])
+        res2 = asyncio.new_event_loop().run_until_complete(
+            fn(chat="Chen, Alex", text="hi", force=True))
+        self.assertFalse(res2["ok"], "force 不能单独绕过 dry_run")
+        self.assertIn("allow_force_send", res2["error"])
+        plugin.teardown(ctx)
+
+    def test_reply_tool_requires_target_chat(self):
+        ctx = FakeCtx(dry_run=False, send_enabled=True)
+        plugin.setup(ctx)
+        fn = dict((n, f) for n, f, _ in ctx.tools)["teams_reply"]
+        res = asyncio.new_event_loop().run_until_complete(fn(chat="", text="hi"))
+        self.assertFalse(res["ok"])
+        self.assertIn("chat 不能为空", res["error"])
         plugin.teardown(ctx)
 
 
@@ -658,6 +679,24 @@ class MentionsTests(BotTestCase):
         self.assertEqual(self.fake.last_conv_id, "",
                          "mentions 不应拿合成 key 当 conv_id")
 
+    def test_mentions_outbox_duplicate_not_queued(self):
+        row = self.rows()[0]
+        self.fake.mention_rows = [row]
+        self.kb.hits = [{"title": "T", "heading": "", "score": 0.9,
+                         "path": "t.md", "text": "答案"}]
+        ctx = FakeCtx(enabled=True, source="mentions", dry_run=False,
+                      send_enabled=True, my_name="Alex Chen - Example",
+                      outbox_path=":memory:", max_replies_per_cycle=1)
+        bot = plugin.Bot(ctx)
+        key = f"mention|{row['key']}"
+        bot.outbox().reserve(key, row["time"], text="x")
+        bot.outbox().mark_sent(key, row["time"])
+        out = asyncio.new_event_loop().run_until_complete(bot.cycle())
+        self.assertEqual(out["queued"], 0)
+        self.assertEqual(out["would"], [])
+        self.assertTrue(any("outbox:duplicate" in str(s.get("why"))
+                            for s in out["skipped"]))
+
     def test_group_mention_skipped_when_only_direct(self):
         self.fake.mention_rows = [self.rows()[0] | {"chat": "IT 支持群"}]
         self.fake.chat_kind_value = "group"
@@ -666,7 +705,7 @@ class MentionsTests(BotTestCase):
         out = self.run_cycle(source="mentions", dry_run=True,
                              my_name="Alex Chen - Example", only_direct=True)
         self.assertEqual(out["would"], [])
-        self.assertTrue(any("群聊" in str(s.get("why")) for s in out["skipped"]))
+        self.assertTrue(any("非 1:1" in str(s.get("why")) for s in out["skipped"]))
 
     def test_group_mention_allowed_and_whitelist_by_title(self):
         self.fake.mention_rows = [self.rows()[0] | {"chat": "IT 支持群"}]

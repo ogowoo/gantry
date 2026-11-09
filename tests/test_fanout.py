@@ -107,6 +107,12 @@ class FanoutTests(unittest.TestCase):
         self.assertEqual(len(self.roots), 2)
         self.assertNotEqual(self.roots[0], self.roots[1])
         self.assertTrue(all(".fanout" in r for r in self.roots))
+        self.assertFalse((self.ws / ".fanout" / out["session_id"]).exists(),
+                         "隔离副本应在结束后清理")
+
+    def test_merge_requires_isolation(self):
+        with self.assertRaises(b.ToolError):
+            asyncio.run(fanout_mod.fanout(["甲"], model="m", merge=True))
 
     def test_summary_written(self):
         out = asyncio.run(fanout_mod.fanout(["甲", "乙"], model="m", summary=True))

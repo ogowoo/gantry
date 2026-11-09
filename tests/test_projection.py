@@ -134,5 +134,18 @@ class ProjectionAgainstRealRunTests(unittest.TestCase):
         self.assertGreaterEqual(p["event_count"], 4)
 
 
+class ProjectionStoreTests(unittest.TestCase):
+    """projection_inputs 走单连接读取；路由曾因 contextmanager 用法错误必 500。"""
+
+    def test_projection_inputs_reads_turn_table(self):
+        tmp = Path(tempfile.mkdtemp(prefix="cbp_proj_store_"))
+        store = SessionStore(tmp / "p.db")
+        store.create("s1", "t", str(tmp), "m")
+        store.begin_turn("s1", 0, "h1", 0)
+        turns, steps = store.projection_inputs("s1")
+        self.assertEqual(turns[0]["prompt_hash"], "h1")
+        self.assertEqual(steps, [])
+
+
 if __name__ == "__main__":
     unittest.main()

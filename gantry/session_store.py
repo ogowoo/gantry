@@ -665,6 +665,17 @@ CREATE TABLE IF NOT EXISTS conv_stats (
                 out.append(item)
             return out
 
+    def projection_inputs(self, sid: str) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+        """projection 端点用的 turn_results / step_dispatch 快照（单连接读取）。"""
+        with self.lock, self._connect() as con:
+            turns = [dict(r) for r in con.execute(
+                "SELECT prompt_hash,status,steps_after FROM turn_results WHERE session_id=?",
+                (sid,))]
+            steps = [dict(r) for r in con.execute(
+                "SELECT step_no,tool,status FROM step_dispatch WHERE session_id=?",
+                (sid,))]
+        return turns, steps
+
     def begin_turn(self, sid: str, conv_index: int, prompt_hash: str, steps_before: int,
                    prompt: str = "") -> None:
         """**发请求之前**登记"这一回合即将派发"（DSH 的 checkpoint-before-dispatch 思路）。

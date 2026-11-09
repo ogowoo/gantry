@@ -41,6 +41,7 @@ _DEFAULTS: dict[str, Any] = {
     "chats": [],
     "source": "idb",              # idb=聊天列表；mentions=Chat→Mentions 全局 @我 列表
     "send_enabled": False,        # 写侧还没打通（切会话），默认只记录不发送
+    "allow_force_send": False,    # 工具/API 的 force 不能单独绕过 dry_run
     "only_direct": True,          # 只应答 1:1 会话（群聊默认跳过）
     "only_unread": True,          # 只处理未读会话（过滤历史消息，避免首次全量误回）
     "mention_tokens": ["@Gantry"],
@@ -309,6 +310,7 @@ class Bot:
             "only_unread": bool(cfg["only_unread"]),
             "source": cfg["source"],
             "send_enabled": bool(cfg["send_enabled"]),
+            "allow_force_send": bool(cfg["allow_force_send"]),
             "mention_tokens": cfg["mention_tokens"],
             "my_name": cfg["my_name"],
             "model": cfg["model"],
@@ -533,14 +535,22 @@ class Bot:
                 convs = [c for c in convs if _hit(c)]
                 out["filtered"] = before - len(convs)
             out["scanned"] = len(convs)
+
+            def _done(cid: str, lid: str) -> None:
+                """确认这条消息已处理完（跳过或已入队）才推进已读水位。
+
+                超 max_replies / 回答失败时不能推进，否则下轮 new_msg=False，
+                已读会话里的消息会永久漏掉。
+                """
+                if lid:
+                    last_ids[cid] = lid
+
             for c in convs:
                 cid = str(c.get("id") or "")
                 lid = str(c.get("lastId") or c.get("lastAt") or "")
                 prev = last_ids.get(cid)
                 # 最后一条消息 id 变了 = 有新消息（即使会话开着、被自动标成已读）
                 new_msg = bool(lid) and prev is not None and lid != prev
-                if lid:
-                    last_ids[cid] = lid
                 text = normalise_text(str(c.get("lastText") or ""))
                 who = str(c.get("lastFrom") or "")
                 # Teams 会话最后一条可能是 ThreadActivity/AddMember 等非聊天消息；
@@ -548,17 +558,21 @@ class Bot:
                 mtype = str(c.get("lastType") or "").strip().lower()
                 if mtype and mtype not in ("chat", "text", "richtext", "richtext/html"):
                     out["skipped"].append({"id": cid[:24], "why": f"非聊天消息:{mtype}"})
+                    _done(cid, lid)
                     continue
                 if not text:
+                    _done(cid, lid)
                     continue
                 # 只处理未读：历史消息（已读水位覆盖）直接跳过，避免首次启用
                 # 把几十个旧会话的"最后一条"全回一遍。
                 # 例外：lastId 变了的新消息——即使会话开着被自动标已读，也要回。
                 if bool(_cfg(self.ctx, "only_unread")) and not c.get("unread") and not new_msg:
                     out["skipped"].append({"id": cid[:24], "why": "已读"})
+                    _done(cid, lid)
                     continue
                 if my_name and who.strip().lower() == my_name.strip().lower():
                     out["skipped"].append({"id": c["id"][:24], "why": "自己发的"})
+                    _done(cid, lid)
                     continue
                 # Teams 的 @ 经常不在正文里（正文纯文本 + properties.mentions），
                 # 只查 lastText 里的 "@" 会把真实 @ 全漏掉。
@@ -569,16 +583,20 @@ class Bot:
                         mentioned = any(n.strip().lower() == my_name.strip().lower()
                                         for n in mentions)
                     else:
-                        mentioned = True
+                        # 没有 my_name 就无法确认 mentions 里是不是自己：fail closed
+                        mentioned = False
                 if not mentioned:
+                    _done(cid, lid)
                     continue
                 key = f"{c.get('id')}|{c.get('lastId') or c.get('lastAt')}"
                 if key in seen:
+                    _done(cid, lid)
                     continue
                 q = strip_mentions(extract_question(text, tokens), mentions)
                 if my_name:
                     q = strip_leading_name(q, my_name) or q
                 if not q:
+                    _done(cid, lid)
                     continue
                 out["candidates"] += 1
                 if out["handled"] >= max_replies:
@@ -634,6 +652,7 @@ class Bot:
                         })
                         item["queued"] = True
                         out["queued"] += 1
+                _done(cid, lid)
                 out["would"].append(item)
                 out["handled"] += 1
                 seen.append(key)
@@ -731,8 +750,8 @@ class Bot:
                     kind = await teams.chat_kind()
                 except Exception:                # noqa: BLE001
                     kind = "unknown"
-                if kind == "group":
-                    out["skipped"].append({"id": key[:24], "why": "群聊（only_direct）"})
+                if kind != "direct":
+                    out["skipped"].append({"id": key[:24], "why": f"非 1:1（{kind}）"})
                     seen.append(key)
                     seen_set.add(key)
                     del seen[:-int(_cfg(self.ctx, "seen_limit") or 300)]
@@ -762,7 +781,14 @@ class Bot:
             except Exception as exc:             # noqa: BLE001
                 out["errors"].append(f"outbox 预留失败: {str(exc)[:160]}")
                 continue
-            if not reserved:
+            if not reserved.get("send"):
+                action = str(reserved.get("action") or "rejected")
+                item["error"] = str(reserved.get("error") or action)[:160]
+                out["skipped"].append({"id": key[:24], "why": f"outbox:{action}"})
+                seen.append(key)
+                seen_set.add(key)
+                del seen[:-int(_cfg(self.ctx, "seen_limit") or 300)]
+                self.ctx.save_state(seen=seen)
                 continue
             self._ensure_worker()
             self._queue.put_nowait({
@@ -863,15 +889,13 @@ def setup(ctx):
                            message_id: str = "") -> dict:
         if not (text or "").strip():
             return {"ok": False, "error": "text 不能为空"}
-        if bool(_cfg(ctx, "dry_run")) and not force:
-            return {"ok": False, "error": "dry_run=true（加 force=true 才会真发）"}
-        if not chat:
-            # 当前会话：send_message 自身持有页面锁；没有会话标题可核验
-            try:
-                await teams.send_message(text)
-                return {"ok": True, "chat": "(当前会话)", "sent": True}
-            except Exception as exc:             # noqa: BLE001
-                return {"ok": False, "error": str(exc)[:200]}
+        if not str(chat or "").strip():
+            return {"ok": False,
+                    "error": "chat 不能为空：必须指定会话，禁止发到当前窗口"}
+        if bool(_cfg(ctx, "dry_run")) and not (
+                force and bool(_cfg(ctx, "allow_force_send"))):
+            return {"ok": False,
+                    "error": "dry_run=true（force 需 allow_force_send=true）"}
         # 打开 + 校验标题 + 输入/发送在同一个页面锁里完成，避免中途被轮询插队
         expected = {"peer": chat}
         if message_id:
@@ -903,10 +927,11 @@ def setup(ctx):
     ctx.register_tool("teams_status", _teams_status,
                       "Teams 机器人状态（是否启用、知识库规模、最近一轮结果）", {})
     ctx.register_tool("teams_reply", _teams_reply,
-                      "在 Teams 指定会话里发一条消息（dry_run 下需 force=true）",
-                      {"chat": "会话标题片段（空=当前会话）", "text": "内容",
-                       "force": "绕过 dry_run",
-                       "message_id": "（可选）幂等键里的消息 id"})
+                      "在 Teams 指定会话里发一条消息（chat 必填；dry_run 下需 force=true）",
+                      {"chat": "会话标题片段（必填）", "text": "内容",
+                       "force": "绕过 dry_run（需 allow_force_send=true）",
+                       "message_id": "（可选）幂等键里的消息 id"},
+                      approval=True)
     ctx.register_tool("teams_probe", _teams_probe,
                       "校准用：dump Teams 页面命中的选择器/会话/消息，写 data/teams-probe/", {})
     # 说明：kb_search / kb_reindex 由独立的 `kb` 插件提供（同一份 gantry.kb 实现），
@@ -1334,7 +1359,8 @@ def setup(ctx):
         except Exception:                        # noqa: BLE001
             body = {}
         overrides = dict(ctx.state.get("overrides") or {})
-        for k in ("enabled", "dry_run", "send_enabled", "source", "chats",
+        for k in ("enabled", "dry_run", "send_enabled", "allow_force_send",
+                  "source", "chats",
                   "mention_tokens", "my_name", "my_user_id", "model", "interval_seconds",
                   "kb_min_score", "fallback_agent", "agent_mode", "only_direct",
                   "only_unread", "kb_synthesize", "typing_delay_ms",

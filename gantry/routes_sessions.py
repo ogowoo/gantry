@@ -776,12 +776,10 @@ async def session_projection(sid: str):
     """
     from .projection import compare_with_columns, project
 
+    if not b.AGENT_SESSIONS.get(sid):
+        raise HTTPException(404, "Session 不存在")
     proj = project(b.AGENT_SESSIONS.events(sid, limit=10000))
-    con = b.AGENT_SESSIONS._connect()
-    turns = [dict(r) for r in con.execute(
-        "SELECT prompt_hash,status,steps_after FROM turn_results WHERE session_id=?", (sid,))]
-    steps = [dict(r) for r in con.execute(
-        "SELECT step_no,tool,status FROM step_dispatch WHERE session_id=?", (sid,))]
+    turns, steps = b.AGENT_SESSIONS.projection_inputs(sid)
     return {"session_id": sid, "projection": proj,
             "consistency": compare_with_columns(proj, turns, steps)}
 

@@ -172,9 +172,12 @@ async def _summarize(parent_sid: str, items: list[dict], results: list[dict],
 async def fanout(tasks: list | None = None, model: str = "", workspace: str = "",
                  max_steps: int = 40, parent_title: str = "", *,
                  isolate_workspace: bool = False, merge: bool = False,
+                 keep_workspace: bool = False,
                  summary: bool = False, serial: bool = False,
                  goal: str = "", split: str = "none") -> dict[str, Any]:
     """建一个父会话，把每个任务交给一个子代理，结果写回父会话。"""
+    if merge and not isolate_workspace:
+        raise b.ToolError("merge 需要同时开启 isolate_workspace")
     if not tasks and goal and str(split).lower() == "model":
         tasks = await _split_goal(goal, model or b.DEFAULT_MODEL)
     items = _normalize(tasks)
@@ -295,6 +298,11 @@ async def fanout(tasks: list | None = None, model: str = "", workspace: str = ""
             b._SESSION_CTX.reset(tok_sid)
         except Exception:
             pass
+        if isolate_workspace and not keep_workspace:
+            try:
+                shutil.rmtree(base_root / ".fanout" / parent_sid, ignore_errors=True)
+            except Exception:                    # noqa: BLE001
+                pass
 
     results.sort(key=lambda r: r["index"])
     summary_text = ""
@@ -312,11 +320,12 @@ async def fanout(tasks: list | None = None, model: str = "", workspace: str = ""
             b._SESSION_CTX.reset(tok)
 
     ok = [r for r in results if r.get("ok")]
-    b.AGENT_SESSIONS.patch(parent_sid, state="completed")
+    b.AGENT_SESSIONS.patch(parent_sid, state="completed" if ok else "failed")
     return {"session_id": parent_sid, "requested": len(items), "succeeded": len(ok),
             "failed": len(results) - len(ok), "seconds": round(time.time() - t0, 1),
             "parallel": bool(parallel), "concurrency": cap, "serial": serial,
-            "isolated": bool(isolate_workspace), "merged": bool(merge),
+            "isolated": bool(isolate_workspace),
+            "merged": any(bool(r.get("merged")) for r in results),
             "split": str(split), "waves": waves,
             "model": model_id, "workspace": str(base_root),
             "summary": summary_text, "results": results}

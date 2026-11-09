@@ -324,6 +324,9 @@ async def plugin_registry():
 @router.post("/v1/plugins/install")
 async def plugin_install(payload: dict | None = None):
     """安装插件：{source, name?, force?}。source 可为目录 / .zip / git URL。"""
+    if not bool(getattr(b, "ALLOW_PLUGIN_INSTALL", False)
+                or b.CFG.get("allow_plugin_install")):
+        raise HTTPException(403, "插件安装默认关闭：在 config.json 设置 allow_plugin_install=true")
     data = payload or {}
     try:
         return b.PLUGINS.install(str(data.get("source") or ""),
@@ -336,6 +339,9 @@ async def plugin_install(payload: dict | None = None):
 @router.post("/v1/plugins/uninstall")
 async def plugin_uninstall(payload: dict | None = None):
     """卸载插件：{name, keep_backup?}。"""
+    if not bool(getattr(b, "ALLOW_PLUGIN_INSTALL", False)
+                or b.CFG.get("allow_plugin_install")):
+        raise HTTPException(403, "插件卸载默认关闭：在 config.json 设置 allow_plugin_install=true")
     data = payload or {}
     name = str(data.get("name") or "").strip()
     if not name:

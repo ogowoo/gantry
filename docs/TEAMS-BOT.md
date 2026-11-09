@@ -1,6 +1,6 @@
 # Teams 网页版 IT 应答机器人（teams-bot）
 
-在 **Teams 网页版**里，只要 1:1 聊天或群里有人 **@ 我**，就用本地知识库 + Gantry 的模型
+在 **Teams 网页版**里，只要 **1:1 聊天**里有人 **@ 我**，就用本地知识库 + Gantry 的模型
 自动回复。**零 Graph/Bot Framework 授权**：驱动的是已登录的 Teams 网页（同一套浏览器
 上下文，和 Copilot / OWA 自动化共用 SSO）。
 
@@ -65,7 +65,7 @@ python scripts/kb.py stats
 
 ```jsonc
 // data/plugins.json → teams-bot
-{"enabled": true, "dry_run": true, "chats": ["IT 支持群"], "mention_tokens": ["@Gantry"],
+{"enabled": true, "dry_run": true, "chats": ["Chen, Alex"], "mention_tokens": ["@Gantry"],
  "my_name": "你的显示名", "model": "copilot-auto"}
 ```
 
@@ -74,7 +74,7 @@ python scripts/kb.py stats
 ```powershell
 curl -X POST http://127.0.0.1:8765/v1/plugins/teams-bot/api/settings `
   -H 'Content-Type: application/json' `
-  -d '{"enabled":true,"dry_run":true,"chats":["IT 支持群"]}'
+  -d '{"enabled":true,"dry_run":true,"chats":["Chen, Alex"]}'
 curl http://127.0.0.1:8765/v1/plugins/teams-bot/api/status     # 看本轮"本来会回什么"
 curl -X POST http://127.0.0.1:8765/v1/plugins/teams-bot/api/run  # 手动跑一轮
 ```

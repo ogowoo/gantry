@@ -78,6 +78,11 @@ class SingleSourceTests(unittest.TestCase):
                       f"CHANGELOG 缺少当前版本 {VERSION} 的小节（发布前用 bump_version.py 生成）")
         self.assertIn("## [Unreleased]", text)
 
+    def test_all_readmes_carry_version(self):
+        for name in ("README.md", "README.zh-CN.md", "README.zh-TW.md"):
+            text = (ROOT / name).read_text(encoding="utf-8")
+            self.assertIn(VERSION, text, f"{name} 版本号未同步（bump_version.py 应更新三份 README）")
+
     def test_base_version(self):
         self.assertEqual(base_version("10.3.0-preview.3"), "10.3.0")
 

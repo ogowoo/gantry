@@ -69,9 +69,8 @@ class ParallelFanoutTests(unittest.TestCase):
         out = asyncio.run(fanout_mod.fanout(["a", "b", "c"], model="deepseek/deepseek-chat"))
         self.assertTrue(out["parallel"], "提供商模型必须走并行")
         self.assertEqual(out["succeeded"], 3)
-        # 3 个各 0.3s：并行应显著小于串行的 0.9s
-        self.assertLess(out["seconds"], 0.7, f"没并行起来（{out['seconds']}s）")
-        self.assertGreaterEqual(self.peak, 2, "观察到的峰值并发应 ≥2")
+        # 并发峰值是比墙钟更稳的证据：3 个任务应同时活跃
+        self.assertEqual(self.peak, 3, f"峰值并发应为 3，实际 {self.peak}")
         self.assertEqual([x["index"] for x in out["results"]], [1, 2, 3], "结果要保序")
 
     def test_concurrency_cap_respected(self):
@@ -79,7 +78,7 @@ class ParallelFanoutTests(unittest.TestCase):
         b.run_subagent = self._fake_subagent(0.2)
         out = asyncio.run(fanout_mod.fanout(["a", "b", "c", "d"], model="deepseek/x"))
         self.assertEqual(out["concurrency"], 2)
-        self.assertLessEqual(self.peak, 2, f"并发超过上限：{self.peak}")
+        self.assertEqual(self.peak, 2, f"并发峰值应正好等于上限 2，实际 {self.peak}")
 
     def test_failure_isolation(self):
         b.AGENT_CFG["subagent_parallel"] = 3

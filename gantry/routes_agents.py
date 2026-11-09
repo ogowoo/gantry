@@ -84,6 +84,7 @@ async def agent_fanout(payload: dict | None = None):
             parent_title=str(data.get("title") or ""),
             isolate_workspace=bool(data.get("isolate_workspace") or False),
             merge=bool(data.get("merge") or False),
+            keep_workspace=bool(data.get("keep_workspace") or False),
             summary=bool(data.get("summary") or False),
             serial=bool(data.get("serial") or False),
             goal=str(data.get("goal") or ""),

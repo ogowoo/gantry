@@ -195,12 +195,9 @@ async def _drive_child(child_sid: str, task: str, model_id: str, max_steps: int,
                     "content": "", "steps": 0, "model": model_id, "error": str(exc)}
     finally:
         _SUBAGENT_ACTIVE.pop(child_sid, None)
-        if _own_window is not None:
-            try:
-                await _own_window.__aexit__(None, None, None)
-            except Exception:
-                pass
-        # 先复位任务级上下文（并行的正确性靠它），再复位全局展示值
+        # 先按 LIFO 复位任务级 contextvar，再退出窗口：窗口的 __aexit__ 也会
+        # reset 它自己的 token；顺序反过来会把父上下文恢复到中间值（实测连续
+        # fanout 时第二个子代理挂到第一个子代理下）。
         try:
             if _tok_tools is not None:
                 b._TOOLS_CTX.reset(_tok_tools)
@@ -209,6 +206,11 @@ async def _drive_child(child_sid: str, task: str, model_id: str, max_steps: int,
             b._SUBAGENT_DEPTH_CTX.reset(_tok_depth)
         except Exception:
             pass
+        if _own_window is not None:
+            try:
+                await _own_window.__aexit__(None, None, None)
+            except Exception:
+                pass
         b.ACTIVE_SESSION_ID = parent_sid
         b.AGENT_TOOLS.current_session_id = parent_sid or ""
         # 不再改全局 root：子代理用的是自己的 child_reg；改全局会把并行中的

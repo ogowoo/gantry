@@ -13,6 +13,7 @@
   "default_model": "copilot-auto",
   "copilot_tool_shim": false,
   "api_token": "${GANTRY_TOKEN}",
+  "allow_plugin_install": false,
   "csrf_protect": true,
   "csrf_allowed_origins": [],
   "ui": {

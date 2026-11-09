@@ -31,6 +31,7 @@ VERSION_FILE = BASE / "gantry" / "version.py"
 PYPROJECT = BASE / "pyproject.toml"
 CHANGELOG = BASE / "CHANGELOG.md"
 README = BASE / "README.md"
+READMES = [README, BASE / "README.zh-CN.md", BASE / "README.zh-TW.md"]
 
 
 def _write(p: Path, text: str) -> None:
@@ -48,13 +49,15 @@ def set_version(new: str) -> None:
     t2 = re.sub(r'^version = "[^"]+"', f'version = "{new}"', t, count=1, flags=re.M)
     _write(PYPROJECT, t2)
 
-    if README.exists():
-        r = README.read_text(encoding="utf-8")
+    for readme in READMES:
+        if not readme.exists():
+            continue
+        r = readme.read_text(encoding="utf-8")
         r2 = re.sub(r"（\d+\.\d+\.\d+(?:-[0-9A-Za-z.]+)?）", f"（{new}）", r, count=1)
         # README 里也有加粗形态 **x.y.z**，以前只处理全角括号，导致版本行长期不同步
         r2 = re.sub(r"\*\*\d+\.\d+\.\d+(?:-[0-9A-Za-z.]+)?\*\*", f"**{new}**", r2, count=1)
         if r2 != r:
-            _write(README, r2)
+            _write(readme, r2)
 
 
 def roll_changelog(new: str) -> None:

@@ -195,20 +195,24 @@ def _base_identity(text: str) -> str:
 
 
 def _title_matches(head: str, expected: dict[str, Any] | None, peer: str = "") -> tuple[bool, str]:
-    """校验打开的会话标题是否匹配期望的 topic/peer。"""
+    """校验打开的会话标题是否匹配期望的 topic/peer。
+
+    这里必须**精确**：topic 只接受完全相等；peer 只接受全名相等，或去掉
+    " - 公司/部门" 后缀后的姓名相等。旧实现用子串双向匹配，``"IT 支持群 2"``
+    会被 ``topic="IT 支持群"`` 误判为同一会话（同名/近名发错会话）。
+    """
     exp = dict(expected or {})
     h = _norm_identity(head)
     topic = _norm_identity(exp.get("topic") or "")
     who = _norm_identity(exp.get("peer") or peer or "")
     if not h and (topic or who):
         return False, "会话标题为空，无法核验目标会话"
-    if topic:
-        if topic not in h and h not in topic:
-            return False, f"标题不一致：期望「{exp.get('topic')}」，实际「{head}」"
+    if topic and h != topic:
+        return False, f"标题不一致：期望「{exp.get('topic')}」，实际「{head}」"
     if who:
-        # 全名优先；再退回"姓名部分"匹配（去掉 - 公司 后缀），避免正确会话被误拒。
-        base = _base_identity(who)
-        if who not in h and base not in h:
+        head_base = _base_identity(head)
+        who_base = _base_identity(who)
+        if h != who and head_base != who_base:
             return False, f"对端不一致：期望「{exp.get('peer') or peer}」，实际「{head}」"
     return True, ""
 

@@ -14,6 +14,36 @@
 ### Fixed
 - 
 
+## [11.0.0-preview.86] - 2026-11-10
+
+### Changed
+
+- Teams 发送安全门收紧：`_title_matches` 改为精确匹配（topic 全等、peer 全名/base 相等），
+  `teams_reply` 强制指定 `chat`，禁止再发到“当前窗口”。
+- Mentions 只处理 1:1（`kind != "direct"` 一律跳过，含 unknown）；`my_name` 为空时不再把
+  别人的 mention 当成 @我。
+- `last_ids` 只在线程处理完（跳过/入队）后推进；超 `max_replies` 或回答失败时保留水位，
+  下轮重试。
+- Mentions 幂等箱改为检查 `reserve().get("send")`，不再把 dict 当布尔。
+- 插件安装/卸载默认关闭（`allow_plugin_install`）；MCP HTTP `api/add` 拒绝 `env/cwd`，
+  stdio 命令只允许常见解释器。
+- `force=true` 不再单独绕过 `dry_run`，需要 `allow_force_send=true`；`teams_reply` 注册为
+  需审批工具。
+- `fanout` 的 `merge` 必须配合 `isolate_workspace`；隔离副本结束后自动清理
+  （`keep_workspace=true` 可保留）；`.fanout/` 加入 .gitignore。
+
+### Fixed
+
+- `GET /v1/agent/sessions/{sid}/projection` 必 500：新增 `SessionStore.projection_inputs()`，
+  用正确的 `with self._connect()` 读取，并补 404。
+- 子代理 contextvar 复位顺序改为先 reset token、后退出窗口，修复连续 fanout 挂错父会话。
+- `tests/test_subagent_parallel.py` 去掉墙钟断言，改为峰值并发断言，消除全套时序 flake。
+- `scripts/bump_version.py` 同步三份 README；补版本一致性测试。
+
+### 实测
+
+- 全套 **1658** 测试 OK（skipped=1）；不变量 **25 条，失败 0**。
+
 ## [11.0.0-preview.85] - 2026-11-10
 
 ### Added
