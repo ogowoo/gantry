@@ -39,12 +39,16 @@ _DEFAULTS: dict[str, Any] = {
     "dry_run": True,
     "interval_seconds": 30,
     "chats": [],
-    "source": "idb",              # idb=从 IndexedDB 读会话（推荐）；dom=读当前打开的会话
+    "source": "idb",              # idb=聊天列表；mentions=Chat→Mentions 全局 @我 列表
     "send_enabled": False,        # 写侧还没打通（切会话），默认只记录不发送
     "only_direct": True,          # 只应答 1:1 会话（群聊默认跳过）
     "only_unread": True,          # 只处理未读会话（过滤历史消息，避免首次全量误回）
     "mention_tokens": ["@Gantry"],
     "my_name": "",
+    "my_user_id": "",             # 本账号 Entra Object ID；1:1 会话里区分我和对方
+    "typing_delay_ms": 8,         # 逐字输入延迟；太大容易撞发送超时
+    "send_jitter_ms": 0,          # 发送前随机等待上限（拟人化）
+    "mentions_gate": True,        # 先看 Mentions 未读 badge，0 就不展开列表
     "kb_first": True,
     "kb_min_score": 0.5,
     # 命中还必须覆盖至少这么多查询词（纯向量相似但词面无关的不算）
@@ -223,8 +227,11 @@ class Bot:
         try:
             res = await asyncio.wait_for(
                 teams.reply_to(job["peer"], job["answer"], send=True,
-                               snippet=job["snippet"], conv_id=job["cid"],
-                               expected=job["expected"], strict=True),
+                               snippet=job["snippet"],
+                               conv_id=job.get("conv_id", job["cid"]),
+                               expected=job["expected"], strict=True,
+                               typing_delay_ms=int(_cfg(self.ctx, "typing_delay_ms") or 8),
+                               send_jitter_ms=int(_cfg(self.ctx, "send_jitter_ms") or 0)),
                 timeout=timeout)
         except asyncio.TimeoutError:
             item["error"] = f"发送超时（>{timeout:.0f}s）"
@@ -460,10 +467,18 @@ class Bot:
                     self._last_kb = time.time()
                 except Exception as exc:         # noqa: BLE001
                     self.ctx.log(f"知识库重建失败: {exc}")
+            # 读侧可选：idb（默认，扫聊天列表）或 mentions（全局 @我 列表）
+            src = str(_cfg(self.ctx, "source") or "idb").strip().lower()
+            if src == "mentions":
+                return await self._cycle_mentions(
+                    out, my_name=my_name, max_replies=max_replies,
+                    dry=dry, send_ok=send_ok, send_timeout=send_timeout,
+                    seen=seen)
             # P2：只取上次水位之后有变化的会话（首轮 since=0 全量）
             since = float(self.ctx.state.get("idb_watermark") or 0)
             try:
-                watch = await teams.api_idb_watch(since=since)
+                watch = await teams.api_idb_watch(
+                    since=since, my_guid=str(_cfg(self.ctx, "my_user_id") or ""))
             except teams.TeamsAuthRequired as exc:
                 backoff = float(_cfg(self.ctx, "auth_backoff_seconds") or 300)
                 self._auth_until = time.time() + backoff
@@ -631,6 +646,142 @@ class Bot:
                 self._last_error = out["errors"][-1]
             return out
 
+    async def _cycle_mentions(self, out, *, my_name, max_replies, dry,
+                              send_ok, send_timeout, seen):
+        """读 Chat → Mentions，点行打开会话后回答（source=mentions）。"""
+        from gantry import teams
+        from gantry.teams_common import _norm_identity
+
+        try:
+            data = await teams.read_mentions(
+                my_name=my_name, gate=bool(_cfg(self.ctx, "mentions_gate")))
+        except teams.TeamsAuthRequired as exc:
+            backoff = float(_cfg(self.ctx, "auth_backoff_seconds") or 300)
+            self._auth_until = time.time() + backoff
+            self._auth_seen = "expired"
+            self._last_error = str(exc)
+            out["errors"].append(
+                f"Teams 未登录（{backoff:.0f}s 后重试）: {str(exc)[:120]}")
+            self._last_cycle = out
+            self.ctx.log(f"Teams 需要登录，退避 {backoff:.0f}s：{str(exc)[:80]}")
+            return out
+        except Exception as exc:                 # noqa: BLE001
+            self._last_error = str(exc)
+            self._auth_seen = "error"
+            out["errors"].append(f"读 Mentions 失败: {str(exc)[:160]}")
+            self._last_cycle = out
+            return out
+        self._auth_seen = "ok"
+        self._auth_until = 0.0
+
+        rows = data.get("rows") or []
+        out["scanned"] = len(rows)
+        out["badge"] = data.get("badge")
+        seen_set = set(seen)
+        handled = 0
+        only_direct = bool(_cfg(self.ctx, "only_direct"))
+        allow = [str(x).strip().lower()
+                 for x in (_cfg(self.ctx, "chats") or []) if str(x).strip()]
+        for row in rows:
+            q = str(row.get("question") or row.get("message") or "").strip()
+            if not q:
+                continue
+            sender = str(row.get("sender") or "").strip()
+            if my_name and _norm_identity(sender) == _norm_identity(my_name):
+                out["skipped"].append({"id": str(row.get("key") or "")[:24],
+                                       "why": "自己发的"})
+                continue
+            key = f"mention|{row.get('key') or q}"
+            if key in seen_set:
+                continue
+            out["candidates"] += 1
+            if handled >= max_replies:
+                continue
+            try:
+                opened = await teams.open_mention(row, my_name=my_name)
+            except Exception as exc:             # noqa: BLE001
+                out["errors"].append(f"打开提及失败: {str(exc)[:160]}")
+                continue
+            if not opened.get("opened"):
+                out["errors"].append(opened.get("error") or f"打不开会话: {sender}")
+                continue
+            chat = str(opened.get("chat") or sender or "").strip()
+            # Mentions 也可能来自群聊：白名单同时匹配发送人和聊天标题。
+            sender_ok = (not allow) or any(a in sender.lower() for a in allow)
+            chat_ok = (not allow) or any(a in chat.lower() for a in allow)
+            if allow and not (sender_ok or chat_ok):
+                out["skipped"].append({"id": key[:24], "why": "不在 chats 白名单"})
+                seen.append(key)
+                seen_set.add(key)
+                del seen[:-int(_cfg(self.ctx, "seen_limit") or 300)]
+                self.ctx.save_state(seen=seen)
+                continue
+            if only_direct:
+                try:
+                    kind = await teams.chat_kind()
+                except Exception:                # noqa: BLE001
+                    kind = "unknown"
+                if kind == "group":
+                    out["skipped"].append({"id": key[:24], "why": "群聊（only_direct）"})
+                    seen.append(key)
+                    seen_set.add(key)
+                    del seen[:-int(_cfg(self.ctx, "seen_limit") or 300)]
+                    self.ctx.save_state(seen=seen)
+                    continue
+            try:
+                answer, source = await self.answer(q)
+            except Exception as exc:             # noqa: BLE001
+                out["errors"].append(str(exc)[:160])
+                continue
+            if not answer:
+                continue
+            item = {"chat": chat or sender, "question": q[:120],
+                    "source": source, "sent": False, "text": answer[:400]}
+            if dry or not send_ok:
+                item["dry_run"] = True
+                out["would"].append(item)
+                seen.append(key)
+                seen_set.add(key)
+                del seen[:-int(_cfg(self.ctx, "seen_limit") or 300)]
+                self.ctx.save_state(seen=seen)
+                handled += 1
+                continue
+            mid = str(row.get("time") or row.get("key") or "")[:60]
+            try:
+                reserved = self.outbox().reserve(key, mid, text=answer)
+            except Exception as exc:             # noqa: BLE001
+                out["errors"].append(f"outbox 预留失败: {str(exc)[:160]}")
+                continue
+            if not reserved:
+                continue
+            self._ensure_worker()
+            self._queue.put_nowait({
+                "cid": key, "conv_id": "", "mid": mid,
+                "answer": answer, "snippet": q[:40],
+                "peer": chat or sender,
+                "expected": {"peer": chat or sender, "snippet": q},
+                "timeout": send_timeout, "item": item,
+            })
+            item["queued"] = True
+            out["queued"] += 1
+            out["would"].append(item)
+            handled += 1
+            seen.append(key)
+            seen_set.add(key)
+            del seen[:-int(_cfg(self.ctx, "seen_limit") or 300)]
+            self.ctx.save_state(seen=seen)
+            self.ctx.log(f"Teams[mentions] {item['chat']}: {q[:40]}")
+        out["handled"] = handled
+        self._last_cycle = out
+        cycles = int(self.ctx.state.get("cycles") or 0) + 1
+        at = time.strftime("%Y-%m-%d %H:%M:%S")
+        self.ctx.state["cycles"] = cycles
+        self.ctx.state["last_cycle_at"] = at
+        self.ctx.save_state(cycles=cycles, last_cycle_at=at)
+        if out["errors"]:
+            self._last_error = out["errors"][-1]
+        return out
+
     async def loop(self) -> None:
         await asyncio.sleep(5)                    # 等宿主把插件都装好
         while True:
@@ -656,10 +807,22 @@ def _reload_backends() -> None:
     import importlib
 
     from gantry import teams as _teams
+    from gantry import teams_api as _api
+    from gantry import teams_common as _common
+    from gantry import teams_dom as _dom
     from gantry import teams_logic as _logic
+    from gantry import teams_mentions as _mentions
+    from gantry import teams_send as _send
 
     page = getattr(_teams, "teams_page", None)
+    importlib.reload(_common)
+    importlib.reload(_dom)
+    if page is not None:
+        _dom.teams_page = page
+    importlib.reload(_api)
+    importlib.reload(_send)
     importlib.reload(_logic)
+    importlib.reload(_mentions)
     importlib.reload(_teams)
     if page is not None:
         _teams.teams_page = page
@@ -1121,6 +1284,20 @@ def setup(ctx):
                 continue
         return {"count": len(out), "tabs": out}
 
+    async def _api_mentions(request=None):
+        """只读：读取 Chat → Mentions 的当前列表（调试用；?gate=0 跳过未读 badge）。"""
+        from gantry import teams
+        gate = True
+        try:
+            q = getattr(request, "query_params", {}) or {}
+            gate = str(q.get("gate", "1")).lower() not in ("0", "false", "no")
+        except Exception:                        # noqa: BLE001
+            gate = True
+        try:
+            return await teams.read_mentions(gate=gate)
+        except Exception as exc:                 # noqa: BLE001
+            return {"ok": False, "error": str(exc)[:200]}
+
     async def _api_open_teams(request=None):
         """打开/聚焦 Teams 标签页并返回登录状态（不抛错；供人工过 MFA 用）。"""
         wait = 8.0
@@ -1148,9 +1325,11 @@ def setup(ctx):
             body = {}
         overrides = dict(ctx.state.get("overrides") or {})
         for k in ("enabled", "dry_run", "send_enabled", "source", "chats",
-                  "mention_tokens", "my_name", "model", "interval_seconds",
+                  "mention_tokens", "my_name", "my_user_id", "model", "interval_seconds",
                   "kb_min_score", "fallback_agent", "agent_mode", "only_direct",
-                  "only_unread", "kb_synthesize"):
+                  "only_unread", "kb_synthesize", "typing_delay_ms",
+                  "send_jitter_ms", "mentions_gate", "max_replies_per_cycle",
+                  "send_timeout_seconds"):
             if k in body:
                 overrides[k] = body[k]
         ctx.save_state(overrides=overrides)
@@ -1176,6 +1355,7 @@ def setup(ctx):
     ctx.register_api("GET", "api/idb-convs", _api_idb_convs)
     ctx.register_api("GET", "api/idb-record", _api_idb_record)
     ctx.register_api("GET", "api/idb-watch", _api_idb_watch)
+    ctx.register_api("GET", "api/mentions", _api_mentions)
     ctx.register_api("POST", "api/open-teams", _api_open_teams)
     ctx.register_api("GET", "api/resolve", _api_resolve)
     ctx.register_api("GET", "api/messages", _api_messages)

@@ -8,7 +8,7 @@
 
 | 连接器 | operation | operationId | 状态 | 验证方式/日期 |
 |---|---|---|---|---|
-| Microsoft Teams | `post_message` | `PostMessageToConversation` | ✅ 已实测 | 2026-11-08，旧版包导入成功，My flows 创建 “Teams 通知” |
+| Microsoft Teams | `post_message` | `PostMessageToConversation` | ✅ 已实测 | 2026-11-08，旧版包导入成功，My flows 创建 “示例 Teams 通知” |
 | Microsoft Teams | `list_teams` | `GetAllTeams` | ⏳ 待实测 | 官方文档/公开实现 |
 | Microsoft Teams | `get_team` | `GetTeam` | ⏳ 待实测 | 官方文档/公开实现 |
 | Microsoft Teams | `list_channels` | `GetChannelsForGroup` | ⏳ 待实测 | 官方文档/公开实现 |

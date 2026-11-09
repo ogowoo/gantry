@@ -13,14 +13,15 @@ from typing import Any
 
 
 async def api_idb_watch(page=None, limit: int = 400,
-                        since: float = 0.0) -> dict[str, Any]:
+                        since: float = 0.0, my_guid: str = "") -> dict[str, Any]:
     """会话监看视图：id / 是否 1:1 / 对方 mri / 最后一条消息（只读）。
 
     `since` > 0 时只返回 `lastTime` 之后的会话（增量扫描，减少跨进程传输）。
+    `my_guid` 是本账号的 Entra Object ID；用于 1:1 会话里区分“我”和“对方”。
     """
     from .teams import teams_open  # 惰性 import：避免与 teams.py 循环
     page = page or await teams_open()
-    return await page.evaluate(r"""async ({limit, since}) => {
+    return await page.evaluate(r"""async ({limit, since, myGuid}) => {
       const openDb = (name) => new Promise((res, rej) => {
         const req = indexedDB.open(name);
         req.onsuccess = () => res(req.result);
@@ -84,7 +85,8 @@ async def api_idb_watch(page=None, limit: int = 400,
           // 两个 GUID 里一个是 Skype 租户，另一个才是对方
           const a = m[1].toLowerCase(), b = m[2].toLowerCase();
           if (skypeTenant) peer = (a === skypeTenant) ? b : a;
-          else peer = a === '00000000-0000-0000-0000-000000000001' ? b : a;
+          else if (myGuid) peer = (a === myGuid) ? b : a;
+          else peer = a;
         }
         out.push({
           id,
@@ -142,7 +144,8 @@ async def api_idb_watch(page=None, limit: int = 400,
               skypeTenant,
               list: out.slice(0, 50),
               directSample: direct.slice(0, 6), recent: out.slice(0, 6)};
-    }""", {"limit": max(50, limit), "since": float(since or 0)})
+    }""", {"limit": max(50, limit), "since": float(since or 0),
+            "myGuid": str(my_guid or "")})
 
 async def api_idb_record(page=None, skip: int = 0) -> dict[str, Any]:
     """取第 skip 条会话记录，输出字段类型与 threadProperties 全量（只读）。"""

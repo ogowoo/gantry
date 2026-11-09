@@ -14,6 +14,48 @@
 ### Fixed
 - 
 
+## [11.0.0-preview.84] - 2026-11-09
+
+### Added
+
+- `open_chat_by_thread_id()`：按 `data-fui-tree-item-value` 里的 `19:...` 精确点击左侧会话行；
+  `reply_to` 优先使用，失败再回退行/片段/人名搜索。
+- `source=mentions`（可选）：读取 Chat → Mentions，群聊 @ 默认跳过；
+  支持 `typing_delay_ms` / `send_jitter_ms` 拟人化配置。
+
+### Changed
+
+- IDB 1:1 对方识别改用 `my_user_id` 配置，不再硬编码租户 GUID。
+- 文档/测试/示例统一脱敏为通用占位符（示例租户、example.com、`19:...`），
+  移除真实账号/租户/会话标识。
+- 移除临时探针端点（fiber / mt / upn / chatsvc / mentions-forget）。
+
+### Fixed
+
+- 按 threadId 点击后校验头部标题，避免“点了没切换”误报成功。
+- `reply_to` 定位前先回 Chat 首页，减少停在搜索/Mentions 页导致的定位失败。
+
+### 实测
+
+- 全套 **1643** 测试 OK（skipped=1）；不变量 25 条全绿。
+
+## [11.0.0-preview.83] - 2026-11-09
+
+### Fixed
+
+- **Teams 回复定位**：移除 `/l/chat/<id>/conversations` 深链——实测会跳转
+  Teams 桌面客户端启动器（`dl/launcher/launcher.html`），导致发送超时；
+  改为聊天列表行优先，片段对不上时仍按 peer 兜底，点行前先回聊天列表。
+- 标题校验容忍 `姓名 - 公司` 后缀，避免 `Lynn Ling - Example` 与 `Lynn Ling` 误判。
+- 新增 `POST /v1/power-automate/save-auth`，并把 `teams.cloud.microsoft` /
+  `teams.microsoft.com` 纳入 cookie 持久化；Teams 登录后可直接保存，无需重启。
+
+### 实测
+
+- `Chen, Alex` 会话回复成功：`outbox` 该条 `state=sent`，Teams 最新消息来自
+  `Alex Chen - Example`，不再触发桌面启动器。
+- 全套 **1632**（skipped=1）OK；不变量 25 条全绿。
+
 ## [11.0.0-preview.82] - 2026-11-09
 
 ### Fixed
@@ -82,7 +124,7 @@
   导入时报 `WorkflowOperationInputsApiOperationNotFound`（The API operation
   'PostMessageV3' could not be found in API 'teams'）。改为当前正式操作
   **`PostMessageToConversation`**；同步更新模板与 SKILL。
-- 已实测：旧版导入包成功导入 示例租户 (Example) 环境，My flows 出现 **Teams 通知**。
+- 已实测：旧版导入包成功导入 示例租户 (Example) 环境，My flows 出现 **示例 Teams 通知**。
 
 ### Added
 

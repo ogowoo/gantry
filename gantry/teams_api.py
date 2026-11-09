@@ -1756,9 +1756,9 @@ async def api_token(page) -> dict[str, Any]:
 
 async def api_conversations(page, limit: int = 30) -> dict[str, Any]:
     """读会话列表（只读）。返回原始结构里我们关心的字段。"""
-    tok = await api_token(page)
-    if not tok.get("skype"):
-        return {"ok": False, "error": "拿不到 skypetoken", "token": tok}
+    tok = await _ensure_skype_token(page)
+    if not tok:
+        return {"ok": False, "error": "拿不到 skypetoken"}
     return await page.evaluate("""async ({base, token, limit}) => {
       try {
         const url = base + '/users/ME/conversations?view=msnp24Equivalent&pageSize=' + limit;
@@ -1781,7 +1781,7 @@ async def api_conversations(page, limit: int = 30) -> dict[str, Any]:
                 total: (j._metadata || {}).totalCount || null, conversations: convs,
                 rawHead: text.slice(0, 200)};
       } catch (e) { return {ok: false, error: String(e)}; }
-    }""", {"base": API_CHATSVC, "token": tok["skype"], "limit": limit})
+    }""", {"base": API_CHATSVC, "token": tok, "limit": limit})
 
 async def api_messages(page, conv_id: str, limit: int = 20) -> dict[str, Any]:
     """读某个会话的消息（只读）。"""

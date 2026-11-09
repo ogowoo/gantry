@@ -1,6 +1,6 @@
 {
   "name": "sharepoint-to-teams",
-  "display_name": "SharePoint 列表 → Teams 通知",
+  "display_name": "SharePoint 列表 → 示例 Teams 通知",
   "description": "定时读取 SharePoint 列表，把最新一条发到 Teams 频道",
   "trigger": {
     "type": "recurrence",

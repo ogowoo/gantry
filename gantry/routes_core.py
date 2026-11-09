@@ -595,6 +595,16 @@ async def power_automate_select_connection(payload: dict):
     return await power_automate_ui.select_connection(str(payload.get("label") or ""))
 
 
+@router.post("/v1/power-automate/save-auth")
+async def power_automate_save_auth():
+    from . import power_automate_ui
+    from . import bridge as _b
+    if _b.ctx is None:
+        return {"ok": False, "error": "浏览器未启动"}
+    path = await power_automate_ui.save_auth_state(_b.ctx)
+    return {"ok": bool(path), "path": path}
+
+
 @router.post("/v1/power-automate/html")
 async def power_automate_html(payload: dict):
     from . import power_automate_ui

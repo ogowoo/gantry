@@ -1,6 +1,6 @@
 {
   "name": "teams-notify",
-  "display_name": "Teams 通知",
+  "display_name": "示例 Teams 通知",
   "description": "手动触发，向指定 Teams 频道发一条消息",
   "trigger": {
     "type": "manual",

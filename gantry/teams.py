@@ -60,7 +60,11 @@ from .teams_dom import (  # noqa: F401  （对外名字保持不变）
     chat_kind,
     list_chats,
     open_chat_by_row,
+    open_chat_by_thread_id,
     open_chat,
+)
+from .teams_mentions import (  # noqa: F401
+    badge_count, normalise_rows, open_mention, read_mentions,
 )
 from .teams_send import (  # noqa: F401  （对外名字保持不变）
     compose_text,

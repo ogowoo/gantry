@@ -151,9 +151,9 @@ for p in pathlib.Path("flows/<flow-name>").rglob("*.json"):
 - `templates/flow-definition.json`：手动触发 + Teams 发消息的最小流；
 - `templates/connections.json`：连接引用模板；
 - `templates/apis.json`：连接器 API 清单模板；
-- `examples/teams-notify.json`：Teams 通知流 spec；
+- `examples/teams-notify.json`：示例 Teams 通知流 spec；
 - `examples/outlook-daily.json`：Outlook 每日邮件 spec；
-- `examples/sharepoint-to-teams.json`：SharePoint 列表 → Teams 通知 spec；
+- `examples/sharepoint-to-teams.json`：SharePoint 列表 → 示例 Teams 通知 spec；
 - `examples/teams-by-name.json`：按团队名/频道名动态查 ID 再发消息（用 `GetAllTeams` +
   `GetChannelsForGroup` + `filter_array`，避免写死 Team/Channel ID）。
 

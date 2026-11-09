@@ -88,23 +88,43 @@ class FakeKB:
 class FakeTeams:
     def __init__(self, conversations=None):
         self.conversations = conversations or []
+        self.mention_rows = []
         self.sent: list[str] = []
         self.opened: list[str] = []
         self.replied: list[tuple] = []
         self.last_expected = None
         self.last_strict = None
+        self.last_conv_id = None
+        self.chat_kind_value = "direct"
 
     async def reply_to(self, peer, text, send=False, snippet="", conv_id="", **kwargs):
         """写侧入口：记录调用；send=True 时模拟发送成功。"""
         self.replied.append((peer, text, send, snippet))
         self.last_expected = kwargs.get("expected")
         self.last_strict = kwargs.get("strict")
+        self.last_conv_id = conv_id
         if not send:
             return {"opened": True, "sent": False, "sendButton": True}
         self.sent.append(text)
         return {"opened": True, "sent": True, "how": "snippet"}
 
-    async def api_idb_watch(self, page=None, limit=400, since=0.0):
+    async def read_mentions(self, page=None, my_name="", gate=True):
+        rows = [dict(r) for r in self.mention_rows]
+        for r in rows:
+            if not r.get("question"):
+                r["question"] = r.get("message") or ""
+            r.setdefault("key", f"{r.get('sender')}|{r.get('time')}|{r.get('question')}")
+        return {"ok": True, "badge": len(rows), "opened": True, "rows": rows}
+
+    async def open_mention(self, row, page=None, my_name=""):
+        self.opened.append(str(row.get("sender") or ""))
+        return {"opened": True, "chat": row.get("chat") or row.get("sender") or "",
+                "key": row.get("key")}
+
+    async def chat_kind(self):
+        return self.chat_kind_value
+
+    async def api_idb_watch(self, page=None, limit=400, since=0.0, my_guid=""):
         self.since_calls = getattr(self, 'since_calls', [])
         self.since_calls.append(since)
         c = list(self.conversations)
@@ -121,7 +141,8 @@ class FakeTeams:
 
 class BotTestCase(unittest.TestCase):
     def setUp(self):
-        names = ("api_idb_watch", "open_chat", "send_message", "reply_to")
+        names = ("api_idb_watch", "open_chat", "send_message", "reply_to",
+                 "read_mentions", "open_mention", "chat_kind")
         self._orig = {n: getattr(teams_mod, n) for n in names}
         self.fake = FakeTeams()
         for n in names:
@@ -592,6 +613,71 @@ class ChatsFilterTests(BotTestCase):
                              reply_when_unknown=False, chats=["李四"])
         self.assertEqual(out["scanned"], 1, "chats 白名单应只留匹配会话")
         self.assertEqual(out["filtered"], 1)
+
+
+class MentionsTests(BotTestCase):
+    def rows(self):
+        return [{"sender": "Chen, Alex",
+                 "message": "Alex Chen - Example 打印机脱机了",
+                 "question": "打印机脱机了", "time": "9:37 PM",
+                 "key": "Chen, Alex|Alex Chen - Example 打印机脱机了|9:37 PM"}]
+
+    def test_mentions_dry_run_uses_row_and_strips_name(self):
+        self.fake.mention_rows = self.rows()
+        self.kb.hits = [{"title": "打印机", "heading": "", "score": 0.9,
+                         "path": "p.md", "text": "先重启打印服务。"}]
+        out = self.run_cycle(source="mentions", dry_run=True,
+                             my_name="Alex Chen - Example")
+        self.assertEqual(out["source"], "mentions")
+        self.assertEqual(out["scanned"], 1)
+        self.assertEqual(len(out["would"]), 1)
+        self.assertEqual(out["would"][0]["question"], "打印机脱机了")
+        self.assertEqual(self.fake.opened, ["Chen, Alex"])
+
+    def test_mentions_duplicate_and_self_skipped(self):
+        rows = self.rows() * 2
+        rows.append({"sender": "Alex Chen - Example",
+                     "message": "Alex Chen - Example 自言自语",
+                     "question": "自言自语", "time": "9:38 PM", "key": "self"})
+        self.fake.mention_rows = rows
+        self.kb.hits = [{"title": "T", "heading": "", "score": 0.9,
+                         "path": "t.md", "text": "答案"}]
+        out = self.run_cycle(source="mentions", dry_run=True,
+                             my_name="Alex Chen - Example")
+        self.assertEqual(len(out["would"]), 1, "重复行只回一次，自己发的不回")
+
+    def test_mentions_send_queue_skips_api_conv_id(self):
+        self.fake.mention_rows = self.rows()
+        self.kb.hits = [{"title": "T", "heading": "", "score": 0.9,
+                         "path": "t.md", "text": "答案"}]
+        out = self.run_cycle(source="mentions", dry_run=False, send_enabled=True,
+                             my_name="Alex Chen - Example")
+        self.assertEqual(out["queued"], 1)
+        self.assertTrue(self.fake.replied)
+        self.assertEqual(self.fake.replied[0][0], "Chen, Alex")
+        self.assertEqual(self.fake.last_conv_id, "",
+                         "mentions 不应拿合成 key 当 conv_id")
+
+    def test_group_mention_skipped_when_only_direct(self):
+        self.fake.mention_rows = [self.rows()[0] | {"chat": "IT 支持群"}]
+        self.fake.chat_kind_value = "group"
+        self.kb.hits = [{"title": "T", "heading": "", "score": 0.9,
+                         "path": "t.md", "text": "答案"}]
+        out = self.run_cycle(source="mentions", dry_run=True,
+                             my_name="Alex Chen - Example", only_direct=True)
+        self.assertEqual(out["would"], [])
+        self.assertTrue(any("群聊" in str(s.get("why")) for s in out["skipped"]))
+
+    def test_group_mention_allowed_and_whitelist_by_title(self):
+        self.fake.mention_rows = [self.rows()[0] | {"chat": "IT 支持群"}]
+        self.fake.chat_kind_value = "group"
+        self.kb.hits = [{"title": "T", "heading": "", "score": 0.9,
+                         "path": "t.md", "text": "答案"}]
+        out = self.run_cycle(source="mentions", dry_run=True,
+                             my_name="Alex Chen - Example", only_direct=False,
+                             chats=["IT 支持群"])
+        self.assertEqual(len(out["would"]), 1)
+        self.assertEqual(out["would"][0]["chat"], "IT 支持群")
 
 
 if __name__ == "__main__":

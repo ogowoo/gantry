@@ -722,60 +722,139 @@ async def open_chat_by_row(peer: str, snippet: str = "") -> bool:
     if not needle:
         return False
     frag = " ".join((snippet or "").split())[:12]
-    for _attempt in range(4):
-        for sel in _SEL["chat_item"]:
-            try:
-                rows = page.locator(sel)
-                n = await rows.count()
-            except Exception:                    # noqa: BLE001
-                continue
-            for i in range(min(n, 20)):
-                row = rows.nth(i)
+    passes = [True, False] if frag else [False]
+    for require_frag in passes:
+        for _attempt in range(4):
+            for sel in _SEL["chat_item"]:
                 try:
-                    txt = (await row.inner_text(timeout=1500)) or ""
+                    rows = page.locator(sel)
+                    n = await rows.count()
                 except Exception:                # noqa: BLE001
                     continue
-                if needle.lower()[:8] not in txt.lower():
-                    continue
-                # 同名可能有多个会话：优先带最后一条消息片段的那行
-                if frag and frag not in " ".join(txt.split()):
-                    continue
-                clicked = False
-                for tsel in _SEL["chat_title"]:
+                for i in range(min(n, 20)):
+                    row = rows.nth(i)
                     try:
-                        t = row.locator(tsel).first
-                        if await t.count() and await t.is_visible():
-                            await t.click()
-                            clicked = True
-                            break
+                        txt = (await row.inner_text(timeout=1500)) or ""
                     except Exception:            # noqa: BLE001
                         continue
-                if not clicked:
-                    try:
-                        box = await row.bounding_box()
-                        if box:
-                            # 偏左、偏上：标题区域，避开头像/状态点
-                            await page.mouse.click(box["x"] + 36,
-                                                   box["y"] + box["height"] * 0.35)
-                    except Exception:            # noqa: BLE001
-                        pass
-                await asyncio.sleep(2.0)
-                head = await header_title(page)
-                if head and needle.lower()[:8] in head.lower():
-                    try:
-                        await _settle(page, "message", rounds=1, delay=0.6)
-                    except Exception:            # noqa: BLE001
-                        pass
-                    return True
-        # 虚拟列表：往下滚一屏再找（目标通常在顶部，滚只是兜底）
+                    if needle.lower()[:8] not in txt.lower():
+                        continue
+                    if require_frag and frag and frag not in " ".join(txt.split()):
+                        continue
+                    clicked = False
+                    for tsel in _SEL["chat_title"]:
+                        try:
+                            t = row.locator(tsel).first
+                            if await t.count() and await t.is_visible():
+                                await t.click()
+                                clicked = True
+                                break
+                        except Exception:        # noqa: BLE001
+                            continue
+                    if not clicked:
+                        try:
+                            box = await row.bounding_box()
+                            if box:
+                                # 偏左、偏上：标题区域，避开头像/状态点
+                                await page.mouse.click(box["x"] + 36,
+                                                       box["y"] + box["height"] * 0.35)
+                        except Exception:        # noqa: BLE001
+                            pass
+                    await asyncio.sleep(2.0)
+                    head = await header_title(page)
+                    if head and needle.lower()[:8] in head.lower():
+                        try:
+                            await _settle(page, "message", rounds=1, delay=0.6)
+                        except Exception:        # noqa: BLE001
+                            pass
+                        return True
+            # 虚拟列表：往下滚一屏再找（目标通常在顶部，滚只是兜底）
+            try:
+                first = page.locator(_SEL["chat_item"][0]).first
+                await first.hover()
+                await page.mouse.wheel(0, 600)
+                await asyncio.sleep(0.8)
+            except Exception:                    # noqa: BLE001
+                break
+    return False
+
+async def open_chat_by_thread_id(conv_id: str, page=None,
+                                 max_scroll: int = 6) -> dict[str, Any]:
+    """按 threadId 精确点击左侧聊天列表项。
+
+    实测：聊天行 DOM 没有 conversationId 属性，但 `data-fui-tree-item-value`
+    里带着 `OneGQL_OneOnOneChatConversation|19:...@unq.gbl.spaces`，可直接按 id 匹配。
+    """
+    page = page or await teams_open()
+    target = str(conv_id or "").strip()
+    if not target:
+        return {"opened": False, "error": "缺少 threadId"}
+    # 左侧列表是虚拟列表：先回到顶部，再逐屏向下找
+    before = ""
+    try:
+        before = await header_title(page)
+    except Exception:                            # noqa: BLE001
+        pass
+    # 切到「Chats」平铺列表，确保目标 1:1 不在折叠文件夹里
+    try:
+        tab = page.get_by_role("tab", name="Chats").first
+        if await tab.count():
+            await tab.click(timeout=3000)
+            await asyncio.sleep(1.5)
+    except Exception:                            # noqa: BLE001
+        pass
+    try:
+        first = page.locator("[data-fui-tree-item-value]").first
+        await first.hover()
+        await page.mouse.wheel(0, -10000)
+        await asyncio.sleep(1.0)
+    except Exception:                            # noqa: BLE001
+        pass
+    for attempt in range(max(1, int(max_scroll) + 1)):
+        hit = await page.evaluate("""(target) => {
+          const els = [...document.querySelectorAll('[data-fui-tree-item-value]')];
+          const el = els.find(e => (e.getAttribute('data-fui-tree-item-value') || '')
+                                   .includes(target));
+          if (!el) return null;
+          const r = el.getBoundingClientRect();
+          return {x: r.x, y: r.y, w: r.width, h: r.height,
+                  text: (el.innerText || '').slice(0, 120)};
+        }""", target)
+        if hit:
+            want = (str(hit.get("text") or "").splitlines() or [""])[0].strip()
+            try:
+                row = page.locator(f'[data-fui-tree-item-value*="{target}"]').first
+                title = row.locator('span[title], [data-tid="chat-pane-item-title"]').first
+                if await title.count() and await title.is_visible():
+                    await title.click()
+                else:
+                    await row.click()
+            except Exception:                    # noqa: BLE001
+                try:
+                    await page.mouse.click(hit["x"] + hit["w"] * 0.5,
+                                           hit["y"] + hit["h"] * 0.5)
+                except Exception as exc:         # noqa: BLE001
+                    return {"opened": False, "error": f"点击失败: {str(exc)[:120]}"}
+            await asyncio.sleep(2.0)
+            head = await header_title(page)
+            lines = [x.strip() for x in head.splitlines() if x.strip()]
+            chat = lines[0] if lines else head.strip()
+            if chat and (chat != before or (want and want.lower() in chat.lower())):
+                return {"opened": True, "chat": chat, "how": "thread-id",
+                        "text": str(hit.get("text") or ""), "attempt": attempt}
+            return {"opened": False,
+                    "error": f"点击后标题未切换（期望 {want[:40]}，实际 {chat[:40]}）",
+                    "text": str(hit.get("text") or ""), "attempt": attempt}
         try:
-            first = page.locator(_SEL["chat_item"][0]).first
+            # 左侧列表虚拟化：在列表区域滚动，继续找
+            first = page.locator("[data-fui-tree-item-value]").first
             await first.hover()
             await page.mouse.wheel(0, 600)
-            await asyncio.sleep(0.8)
+            await asyncio.sleep(1.0)
         except Exception:                        # noqa: BLE001
             break
-    return False
+    return {"opened": False, "error": "左侧列表里没找到 threadId 对应的会话行"}
+
 
 async def open_chat(title_or_index: str | int, scroll_pages: int = 8) -> bool:
     """点开一个会话。给 index（list_chats 的返回值）或标题片段。

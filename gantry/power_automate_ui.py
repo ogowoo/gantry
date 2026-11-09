@@ -21,7 +21,8 @@ PA_URL = "https://make.powerautomate.com/"
 PA_DOMAIN = "make.powerautomate.com"
 _LOGIN_MARK = re.compile(r"(login\.microsoftonline\.com|login\.live\.com|/oauth2/|/common/login)", re.I)
 _AUTH_COOKIE_MARKS = ("powerautomate.com", "powerplatform.com", "microsoftonline.com",
-                      "microsoft.com", "office.com")
+                      "microsoft.com", "office.com",
+                      "teams.cloud.microsoft", "teams.microsoft.com")
 
 
 def _auth_state_path() -> Path:

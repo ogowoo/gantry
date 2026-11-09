@@ -10,6 +10,7 @@ import base64
 import hashlib
 import html as _html
 import json
+import random
 import re
 import time
 from pathlib import Path
@@ -25,7 +26,7 @@ from .teams_common import (  # noqa: F401
 
 from .teams_dom import (  # noqa: F401
     _SEL, _first_visible, _goto_chat_home, chat_participants, header_title,
-    open_chat, open_chat_by_row, teams_open, teams_page,
+    open_chat, open_chat_by_row, open_chat_by_thread_id, teams_open, teams_page,
 )
 
 from .teams_api import api_send_message  # noqa: F401
@@ -41,7 +42,9 @@ async def compose_text(text: str, page=None, send: bool = False) -> dict[str, An
     finally:
         release_page_lock()
 
-async def _compose_text_unlocked(text: str, page=None, send: bool = False) -> dict[str, Any]:
+async def _compose_text_unlocked(text: str, page=None, send: bool = False,
+                                 typing_delay_ms: int = 8,
+                                 send_jitter_ms: int = 0) -> dict[str, Any]:
     body = (text or "").strip()
     page = page or await teams_open()
     out: dict[str, Any] = {"len": len(body), "sent": False}
@@ -66,7 +69,7 @@ async def _compose_text_unlocked(text: str, page=None, send: bool = False) -> di
         for i, line in enumerate(lines):
             if i:
                 await page.keyboard.press("Shift+Enter")
-            await page.keyboard.type(line, delay=8)
+            await page.keyboard.type(line, delay=max(0, int(typing_delay_ms)))
         await asyncio.sleep(0.6)
     except Exception as exc:                     # noqa: BLE001
         return {**out, "error": f"输入失败: {str(exc)[:120]}"}
@@ -83,6 +86,8 @@ async def _compose_text_unlocked(text: str, page=None, send: bool = False) -> di
     out["sendButton"] = bool(btn)
     if send and btn is not None:
         try:
+            if send_jitter_ms > 0:
+                await asyncio.sleep(random.uniform(0, send_jitter_ms / 1000.0))
             await btn.click()
             await asyncio.sleep(1.2)
             # 校验：输入框空了才说明 Teams 真的收下了这条消息。
@@ -210,7 +215,9 @@ def _title_matches(head: str, expected: dict[str, Any] | None, peer: str = "") -
 async def reply_to(peer: str, text: str, send: bool = False,
                    snippet: str = "", conv_id: str = "", *,
                    expected: dict[str, Any] | None = None,
-                   strict: bool = False) -> dict[str, Any]:
+                   strict: bool = False,
+                   typing_delay_ms: int = 8,
+                   send_jitter_ms: int = 0) -> dict[str, Any]:
     """打开 peer 的会话并准备回复（send=False 只输入并清空，绝不发送）。
 
     `snippet` = 该会话最后一条消息的片段：优先用它搜索（命中的是聊天），
@@ -226,7 +233,9 @@ async def reply_to(peer: str, text: str, send: bool = False,
             return await asyncio.wait_for(
                 _reply_to_unlocked(peer, text, send=send, snippet=snippet,
                                    conv_id=conv_id, expected=expected,
-                                   strict=strict),
+                                   strict=strict,
+                                   typing_delay_ms=typing_delay_ms,
+                                   send_jitter_ms=send_jitter_ms),
                 timeout=REPLY_TIMEOUT)
         except asyncio.TimeoutError:
             _b.log(f"reply_to 超时（>{REPLY_TIMEOUT:.0f}s），已取消并释放页面锁")
@@ -238,7 +247,9 @@ async def reply_to(peer: str, text: str, send: bool = False,
 async def _reply_to_unlocked(peer: str, text: str, send: bool = False,
                              snippet: str = "", conv_id: str = "",
                              expected: dict[str, Any] | None = None,
-                             strict: bool = False) -> dict[str, Any]:
+                             strict: bool = False,
+                             typing_delay_ms: int = 8,
+                             send_jitter_ms: int = 0) -> dict[str, Any]:
     # 当前已经停在目标会话时走最快路径：不再抓 token/搜索/按行打开。
     # 这能避开 Teams 页面偶发卡死导致的 120s 超时。
     page = None
@@ -255,7 +266,9 @@ async def _reply_to_unlocked(peer: str, text: str, send: bool = False,
         except Exception:                        # noqa: BLE001
             head = ""
         if head and _title_matches(head, expected, peer)[0]:
-            res = await _compose_text_unlocked(text, page=page, send=send)
+            res = await _compose_text_unlocked(
+                text, page=page, send=send,
+                typing_delay_ms=typing_delay_ms, send_jitter_ms=send_jitter_ms)
             if send and res.get("sent"):
                 await _leave_chat(page)
             return {"opened": True, "how": "current", "header": head[:50], **res}
@@ -298,20 +311,23 @@ async def _reply_to_unlocked(peer: str, text: str, send: bool = False,
             _b.log(f"reply_to API 发送异常（回退 UI）：{str(exc)[:160]}")
     opened = False
     how = ""
-    # 有会话 id 时优先用官方深链直接开会话：跳过搜索/联系人定位，
-    # 避免"片段/人名定位不到窗口"（实测 Teams 搜索对 @ 前缀和同名联系人很敏感）。
+    # 搜索/深链失败可能停在结果页；先回聊天列表，确保有会话行可点。
+    try:
+        await _goto_chat_home(page)
+    except Exception:                            # noqa: BLE001
+        pass
+    # 第一优先：按 threadId 的 Fiber 映射精确点行（避开同名/排序/文本差异）
     if not opened and conv_id:
         try:
-            dl = await open_chat_by_deeplink(conv_id, page=page,
-                                             expected=expected, peer=peer)
-            if dl.get("opened"):
+            fb = await open_chat_by_thread_id(conv_id, page=page)
+            if fb.get("opened"):
                 opened = True
-                how = "deeplink"
+                how = "fiber"
             else:
-                _b.log(f"reply_to 深链未命中：{dl.get('error')}")
+                _b.log(f"reply_to Fiber 定位未命中：{fb.get('error')}")
         except Exception as exc:                 # noqa: BLE001
-            _b.log(f"reply_to 深链打开失败：{str(exc)[:120]}")
-    # 第一优先：记忆里的会话在 @ 后会排到列表顶部，直接点行，避免搜索偏页
+            _b.log(f"reply_to Fiber 定位失败：{str(exc)[:120]}")
+    # 次优先：记忆里的会话在 @ 后会排到列表顶部，直接点行，避免搜索偏页
     if not opened and peer:
         try:
             if await open_chat_by_row(peer, snippet):
@@ -339,7 +355,9 @@ async def _reply_to_unlocked(peer: str, text: str, send: bool = False,
     if not ok:
         return {"opened": False, "how": how, "header": (head or "")[:50],
                 "reason": "identity_mismatch", "error": why}
-    res = await _compose_text_unlocked(text, page=page, send=send)
+    res = await _compose_text_unlocked(
+        text, page=page, send=send,
+        typing_delay_ms=typing_delay_ms, send_jitter_ms=send_jitter_ms)
     if send and res.get("sent"):
         await _leave_chat(page)
     return {"opened": True, "how": how, "header": (head or "")[:50], **res,
@@ -505,46 +523,6 @@ async def api_open_by_search(name: str, page=None, wait: float = 3.0) -> dict[st
     out["matched"] = bool(after) and name.lower()[:8] in after.lower()
     out["participants"] = await chat_participants() if hasattr(page, "locator") else None
     return out
-
-async def open_chat_by_deeplink(conv_id: str, page=None, *,
-                                expected: dict[str, Any] | None = None,
-                                peer: str = "", wait: float = 15.0) -> dict[str, Any]:
-    """用 `19:...` 会话 id 的官方深链直接打开聊天窗口。
-
-    官方格式：`https://teams.microsoft.com/l/chat/<chatId>/conversations`。
-    这比按片段/人名搜索可靠：不依赖消息前缀、联系人名片或搜索结果排序。
-    """
-    page = page or await teams_open()
-    cid = str(conv_id or "").strip()
-    if not cid:
-        return {"opened": False, "error": "缺少会话 id"}
-    urls = [
-        "https://teams.cloud.microsoft/l/chat/" + cid + "/conversations",
-        "https://teams.microsoft.com/l/chat/" + cid + "/conversations",
-    ]
-    out: dict[str, Any] = {"conv": cid[:60], "tries": []}
-    for url in urls:
-        try:
-            await page.goto(url, wait_until="domcontentloaded", timeout=60_000)
-        except Exception as exc:                 # noqa: BLE001
-            out["tries"].append({"url": url[:90], "error": str(exc)[:120]})
-            continue
-        deadline = time.monotonic() + max(3.0, float(wait))
-        head = ""
-        while time.monotonic() < deadline:
-            head = await header_title(page)
-            if head:
-                break
-            await asyncio.sleep(1)
-        ok, why = _title_matches(head, expected, peer)
-        out["tries"].append({"url": url[:90], "head": head[:50],
-                             "matched": ok, "why": why[:80]})
-        if ok:
-            return {"opened": True, "how": "deeplink", "head": head[:50], **out}
-    out["opened"] = False
-    out["error"] = "深链未打开匹配会话"
-    return out
-
 
 async def api_open_by_url(conv_id: str, page=None) -> dict[str, Any]:
     """依次尝试几种深链形式打开会话，报告头部标题是否变化。"""
