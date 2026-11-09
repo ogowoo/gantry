@@ -1,7 +1,8 @@
 # Gantry 架构基线
 
 > 状态：现行架构基线  
-> 适用仓库：Gantry
+> 适用仓库：Gantry  
+> 文件级功能地图见 [FILE_MAP.md](FILE_MAP.md)。
 
 ## 1. 系统定位
 
