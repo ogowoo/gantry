@@ -78,14 +78,41 @@ async function refreshPanels(silent){
 }
 async function _injectTeamsBotModelControl(body, data, panel){
  const wrap=document.createElement('div');wrap.style.cssText='margin-top:10px;padding-top:10px;border-top:1px solid var(--line)';
+ // ── 开关区：enabled / dry_run / send_enabled / only_direct（写 data/plugins.json，立即生效）──
+ const swWrap=document.createElement('div');swWrap.style.cssText='display:flex;gap:14px;flex-wrap:wrap;margin-bottom:8px';
+ const SWITCHES=[
+  ['enabled','启用轮询'],['dry_run','试运行（不发真消息）'],
+  ['send_enabled','允许发送'],['only_direct','仅 1:1 私聊'],
+ ];
+ async function postSwitch(patch){
+  await api('/v1/plugins/teams-bot/api/settings',{method:'POST',
+   headers:{'Content-Type':'application/json'},body:JSON.stringify(patch)});
+ }
+ function buildSwitches(st){
+  swWrap.innerHTML='';
+  SWITCHES.forEach(([key,label])=>{
+   const lb=document.createElement('label');
+   lb.style.cssText='display:inline-flex;align-items:center;gap:6px;font-size:12.5px;color:var(--text);cursor:pointer';
+   const cb=document.createElement('input');cb.type='checkbox';cb.checked=!!(st&&st[key]);
+   cb.onchange=async()=>{ cb.disabled=true; try{
+    await postSwitch({[key]:cb.checked});
+    toast(tr('设置已保存（{n} 项）').replace('{n}','1'),'ok');
+    await loadPanel(panel);
+   }catch(e){ toast(tr('保存失败: ')+(e.text||e),'err'); cb.checked=!cb.checked; cb.disabled=false; } };
+   const sp=document.createElement('span');sp.textContent=tr(label);
+   lb.appendChild(cb);lb.appendChild(sp);swWrap.appendChild(lb);
+  });
+ }
+ // ── 模型选择 ──
  const row=document.createElement('div');row.style.cssText='display:flex;gap:6px;align-items:center';
  const lbl=document.createElement('span');lbl.className='hint';lbl.textContent=tr('模型')+':';row.appendChild(lbl);
  const sel=document.createElement('select');sel.className='kbinput';sel.style.flex='1';sel.id='teamsBotPanelModel';
  const save=document.createElement('button');save.type='button';save.className='btn';save.textContent=tr('保存');
- row.appendChild(sel);row.appendChild(save);wrap.appendChild(row);
+ row.appendChild(sel);row.appendChild(save);wrap.appendChild(swWrap);wrap.appendChild(row);
  body.appendChild(wrap);
  try{
   const [models,status]=await Promise.all([api('/v1/models'),api('/v1/plugins/teams-bot/api/status')]);
+  buildSwitches(status||{});
   const current=String((status&&status.model)||(data&&data.model)||'');
   const ids=(models&&models.data||[]).map(m=>m.id).filter(Boolean);
   if(!ids.length){sel.innerHTML='<option value="">-</option>';return;}
