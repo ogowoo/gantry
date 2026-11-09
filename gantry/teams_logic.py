@@ -104,6 +104,22 @@ def strip_mentions(text: str, names: Iterable[str]) -> str:
             body = body.replace(name, " ")
     return normalise_text(body)
 
+
+def strip_leading_name(text: str, name: str) -> str:
+    """去掉正文开头的"被 @ 的名字/公司"。
+
+    背景（实测）：Teams 消息 content 里 @ 是 `<at>Alex Chen - Example</at>`；
+    若历史消息的 mentions 元数据缺失，剥完标签正文会以 "Alex Chen - Example "
+    开头。这段前缀既会混进问题本体，也会被拿去搜索会话导致定位失败。
+    """
+    body = normalise_text(text)
+    name = normalise_text(name or "")
+    if not name:
+        return body
+    if body.lower().startswith(name.lower()):
+        body = body[len(name):].lstrip(" -–—:：·\t")
+    return normalise_text(body)
+
 def extract_question(text: str, tokens: Iterable[str]) -> str:
     """把 @ 标记剥掉，剩下的就是问题本体（可能为空 → 调用方忽略这条）。"""
     body = normalise_text(text)

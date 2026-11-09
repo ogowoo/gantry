@@ -14,7 +14,7 @@ from gantry import teams  # noqa: E402
 from gantry.teams_logic import (  # noqa: E402
     build_kb_answer, classify_chat, extract_question, has_mention, inherit_authors,
     is_direct_id, is_new, mention_names, normalise_text, peer_guid, pick_hits,
-    should_answer, strip_mentions,
+    should_answer, strip_leading_name, strip_mentions,
 )
 
 
@@ -68,6 +68,25 @@ class MentionMetadataTests(unittest.TestCase):
     def test_strip_mention_name(self):
         q = strip_mentions("Alex Chen - Example 1＋1 大于2吗？", ["Alex Chen - Example"])
         self.assertEqual(q, "1＋1 大于2吗？")
+
+    def test_strip_leading_name_when_mentions_missing(self):
+        """mentions 元数据缺失时，正文开头的"@自己名字"也要剥掉。
+
+        实测根因：content 里 @ 是 `<at>Alex Chen - Example</at>`，只删标签会把名字
+        留在正文开头，导致问题和搜索片段都带 "Alex Chen - Example" 前缀。
+        """
+        self.assertEqual(
+            strip_leading_name("Alex Chen - Example 1+1 大于2吗？", "Alex Chen - Example"),
+            "1+1 大于2吗？")
+        self.assertEqual(
+            strip_leading_name("Alex Chen - Example：打印机脱机", "Alex Chen - Example"),
+            "打印机脱机")
+        # 不是开头的不动，避免误删正文
+        self.assertEqual(
+            strip_leading_name("请问 Alex Chen - Example 是谁", "Alex Chen - Example"),
+            "请问 Alex Chen - Example 是谁")
+        # 空名字原样返回
+        self.assertEqual(strip_leading_name("abc", ""), "abc")
 
 
 class ExtractTests(unittest.TestCase):

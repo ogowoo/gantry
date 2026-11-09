@@ -426,7 +426,7 @@ class Bot:
         from gantry import teams
         from gantry.teams_logic import (extract_question, has_mention, is_direct_id,
                                         mention_names, normalise_text, peer_guid,
-                                        strip_mentions)
+                                        strip_leading_name, strip_mentions)
 
         if self._lock.locked():
             return {"at": time.strftime("%H:%M:%S"), "skipped": "busy",
@@ -551,6 +551,8 @@ class Bot:
                 if key in seen:
                     continue
                 q = strip_mentions(extract_question(text, tokens), mentions)
+                if my_name:
+                    q = strip_leading_name(q, my_name) or q
                 if not q:
                     continue
                 out["candidates"] += 1
@@ -584,11 +586,14 @@ class Bot:
                     else:
                         # P1：入队，由独立 worker 串行发送；cycle 不再被发送阻塞
                         self._ensure_worker()
+                        # 搜索片段同样不能带 "@自己名字" 前缀，否则 Teams 搜索定位会失败
+                        _snip_raw = str(c.get("lastText") or "")
+                        _snip = strip_leading_name(_snip_raw, my_name) or _snip_raw
                         self._queue.put_nowait({
                             "cid": cid,
                             "mid": mid,
                             "answer": answer,
-                            "snippet": str(c.get("lastText") or "")[:40],
+                            "snippet": _snip[:40],
                             "peer": c.get("peerName") or c["id"],
                             "expected": {
                                 "conv_id": cid,
@@ -596,7 +601,7 @@ class Bot:
                                 "peer_guid": c.get("peerGuid") or peer_guid(
                                     cid, str(watch.get("skypeTenant") or "")),
                                 "topic": c.get("topic") or "",
-                                "snippet": str(c.get("lastText") or ""),
+                                "snippet": _snip,
                                 "message_id": mid,
                             },
                             "timeout": send_timeout,

@@ -95,7 +95,16 @@ async def api_idb_watch(page=None, limit: int = 400,
           topic: tp.topic || '',
           threadType: tp.threadType || '',
           targetLink: String(v.targetLink || ''),
-          lastText: String(lm.content || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 200),
+          // 注意：@ 在 content 里是 `<at id="0">Alex Chen - Example</at>`。
+          // 必须先整块删掉 <at>…</at>，再删其它标签：只删标签会把"被 @ 的名字"
+          // 留在正文开头（如 "Alex Chen - Example 1+1 大于2吗"），导致
+          // extract_question 把公司/名字当成问题的一部分，搜索定位会话也会失败。
+          lastText: (() => {
+            let s = String(lm.content || '');
+            s = s.replace(/<at\b[^>]*>[\s\S]*?<\/at>/gi, ' ');
+            s = s.replace(/<at\b[^>]*\/?>/gi, ' ');
+            return s.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 200);
+          })(),
           lastFrom: lm.imdisplayname || lm.fromDisplayNameInToken || '',
           lastAt: lm.composetime || '',
           lastTime: v.lastMessageTimeUtc || 0,
