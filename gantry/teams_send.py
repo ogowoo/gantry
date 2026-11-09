@@ -179,6 +179,16 @@ async def _leave_chat(page) -> None:
     except Exception:                           # noqa: BLE001
         pass
 
+def _base_identity(text: str) -> str:
+    """去掉 "姓名 - 公司/部门" 后缀，只留姓名部分。
+
+    Teams 的 IndexedDB 里 peerName 常是 "Lynn Ling - Example"，但聊天头部可能只显示
+    "Lynn Ling"；严格全名比较会把正确会话判成不一致（实测"定位不到窗口"）。
+    """
+    n = _norm_identity(text)
+    return re.split(r"\s+[-–—]\s+", n, 1)[0].strip()
+
+
 def _title_matches(head: str, expected: dict[str, Any] | None, peer: str = "") -> tuple[bool, str]:
     """校验打开的会话标题是否匹配期望的 topic/peer。"""
     exp = dict(expected or {})
@@ -191,8 +201,9 @@ def _title_matches(head: str, expected: dict[str, Any] | None, peer: str = "") -
         if topic not in h and h not in topic:
             return False, f"标题不一致：期望「{exp.get('topic')}」，实际「{head}」"
     if who:
-        # 完整名字匹配；不用前 8 个字符（会误判同名会话）
-        if who not in h:
+        # 全名优先；再退回"姓名部分"匹配（去掉 - 公司 后缀），避免正确会话被误拒。
+        base = _base_identity(who)
+        if who not in h and base not in h:
             return False, f"对端不一致：期望「{exp.get('peer') or peer}」，实际「{head}」"
     return True, ""
 
@@ -287,8 +298,21 @@ async def _reply_to_unlocked(peer: str, text: str, send: bool = False,
             _b.log(f"reply_to API 发送异常（回退 UI）：{str(exc)[:160]}")
     opened = False
     how = ""
+    # 有会话 id 时优先用官方深链直接开会话：跳过搜索/联系人定位，
+    # 避免"片段/人名定位不到窗口"（实测 Teams 搜索对 @ 前缀和同名联系人很敏感）。
+    if not opened and conv_id:
+        try:
+            dl = await open_chat_by_deeplink(conv_id, page=page,
+                                             expected=expected, peer=peer)
+            if dl.get("opened"):
+                opened = True
+                how = "deeplink"
+            else:
+                _b.log(f"reply_to 深链未命中：{dl.get('error')}")
+        except Exception as exc:                 # noqa: BLE001
+            _b.log(f"reply_to 深链打开失败：{str(exc)[:120]}")
     # 第一优先：记忆里的会话在 @ 后会排到列表顶部，直接点行，避免搜索偏页
-    if peer:
+    if not opened and peer:
         try:
             if await open_chat_by_row(peer, snippet):
                 opened = True
@@ -481,6 +505,46 @@ async def api_open_by_search(name: str, page=None, wait: float = 3.0) -> dict[st
     out["matched"] = bool(after) and name.lower()[:8] in after.lower()
     out["participants"] = await chat_participants() if hasattr(page, "locator") else None
     return out
+
+async def open_chat_by_deeplink(conv_id: str, page=None, *,
+                                expected: dict[str, Any] | None = None,
+                                peer: str = "", wait: float = 15.0) -> dict[str, Any]:
+    """用 `19:...` 会话 id 的官方深链直接打开聊天窗口。
+
+    官方格式：`https://teams.microsoft.com/l/chat/<chatId>/conversations`。
+    这比按片段/人名搜索可靠：不依赖消息前缀、联系人名片或搜索结果排序。
+    """
+    page = page or await teams_open()
+    cid = str(conv_id or "").strip()
+    if not cid:
+        return {"opened": False, "error": "缺少会话 id"}
+    urls = [
+        "https://teams.cloud.microsoft/l/chat/" + cid + "/conversations",
+        "https://teams.microsoft.com/l/chat/" + cid + "/conversations",
+    ]
+    out: dict[str, Any] = {"conv": cid[:60], "tries": []}
+    for url in urls:
+        try:
+            await page.goto(url, wait_until="domcontentloaded", timeout=60_000)
+        except Exception as exc:                 # noqa: BLE001
+            out["tries"].append({"url": url[:90], "error": str(exc)[:120]})
+            continue
+        deadline = time.monotonic() + max(3.0, float(wait))
+        head = ""
+        while time.monotonic() < deadline:
+            head = await header_title(page)
+            if head:
+                break
+            await asyncio.sleep(1)
+        ok, why = _title_matches(head, expected, peer)
+        out["tries"].append({"url": url[:90], "head": head[:50],
+                             "matched": ok, "why": why[:80]})
+        if ok:
+            return {"opened": True, "how": "deeplink", "head": head[:50], **out}
+    out["opened"] = False
+    out["error"] = "深链未打开匹配会话"
+    return out
+
 
 async def api_open_by_url(conv_id: str, page=None) -> dict[str, Any]:
     """依次尝试几种深链形式打开会话，报告头部标题是否变化。"""

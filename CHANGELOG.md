@@ -14,6 +14,21 @@
 ### Fixed
 - 
 
+## [11.0.0-preview.82] - 2026-11-09
+
+### Fixed
+
+- **Teams 回复“定位不到窗口”**：
+  - `reply_to` 在按列表行/片段/人名搜索之前，优先用会话 id 的官方深链
+    `https://teams.cloud.microsoft/l/chat/<conv_id>/conversations` 直接打开聊天窗口；
+  - `_title_matches` 容忍 `姓名 - 公司` 后缀：IndexedDB 的 `peerName` 常是
+    `Lynn Ling - Example`，聊天头部可能只显示 `Lynn Ling`，旧逻辑会误判“对端不一致”；
+  - 新增 `tests/test_teams_send.py` 覆盖深链打开与标题容忍。
+
+### 实测
+
+- 全套 **1633**（skipped=1）OK；不变量 25 条全绿。
+
 ## [11.0.0-preview.81] - 2026-11-08
 
 ### Added
