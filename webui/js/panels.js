@@ -76,7 +76,7 @@ async function refreshPanels(silent){
  });
  await loadPanel(panels[0]);
 }
-async function _injectTeamsBotModelControl(body, data){
+async function _injectTeamsBotModelControl(body, data, panel){
  const wrap=document.createElement('div');wrap.style.cssText='margin-top:10px;padding-top:10px;border-top:1px solid var(--line)';
  const row=document.createElement('div');row.style.cssText='display:flex;gap:6px;align-items:center';
  const lbl=document.createElement('span');lbl.className='hint';lbl.textContent=tr('模型')+':';row.appendChild(lbl);
@@ -92,7 +92,7 @@ async function _injectTeamsBotModelControl(body, data){
   sel.innerHTML=ids.map(id=>'<option value="'+esc(id)+'"'+(id===current?' selected':'')+'>'+esc(id)+'</option>').join('');
   save.onclick=async()=>{ save.disabled=true; try{
     await api('/v1/plugins/teams-bot/api/settings',{method:'POST',body:JSON.stringify({model:sel.value})});
-    toast(tr('设置已保存（{n} 项）').replace('{n}','1'),'ok'); await loadPanel(p); }catch(e){ toast(tr('保存失败: ')+(e.text||e),'err'); save.disabled=false; } };
+    toast(tr('设置已保存（{n} 项）').replace('{n}','1'),'ok'); await loadPanel(panel); }catch(e){ toast(tr('保存失败: ')+(e.text||e),'err'); save.disabled=false; } };
  }catch(e){ sel.innerHTML='<option value="">'+esc(tr('读取失败: ')+(e.text||e))+'</option>'; }
 }
 
@@ -104,7 +104,7 @@ async function loadPanel(p){
   const data=await _panelData(p);
   _renderPanel(p,data);
   if(p.plugin==='teams-bot' && p.id==='status'){
-   await _injectTeamsBotModelControl(body, data);
+   await _injectTeamsBotModelControl(body, data, p);
   }
  }catch(e){
   body.innerHTML='<div class="meta">'+esc(tr('读取失败: ')+(e.text||e))+'</div>';
