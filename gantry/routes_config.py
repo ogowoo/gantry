@@ -512,6 +512,48 @@ async def browser_retry():
     return {"started": True, "state": a.BOOT["browser_state"], "focused": focused}
 
 
+@router.get("/v1/models/local/status")
+async def local_models_status():
+    """本地 GGUF 模型的运行状态（是否已加载到内存、加载耗时、推理统计）。"""
+    out = []
+    for pname, p in (b.PROVIDERS or {}).items():
+        if not str(getattr(p, "backend", "")).lower() == "local":
+            continue
+        engine = getattr(p, "engine", None)
+        if engine is None:
+            continue
+        try:
+            stats = engine.stats()
+        except Exception as exc:             # noqa: BLE001
+            stats = {"error": str(exc)[:120]}
+        stats["provider"] = pname
+        stats["model_path"] = getattr(p, "model_path", "")
+        # 模型文件名（不含路径）方便前端展示
+        mp = str(stats.get("model_path") or "")
+        stats["model_file"] = Path(mp).name if mp else ""
+        out.append(stats)
+    return {"providers": out}
+
+
+@router.post("/v1/models/local/warm")
+async def warm_local_models():
+    """预热所有 local 提供商（把 GGUF 加载进内存，下次调用不用等）。"""
+    results = []
+    for pname, p in (b.PROVIDERS or {}).items():
+        if not str(getattr(p, "backend", "")).lower() == "local":
+            continue
+        engine = getattr(p, "engine", None)
+        if engine is None:
+            continue
+        try:
+            res = await asyncio.to_thread(engine.warm)
+            res["provider"] = pname
+            results.append(res)
+        except Exception as exc:             # noqa: BLE001
+            results.append({"provider": pname, "ok": False, "error": str(exc)[:200]})
+    return {"results": results}
+
+
 @router.get("/v1/models/local")
 async def list_local_models():
     """列出 data/models/ 里的本地 GGUF 文件（大小、修改时间）。"""

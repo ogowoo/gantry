@@ -28,6 +28,15 @@
 .model-card-main{flex:1 1 auto;min-width:0}
 .model-card-actions .btn.danger{background:color-mix(in srgb,var(--red) 8%,transparent);
   border-color:color-mix(in srgb,var(--red) 45%,var(--line));color:var(--red)}
+/* 本地模型运行状态徽章 */
+.model-status{display:inline-block;font-size:10.5px;font-weight:600;padding:1px 7px;
+  border-radius:10px;vertical-align:middle;margin-left:4px;line-height:1.4}
+.model-status.on{color:var(--green);background:color-mix(in srgb,var(--green) 10%,transparent);
+  border:1px solid color-mix(in srgb,var(--green) 30%,transparent)}
+.model-status.bad{color:var(--red);background:color-mix(in srgb,var(--red) 10%,transparent);
+  border:1px solid color-mix(in srgb,var(--red) 30%,transparent)}
+.model-status:not(.on):not(.bad){color:var(--muted);background:var(--panel2);
+  border:1px solid var(--line2);cursor:default}
 .model-name{font-weight:600;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .model-meta{font-size:12px;color:var(--muted);margin-top:2px}
 .model-path{font-family:var(--mono);font-size:11px;color:var(--faint);white-space:nowrap;

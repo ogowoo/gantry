@@ -64,6 +64,7 @@
         <div class="nc-bar">
           <div class="nc-left">
             <select id="model" class="nc-model" aria-label="新任务使用的模型"><option value="copilot-auto">Auto</option><option value="copilot-think-deeper">Think deeper</option></select>
+            <span id="localStatusChip" class="local-status" style="display:none" title=""></span>
             <button type="button" id="refreshModelsBtn" class="iconbtn" title="重新读取 Copilot 模型菜单" data-act="refreshModels">↻</button>
             <input id="workspace" class="nc-ws" aria-label="工作目录" placeholder="工作目录（默认 workspace）">
             <button type="button" class="iconbtn" title="选择工作目录" data-act="pickWorkspace">

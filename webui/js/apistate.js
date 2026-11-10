@@ -153,6 +153,27 @@ async function loadModels(){
   avail.forEach(m=>{let o=document.createElement('option');o.value=m.id;o.textContent=m.id;const _d=modelDesc(m);if(_d)o.title=_d;sel.appendChild(o)});
   sel.value=avail.some(m=>m.id===prev)?prev:avail[0].id;
   refreshSessModelOptions()}catch(e){}
+ _updateLocalStatusIndicator();
+}
+async function _updateLocalStatusIndicator(){
+ let el=document.getElementById('localStatusChip');if(!el)return;
+ try{let r=await api('/v1/models/local/status');
+  let ps=(r&&r.providers)||[];
+  let active=ps.filter(p=>p.loaded);
+  if(!ps.length){el.style.display='none';return}
+  el.style.display='';
+  if(active.length){
+   let names=active.map(p=>p.model_file||p.provider).join(', ');
+   let perf=active[0].tok_per_second>0?` · ${active[0].tok_per_second} tok/s`:'';
+   el.textContent=`⚡ ${names}${perf}`;
+   el.className='local-status on';
+   el.title=active.map(p=>`${p.model_file}: ${p.calls} calls, ${p.load_seconds}s load`).join('\n');
+  }else{
+   el.textContent='○ local';
+   el.className='local-status';
+   el.title=tr('本地模型未加载，首次调用会慢一些');
+  }
+ }catch(e){el.style.display='none'}
 }
 /* 填充模型下拉；keep 为当前会话的模型（不在可用列表里也要保留并标注） */
 function fillModelSelect(sel, avail, keep){
