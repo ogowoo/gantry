@@ -66,10 +66,34 @@ _DEFAULTS: dict[str, Any] = {
     "auth_backoff_seconds": 300,
     "outbox_path": "data/teams-bot-sends.db",
     "outbox_lease_seconds": 300,
+    # ── 提示词 / 兜底文本（可在插件面板或 api/settings 自定义，改完即时生效）──
+    # 有知识库命中时的系统提示词（{context} = 资料、{question} = 同事的问题）
+    "prompt_with_kb": (
+        "你是公司 IT 支持助手，在 Teams 里回答同事的提问。\n"
+        "规则：\n"
+        "1. 优先依据下面的《参考资料》回答；资料里没有的部分，用你的一般知识补充，"
+        "但不要编造具体网址、分机号或内部流程。\n"
+        "2. 不要整段复制/粘贴参考资料，要用自己的话针对问题给出可操作步骤；"
+        "资料与问题无关时不要硬套，直接按一般 IT 知识回答并说明需要核实。\n"
+        "3. 回答用中文、口语化、分步骤，控制在 6 行以内。\n"
+        "4. 不要提到「参考资料」这个词，也不要说自己是 AI。\n"
+        "5. 不要追问、不要要求用户补截图/补信息，也不要用「如果需要…」「把…发我」"
+        "这类收尾；最后一条就是可执行步骤。\n\n"
+        "《参考资料》\n{context}\n\n"
+        "同事的问题：{question}"
+    ),
+    # 知识库没命中时的系统提示词（{question} = 同事的问题）
+    "prompt_no_kb": (
+        "你是公司 IT 支持助手，在 Teams 里回答同事的提问。\n"
+        "知识库里没有匹配的资料，请用你的一般 IT 知识直接回答，给出可操作的步骤；"
+        "涉及公司内部系统/权限/具体分机号等你不确定的信息，提醒对方联系 IT 服务台核实，不要编造。\n"
+        "回答用中文、口语化、分步骤，控制在 6 行以内；不要说自己是在查资料，也不要提 AI。\n\n"
+        "同事的问题：{question}"
+    ),
+    # 模型也答不上来（或超时）时的兜底回复；留空则不回复
+    "unknown_text": ("知识库里暂时没有这个问题，我先记下来。"
+                    "着急的话可以直接找 IT 服务台（分机 8000）。"),
 }
-
-UNKNOWN_TEXT = ("知识库里暂时没有这个问题，我先记下来。"
-                "着急的话可以直接找 IT 服务台（分机 8000）。")
 
 
 def _cfg(ctx, key: str) -> Any:
@@ -316,7 +340,7 @@ class Bot:
             self._last_error = f"回答超时（>{timeout:.0f}s）"
             self.ctx.log(f"回答超时（{timeout:.0f}s）：{question[:40]}")
             if bool(_cfg(self.ctx, "reply_when_unknown")):
-                return UNKNOWN_TEXT, "timeout"
+                return self._unknown_text(), "timeout"
             return "", "timeout"
 
     async def _answer_inner(self, question: str) -> tuple[str, str]:
@@ -359,8 +383,11 @@ class Bot:
                 self._last_error = f"模型回答失败: {exc}"
                 self.ctx.log(f"模型回答失败: {exc}")
         if bool(_cfg(self.ctx, "reply_when_unknown")):
-            return UNKNOWN_TEXT, "unknown"
+            return self._unknown_text(), "unknown"
         return "", "none"
+
+    def _unknown_text(self) -> str:
+        return str(_cfg(self.ctx, "unknown_text") or "").strip()
 
     async def _agent_answer(self, question: str, hits: list[dict[str, Any]]) -> str:
         """让 Gantry 的模型回答。
@@ -376,28 +403,11 @@ class Bot:
             + "\n" + str(h.get("text") or "")
             for h in (hits or [])[:3])[:4000]
         if context:
-            prompt = (
-                "你是公司 IT 支持助手，在 Teams 里回答同事的提问。\n"
-                "规则：\n"
-                "1. 优先依据下面的《参考资料》回答；资料里没有的部分，用你的一般知识补充，"
-                "但不要编造具体网址、分机号或内部流程。\n"
-                "2. 不要整段复制/粘贴参考资料，要用自己的话针对问题给出可操作步骤；"
-                "资料与问题无关时不要硬套，直接按一般 IT 知识回答并说明需要核实。\n"
-                "3. 回答用中文、口语化、分步骤，控制在 6 行以内。\n"
-                "4. 不要提到「参考资料」这个词，也不要说自己是 AI。\n"
-                "5. 不要追问、不要要求用户补截图/补信息，也不要用「如果需要…」「把…发我」"
-                "这类收尾；最后一条就是可执行步骤。\n\n"
-                f"《参考资料》\n{context}\n\n"
-                f"同事的问题：{question}"
-            )
+            prompt = str(_cfg(self.ctx, "prompt_with_kb") or _DEFAULTS["prompt_with_kb"]).format(
+                context=context, question=question)
         else:
-            prompt = (
-                "你是公司 IT 支持助手，在 Teams 里回答同事的提问。\n"
-                "知识库里没有匹配的资料，请用你的一般 IT 知识直接回答，给出可操作的步骤；"
-                "涉及公司内部系统/权限/具体分机号等你不确定的信息，提醒对方联系 IT 服务台核实，不要编造。\n"
-                "回答用中文、口语化、分步骤，控制在 6 行以内；不要说自己是在查资料，也不要提 AI。\n\n"
-                f"同事的问题：{question}"
-            )
+            prompt = str(_cfg(self.ctx, "prompt_no_kb") or _DEFAULTS["prompt_no_kb"]).format(
+                context=context, question=question)
         model = str(_cfg(self.ctx, "model") or "copilot-auto")
         sid = f"teams-{int(time.time())}"
         req = b.AgentRequest(
@@ -1329,7 +1339,8 @@ def setup(ctx):
                   "kb_min_score", "fallback_agent", "agent_mode", "only_direct",
                   "only_unread", "kb_synthesize", "typing_delay_ms",
                   "send_jitter_ms", "mentions_gate", "max_replies_per_cycle",
-                  "send_timeout_seconds"):
+                  "send_timeout_seconds",
+                  "prompt_with_kb", "prompt_no_kb", "unknown_text"):
             if k in body:
                 overrides[k] = body[k]
         ctx.save_state(overrides=overrides)

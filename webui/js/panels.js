@@ -78,7 +78,7 @@ async function refreshPanels(silent){
 }
 async function _injectTeamsBotModelControl(body, data, panel){
  const wrap=document.createElement('div');wrap.style.cssText='margin-top:10px;padding-top:10px;border-top:1px solid var(--line)';
- // ── 开关区：enabled / dry_run / send_enabled / only_direct（写 data/plugins.json，立即生效）──
+ // ── 开关区 ──
  const swWrap=document.createElement('div');swWrap.style.cssText='display:flex;gap:14px;flex-wrap:wrap;margin-bottom:8px';
  const SWITCHES=[
   ['enabled','启用轮询'],['dry_run','试运行（不发真消息）'],
@@ -95,10 +95,10 @@ async function _injectTeamsBotModelControl(body, data, panel){
    lb.style.cssText='display:inline-flex;align-items:center;gap:6px;font-size:12.5px;color:var(--text);cursor:pointer';
    const cb=document.createElement('input');cb.type='checkbox';cb.checked=!!(st&&st[key]);
    cb.onchange=async()=>{ cb.disabled=true; try{
-    await postSwitch({[key]:cb.checked});
-    toast(tr('设置已保存（{n} 项）').replace('{n}','1'),'ok');
-    await loadPanel(panel);
-   }catch(e){ toast(tr('保存失败: ')+(e.text||e),'err'); cb.checked=!cb.checked; cb.disabled=false; } };
+     await postSwitch({[key]:cb.checked});
+     toast(tr('设置已保存（{n} 项）').replace('{n}','1'),'ok');
+     await loadPanel(panel);
+    }catch(e){ toast(tr('保存失败: ')+(e.text||e),'err'); cb.checked=!cb.checked; cb.disabled=false; } };
    const sp=document.createElement('span');sp.textContent=tr(label);
    lb.appendChild(cb);lb.appendChild(sp);swWrap.appendChild(lb);
   });
@@ -109,10 +109,44 @@ async function _injectTeamsBotModelControl(body, data, panel){
  const sel=document.createElement('select');sel.className='kbinput';sel.style.flex='1';sel.id='teamsBotPanelModel';
  const save=document.createElement('button');save.type='button';save.className='btn';save.textContent=tr('保存');
  row.appendChild(sel);row.appendChild(save);wrap.appendChild(swWrap);wrap.appendChild(row);
+ // ── 提示词编辑区 ──
+ const taWrap=document.createElement('div');taWrap.style.cssText='margin-top:10px;display:flex;flex-direction:column;gap:6px';
+ const TA_FIELDS=[
+  ['prompt_with_kb','有资料时的提示词'],['prompt_no_kb','无资料时的提示词'],
+  ['unknown_text','答不上时的兜底回复'],
+ ];
+ TA_FIELDS.forEach(([key,label])=>{
+  const lb=document.createElement('label');lb.className='hint';lb.style.cssText='font-size:11px';
+  lb.textContent=tr(label);
+  const ta=document.createElement('textarea');
+  ta.className='kbinput';ta.rows=3;ta.dataset.cfgKey=key;
+  ta.style.cssText='width:100%;font-family:var(--mono,ui-monospace,Consolas,monospace);font-size:11.5px;padding:6px 8px;resize:vertical';
+  taWrap.appendChild(lb);taWrap.appendChild(ta);
+ });
+ const taSave=document.createElement('button');taSave.type='button';taSave.className='btn ghost';taSave.textContent=tr('保存提示词');
+ taSave.style.cssText='align-self:flex-end';
+ taSave.onclick=async()=>{ taSave.disabled=true; try{
+   const patch={};
+   taWrap.querySelectorAll('textarea[data-cfg-key]').forEach(ta=>{
+    const v=ta.value.trim();
+    if(v) patch[ta.dataset.cfgKey]=v;
+   });
+   if(Object.keys(patch).length){
+    await postSwitch(patch);
+    toast(tr('设置已保存（{n} 项）').replace('{n}',String(Object.keys(patch).length)),'ok');
+    await loadPanel(panel);
+   }else{ toast(tr('没有改动'),'ok'); }
+  }catch(e){ toast(tr('保存失败: ')+(e.text||e),'err'); } finally{ taSave.disabled=false; } };
+ taWrap.appendChild(taSave);
+ wrap.appendChild(taWrap);
  body.appendChild(wrap);
  try{
   const [models,status]=await Promise.all([api('/v1/models'),api('/v1/plugins/teams-bot/api/status')]);
   buildSwitches(status||{});
+  TA_FIELDS.forEach(([key])=>{
+   const ta=taWrap.querySelector('textarea[data-cfg-key="'+key+'"]');
+   if(ta&&status&&status[key])ta.value=status[key];
+  });
   const current=String((status&&status.model)||(data&&data.model)||'');
   const ids=(models&&models.data||[]).map(m=>m.id).filter(Boolean);
   if(!ids.length){sel.innerHTML='<option value="">-</option>';return;}
@@ -122,7 +156,6 @@ async function _injectTeamsBotModelControl(body, data, panel){
     toast(tr('设置已保存（{n} 项）').replace('{n}','1'),'ok'); await loadPanel(panel); }catch(e){ toast(tr('保存失败: ')+(e.text||e),'err'); save.disabled=false; } };
  }catch(e){ sel.innerHTML='<option value="">'+esc(tr('读取失败: ')+(e.text||e))+'</option>'; }
 }
-
 async function loadPanel(p){
  const body=document.getElementById('panelBody');
  if(!body)return;
