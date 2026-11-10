@@ -7,6 +7,7 @@ import asyncio
 import hmac
 import json
 import logging
+import os
 import re
 import threading
 import time
@@ -32,7 +33,7 @@ from .bridge import Message, Request, SessionMessageRequest, AgentRequest
 # api_token：配置后所有 /v1/* 端点要求 "Authorization: Bearer <token>"。
 # 非回环地址监听（0.0.0.0/局域网）且未配置 token 时拒绝启动——该服务能读写
 # 文件、操作浏览器，裸奔到公网/内网是不可接受的风险。
-API_TOKEN = str(b.CFG.get("api_token") or "")
+API_TOKEN = str(os.environ.get("GANTRY_API_TOKEN") or b.CFG.get("api_token") or "")
 # 同源/CSRF 防护（默认开启）：拦"会改状态"的跨站请求。非浏览器客户端（curl/评测脚本）
 # 不带 Origin/Sec-Fetch-*，因此照常可用。可用 csrf_protect=false 关闭（不推荐）。
 CSRF_PROTECT = bool(b.CFG.get("csrf_protect", True))

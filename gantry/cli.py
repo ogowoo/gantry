@@ -18,6 +18,7 @@ import os
 
 from .brand import env
 import sys
+from pathlib import Path
 from typing import Any
 
 import httpx
@@ -26,9 +27,17 @@ DEFAULT_URL = env("URL", "http://127.0.0.1:8765")
 DEFAULT_TOKEN = env("TOKEN", "")
 
 
+def _file_token() -> str:
+    try:
+        return (Path(__file__).resolve().parent.parent / "data" / "api_token").read_text(
+            encoding="utf-8").strip()
+    except OSError:
+        return ""
+
+
 def _client(args) -> httpx.Client:
     headers = {}
-    token = getattr(args, "token", "") or DEFAULT_TOKEN
+    token = getattr(args, "token", "") or DEFAULT_TOKEN or _file_token()
     if token:
         headers["Authorization"] = f"Bearer {token}"
     return httpx.Client(base_url=getattr(args, "url", "") or DEFAULT_URL,

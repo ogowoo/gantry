@@ -721,6 +721,7 @@ Object.assign(I18N_EN, {
  "推荐：": "Recommended: ",
  "已加载": "Loaded",
  "未加载": "Not loaded",
+ "点击预热加载到内存": "Click to warm up and load into memory",
  "本地模型未加载，首次调用会慢一些": "Local model not loaded — first call will be slow",
  "预热": "Warm up",
  "预热完成": "Warm-up complete",

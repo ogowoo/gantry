@@ -29,6 +29,8 @@
   stdio 命令只允许常见解释器。
 - `force=true` 不再单独绕过 `dry_run`，需要 `allow_force_send=true`；`teams_reply` 注册为
   需审批工具。
+- `start.py` 首次启动生成 `data/api_token` 并通过 `GANTRY_API_TOKEN` 传给 API；WebUI
+  401 时提示输入，CLI 自动读取该文件。
 - `fanout` 的 `merge` 必须配合 `isolate_workspace`；隔离副本结束后自动清理
   （`keep_workspace=true` 可保留）；`.fanout/` 加入 .gitignore。
 

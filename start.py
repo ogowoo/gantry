@@ -25,6 +25,7 @@ Windows 注意：`os.execv` 是"新建进程再退旧的"，新进程有**新 PI
 """
 import json
 import os
+import secrets
 import subprocess
 import sys
 import time
@@ -57,6 +58,35 @@ def _port() -> int:
         return int(SERVER.get("port", DEFAULT_PORT))
 
 
+def ensure_api_token() -> None:
+    """回环服务也默认生成 token：本机其它进程/用户不能裸调 /v1/*。
+
+    配置里显式写了 api_token 时尊重配置；否则从 data/api_token 读取/生成，
+    并通过环境变量传给 api.py。WebUI 在 401 时会提示输入；CLI 会自动读该文件。
+    """
+    if str(SERVER.get("host", "127.0.0.1")) not in ("127.0.0.1", "localhost", "::1"):
+        return
+    if str(CFG.get("api_token") or "").strip():
+        return
+    token_file = BASE / "data" / "api_token"
+    token = ""
+    try:
+        if token_file.exists():
+            token = token_file.read_text(encoding="utf-8").strip()
+    except OSError:
+        token = ""
+    if not token:
+        token = secrets.token_urlsafe(32)
+        token_file.parent.mkdir(parents=True, exist_ok=True)
+        token_file.write_text(token + "\n", encoding="utf-8")
+        try:
+            os.chmod(token_file, 0o600)
+        except OSError:
+            pass
+        print(f"[gantry] 已生成 API token：{token_file}（WebUI 会提示输入，CLI 自动读取）")
+    os.environ["GANTRY_API_TOKEN"] = token
+
+
 def build_server() -> "uvicorn.Server":
     """构造 uvicorn Server 并把"置 should_exit"注入生命周期层。
 
@@ -83,6 +113,7 @@ def serve() -> None:
     """启动服务；端口被占（重启瞬间新旧进程交叠）时短暂重试。"""
     import logging
 
+    ensure_api_token()
     log = logging.getLogger("gantry.start")
     for attempt in range(1, BIND_RETRIES + 1):
         server = build_server()
