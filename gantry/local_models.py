@@ -123,6 +123,8 @@ class LocalChatEngine:
         self.truncate = bool(truncate)
         self._llm: Any = None
         self._lock = threading.Lock()
+        # 协作式取消：取消时置位，生成循环每轮检查；不能直接 kill 线程
+        self._cancel = threading.Event()
         self._last_used = 0.0
         self.load_seconds = 0.0
         self.loads = 0
@@ -181,6 +183,17 @@ class LocalChatEngine:
                 "tokens": self.tokens,
                 "tok_per_second": round(self.tokens / self.seconds, 1) if self.seconds else 0.0,
                 "n_ctx": self.n_ctx, "n_threads": self.n_threads}
+
+    def cancel(self) -> None:
+        """请求取消当前生成（协作式：下一轮 chunk 检查时退出）。"""
+        self._cancel.set()
+
+    def clear_cancel(self) -> None:
+        self._cancel.clear()
+
+    @property
+    def cancelled(self) -> bool:
+        return self._cancel.is_set()
 
     # ── 生成 ──
     def _budget(self) -> int:
@@ -267,6 +280,7 @@ class LocalChatEngine:
         messages, trimmed = self._fit(llm, messages)
         body = self._payload(messages, max_tokens, temperature, response_schema, False)
         with self._lock:                         # llama.cpp 上下文不能并发
+            self._cancel.clear()               # 新一轮生成：清掉上轮的取消信号
             t0 = time.time()
             try:
                 out = llm.create_chat_completion(**body)
@@ -279,6 +293,12 @@ class LocalChatEngine:
         usage = out.get("usage") or {}
         used = int(usage.get("completion_tokens") or 0)
         self.tokens += used
+        # 协作式取消：用户点了暂停/取消，不等 llama.cpp 跑完直接返回空
+        if self._cancel.is_set():
+            return {"content": "", "think": "",
+                    "finish_reason": "cancelled",
+                    "usage": usage, "seconds": 0, "model": Path(self.path).stem,
+                    "trimmed": trimmed}
         msg = ((out.get("choices") or [{}])[0].get("message") or {})
         raw = msg.get("content") or ""
         think_field = str(msg.get("reasoning_content") or "")
@@ -298,12 +318,16 @@ class LocalChatEngine:
         messages, _trimmed = self._fit(llm, messages)
         body = self._payload(messages, max_tokens, temperature, response_schema, True)
         with self._lock:
+            self._cancel.clear()               # 新一轮生成：清掉上轮的取消信号
             t0 = time.time()
             try:
                 stream = llm.create_chat_completion(**body)
                 in_think = False
                 buf = ""
                 for chunk in stream:
+                    # 协作式取消：用户点了暂停/取消，尽快退出
+                    if self._cancel.is_set():
+                        break
                     delta = ((chunk.get("choices") or [{}])[0].get("delta") or {})
                     piece = str(delta.get("content") or "")
                     if not piece:

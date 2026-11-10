@@ -572,6 +572,8 @@ class LocalProvider(ApiProvider):
         import asyncio
 
         self.require_ready()
+        if hasattr(self.engine, 'clear_cancel'):
+            self.engine.clear_cancel()
         res = await asyncio.to_thread(
             self.engine.chat, messages, response_schema=response_schema)
         return {"content": res.get("content") or "",
@@ -600,16 +602,24 @@ class LocalProvider(ApiProvider):
 
         import threading
 
-        threading.Thread(target=worker, name=f"local-{self.name}", daemon=True).start()
-        while True:
-            kind, payload = await queue.get()
-            if kind == "delta":
-                yield {"delta": {"content": payload}, "finish_reason": None}
-            elif kind == "error":
-                raise ProviderUnavailable(str(payload)[:300]) from payload
-            else:
-                yield {"delta": {}, "finish_reason": "stop"}
-                return
+        t = threading.Thread(target=worker, name=f"local-{self.name}", daemon=True)
+        t.start()
+        try:
+            while True:
+                kind, payload = await queue.get()
+                if kind == "delta":
+                    yield {"delta": {"content": payload}, "finish_reason": None}
+                elif kind == "error":
+                    raise ProviderUnavailable(str(payload)[:300]) from payload
+                else:
+                    yield {"delta": {}, "finish_reason": "stop"}
+                    return
+        finally:
+            # 协作式取消：消费者（provider_turn）被取消了，通知 engine 尽快退出；
+            # 不能直接 join 线程（它可能还在 llama.cpp 里），但 cancel 信号
+            # 会让 stream() 在下一个 chunk 检查时 break。
+            if hasattr(self.engine, 'cancel'):
+                self.engine.cancel()
 
     async def complete(self, model: str, messages: list[dict[str, Any]],
                        response_schema: dict[str, Any] | None = None) -> str:
