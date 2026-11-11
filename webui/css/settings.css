@@ -42,6 +42,13 @@
 .model-path{font-family:var(--mono);font-size:11px;color:var(--faint);white-space:nowrap;
   overflow:hidden;text-overflow:ellipsis;margin-top:2px}
 .model-card-actions{display:flex;flex-direction:column;gap:6px;flex:none}
+/* 本地模型运行状态区：不依赖 data/models 文件列表也能启动/停止 */
+.model-providers{display:flex;flex-direction:column;gap:8px;margin-bottom:12px}
+.model-provider-row{display:flex;align-items:center;justify-content:space-between;gap:10px;
+  padding:10px 12px;border:1px solid var(--line2);border-radius:10px;background:var(--panel2)}
+.model-provider-main{min-width:0}
+.model-provider-name{font-weight:600;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.model-provider-detail{font-size:12px;color:var(--muted);margin-top:2px}
 #modelsBody .model-card:last-child{margin-bottom:0}
 .model-download-summary{display:flex;align-items:center;gap:8px;padding:9px 12px;
   border-radius:8px;background:var(--menu-hover);cursor:pointer;list-style:none;

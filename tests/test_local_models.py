@@ -307,5 +307,48 @@ class ContextFitTests(Base):
         self.assertEqual(eng._budget(), 100)
 
 
+class LocalControlRouteTests(unittest.TestCase):
+    """管理页启动/停止开关的后端契约。"""
+
+    class _Engine:
+        def __init__(self):
+            self.loaded = False
+
+        def warm(self):
+            self.loaded = True
+            return {"ok": True, "loaded": True}
+
+        def unload(self):
+            self.loaded = False
+
+        def stats(self):
+            return {"loaded": self.loaded, "calls": 0, "tokens": 0,
+                    "tok_per_second": 0, "n_ctx": 4096, "n_threads": 4,
+                    "load_seconds": 0, "loads": 1, "path": "fake.gguf"}
+
+    def test_start_stop_and_unknown_provider(self):
+        from types import SimpleNamespace
+        from fastapi.testclient import TestClient
+        from gantry import api as A
+        from gantry import bridge as b
+
+        eng = self._Engine()
+        old = b.PROVIDERS
+        b.PROVIDERS = {"local": SimpleNamespace(backend="local", engine=eng,
+                                                model_path="fake.gguf")}
+        try:
+            c = TestClient(A.app, base_url="http://127.0.0.1:8765")
+            r = c.post("/v1/models/local/local/start")
+            self.assertEqual(r.status_code, 200, r.text)
+            self.assertTrue(r.json()["ok"])
+            self.assertTrue(eng.loaded)
+            r = c.post("/v1/models/local/local/stop")
+            self.assertEqual(r.status_code, 200, r.text)
+            self.assertFalse(eng.loaded)
+            self.assertEqual(c.post("/v1/models/local/nope/start").status_code, 404)
+        finally:
+            b.PROVIDERS = old
+
+
 if __name__ == "__main__":
     unittest.main()

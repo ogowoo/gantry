@@ -560,6 +560,44 @@ async def warm_local_models():
     return {"results": results}
 
 
+def _local_engine(provider: str):
+    p = (b.PROVIDERS or {}).get(str(provider or ""))
+    if p is None or str(getattr(p, "backend", "")).lower() != "local":
+        raise HTTPException(404, f"本地提供商不存在: {provider or '(空)'}")
+    engine = getattr(p, "engine", None)
+    if engine is None:
+        raise HTTPException(404, f"本地提供商没有引擎: {provider}")
+    return p, engine
+
+
+@router.post("/v1/models/local/{provider}/start")
+async def start_local_model(provider: str):
+    """启动/加载单个本地模型（把 GGUF 载入内存）。"""
+    p, engine = _local_engine(provider)
+    try:
+        res = await asyncio.to_thread(engine.warm)
+        return {"provider": provider, "model_path": getattr(p, "model_path", ""),
+                **res}
+    except Exception as exc:                 # noqa: BLE001
+        return {"provider": provider, "ok": False, "error": str(exc)[:200],
+                "loaded": bool(getattr(engine, "loaded", False))}
+
+
+@router.post("/v1/models/local/{provider}/stop")
+async def stop_local_model(provider: str):
+    """停止/卸载单个本地模型（释放内存）。"""
+    p, engine = _local_engine(provider)
+    try:
+        if hasattr(engine, "cancel"):
+            engine.cancel()                  # 先协作式取消正在跑的生成
+        await asyncio.to_thread(engine.unload)
+        return {"provider": provider, "ok": True,
+                "model_path": getattr(p, "model_path", ""),
+                "stats": engine.stats() if hasattr(engine, "stats") else {}}
+    except Exception as exc:                 # noqa: BLE001
+        return {"provider": provider, "ok": False, "error": str(exc)[:200]}
+
+
 @router.get("/v1/models/local")
 async def list_local_models():
     """列出 data/models/ 里的本地 GGUF 文件（大小、修改时间）。"""

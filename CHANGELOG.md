@@ -14,6 +14,23 @@
 ### Fixed
 - 
 
+## [11.0.0-preview.87] - 2026-11-11
+
+### Added
+
+- 本地模型管理页新增启动/停止开关与运行状态区：`POST /v1/models/local/{provider}/start`
+  加载 GGUF，`POST /v1/models/local/{provider}/stop` 取消生成并释放内存；状态不依赖
+  `data/models/` 文件列表也能查看。
+
+### Fixed
+
+- 首页本地模型状态徽标改为紧凑的 `⚡/○`，完整信息放 tooltip；工具栏允许换行，
+  避免全屏/最大输入框时挤占其它按钮。
+
+### 实测
+
+- 全套 **1659** 测试 OK（skipped=1）；不变量 **25 条，失败 0**。
+
 ## [11.0.0-preview.86] - 2026-11-10
 
 ### Changed
