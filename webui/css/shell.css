@@ -292,9 +292,25 @@ details>summary{cursor:pointer;color:var(--accent2);font-size:12.5px;user-select
    所以列表**不可能**再滚到设置/版本号那一带。 */
 .rail{display:flex;flex-direction:column}
 #sessions{flex:1 1 auto;min-height:0;overflow:auto}
-.railfoot{flex:none;position:relative;display:flex;align-items:center;gap:8px;
-  padding:8px 12px;border-top:0;background:var(--panel);
+.railfoot{flex:none;position:relative;display:flex;flex-direction:column;align-items:stretch;
+  gap:6px;padding:8px 12px 10px;border-top:0;background:var(--panel);
   min-height:34px;box-sizing:content-box}
+.railfoot-main{display:flex;align-items:center;gap:8px;min-width:0}
+/* 状态条：设置下方一排小横条（服务 / 本地模型 / Teams） */
+.railstats{display:flex;align-items:center;gap:4px;min-width:0;overflow:hidden}
+.statseg{display:flex;align-items:center;gap:4px;flex:1 1 0;min-width:0;
+  padding:3px 6px;border:1px solid var(--line2);border-radius:6px;
+  background:var(--panel2);font-size:10px;line-height:1.2;color:var(--muted);
+  overflow:hidden;white-space:nowrap}
+.statseg i{width:6px;height:6px;border-radius:50%;background:var(--faint);flex:none}
+.statseg .statlabel{flex:none;opacity:.8}
+.statseg .statval{min-width:0;overflow:hidden;text-overflow:ellipsis;color:var(--text)}
+.statseg[data-state="ok"] i{background:var(--green)}
+.statseg[data-state="ok"] .statval{color:var(--green)}
+.statseg[data-state="warn"] i{background:var(--amber, #d18b00)}
+.statseg[data-state="warn"] .statval{color:var(--amber, #d18b00)}
+.statseg[data-state="bad"] i{background:var(--red)}
+.statseg[data-state="bad"] .statval{color:var(--red)}
 /* 分隔线：中间实、两端渐隐（1px 渐变，不吃布局） */
 .railfoot::before{content:"";position:absolute;left:0;right:0;top:0;height:1px;
   background:linear-gradient(90deg,
@@ -317,6 +333,7 @@ details>summary{cursor:pointer;color:var(--accent2);font-size:12.5px;user-select
 :root[data-rail="closed"] .railfoot::before{display:none}
 :root[data-rail="closed"] .railgear .raillabel{display:none}
 :root[data-rail="closed"] .railfoot .btmver{display:none}
+:root[data-rail="closed"] .railfoot .railstats{display:none}
 /* 窄屏抽屉收起时侧栏整体不显示 → 保留一个浮在左下角的齿轮兜底入口 */
 @media(max-width:860px){
   :root:not([data-rail="open"]) .railfoot{position:fixed;left:8px;bottom:10px;z-index:56;
@@ -324,6 +341,7 @@ details>summary{cursor:pointer;color:var(--accent2);font-size:12.5px;user-select
     width:34px;height:34px;justify-content:center;box-shadow:0 6px 18px -8px var(--menu-shadow)}
   :root:not([data-rail="open"]) .railgear{padding:0;width:34px;height:34px;justify-content:center}
   :root:not([data-rail="open"]) .railfoot .btmver{display:none}
+  :root:not([data-rail="open"]) .railfoot .railstats{display:none}
   .railfoot{padding:8px 12px}
 }
 /* RAIL-FOOTER-NARROW: 窄屏抽屉展开时，侧栏也按 flex 列排：

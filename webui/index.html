@@ -23,9 +23,19 @@
     </div>
   <!-- 侧栏底部：设置 + 版本号（固定行，不在滚动区里，像 DSH 那样） -->
   <footer class="railfoot">
+    <div class="railfoot-main">
     <button type="button" id="settingsBtn" class="railgear" data-act="openSettings"
             title="设置" data-i18n-title="设置" aria-label="设置"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3.2"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.7 1.7 0 0 0-1.87-.34 1.7 1.7 0 0 0-1 1.55V21a2 2 0 1 1-4 0v-.09a1.7 1.7 0 0 0-1.11-1.55 1.7 1.7 0 0 0-1.87.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.7 1.7 0 0 0 3.6 15a1.7 1.7 0 0 0-1.55-1H2a2 2 0 1 1 0-4h.09A1.7 1.7 0 0 0 3.6 8.9a1.7 1.7 0 0 0-.34-1.87l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.7 1.7 0 0 0 8 4.6a1.7 1.7 0 0 0 1-1.55V3a2 2 0 1 1 4 0v.09a1.7 1.7 0 0 0 1 1.55 1.7 1.7 0 0 0 1.87-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.7 1.7 0 0 0 19.4 9c.16.5.6.9 1.15 1H21a2 2 0 1 1 0 4h-.09c-.55.1-.99.5-1.15 1z"/></svg><span class="raillabel" data-i18n="设置">设置</span></button>
     <span id="appVersion" class="btmver" data-i18n-skip="1" hidden></span>
+    </div>
+    <div id="sysStatusBar" class="railstats" aria-label="运行状态">
+      <span class="statseg" id="statService" data-state="off" title="">
+        <i></i><span class="statlabel" data-i18n="服务">服务</span><span class="statval">—</span></span>
+      <span class="statseg" id="statLocal" data-state="off" title="">
+        <i></i><span class="statlabel" data-i18n="模型">模型</span><span class="statval">—</span></span>
+      <span class="statseg" id="statTeams" data-state="off" title="">
+        <i></i><span class="statlabel">Teams</span><span class="statval">—</span></span>
+    </div>
   </footer>
   </aside>
   <div id="railScrim" class="railscrim" data-act="closeRail" title="关闭会话列表"></div>
@@ -64,7 +74,6 @@
         <div class="nc-bar">
           <div class="nc-left">
             <select id="model" class="nc-model" aria-label="新任务使用的模型"><option value="copilot-auto">Auto</option><option value="copilot-think-deeper">Think deeper</option></select>
-            <span id="localStatusChip" class="local-status" style="display:none" title=""></span>
             <button type="button" id="refreshModelsBtn" class="iconbtn" title="重新读取 Copilot 模型菜单" data-act="refreshModels">↻</button>
             <input id="workspace" class="nc-ws" aria-label="工作目录" placeholder="工作目录（默认 workspace）">
             <button type="button" class="iconbtn" title="选择工作目录" data-act="pickWorkspace">

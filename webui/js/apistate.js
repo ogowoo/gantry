@@ -153,27 +153,51 @@ async function loadModels(){
   avail.forEach(m=>{let o=document.createElement('option');o.value=m.id;o.textContent=m.id;const _d=modelDesc(m);if(_d)o.title=_d;sel.appendChild(o)});
   sel.value=avail.some(m=>m.id===prev)?prev:avail[0].id;
   refreshSessModelOptions()}catch(e){}
- _updateLocalStatusIndicator();
+ _updateStatusBar();
 }
-async function _updateLocalStatusIndicator(){
- let el=document.getElementById('localStatusChip');if(!el)return;
- try{let r=await api('/v1/models/local/status');
-  let ps=(r&&r.providers)||[];
-  let active=ps.filter(p=>p.loaded);
-  if(!ps.length){el.style.display='none';return}
-  el.style.display='';
-  el.textContent='';
-  if(active.length){
-   let names=active.map(p=>p.model_file||p.provider).join(', ');
-   let perf=active[0].tok_per_second>0?` · ${active[0].tok_per_second} tok/s`:'';
-   el.className='local-status on';
-   el.title=`${names}${perf}`;
-  }else{
-   el.className='local-status';
-   el.title=tr('本地模型未加载，首次调用会慢一些');
+function _setStat(id, state, value, title){
+ const el=document.getElementById(id); if(!el)return;
+ el.dataset.state=state;
+ const v=el.querySelector('.statval'); if(v)v.textContent=value;
+ if(title!==undefined)el.title=title||'';
+}
+async function _updateStatusBar(){
+ // 服务
+ try{
+  const h=await api('/health');
+  _setStat('statService', h.status==='ok'?'ok':'bad',
+    h.status==='ok'?tr('正常'):tr('异常'),
+    h.version?`v${h.version}`:'');
+ }catch(e){_setStat('statService','bad',tr('离线'),'')}
+ // 本地模型
+ try{
+  const r=await api('/v1/models/local/status');
+  const ps=(r&&r.providers)||[];
+  if(!ps.length){_setStat('statLocal','off',tr('无模型'),'')}
+  else{
+   const on=ps.filter(p=>p.loaded);
+   _setStat('statLocal', on.length?'ok':'warn',
+     on.length?tr('运行中'):tr('未加载'),
+     ps.map(p=>`${p.model_file||p.provider}: ${p.loaded?tr('运行中'):tr('未加载')}`).join('\n'));
   }
- }catch(e){el.style.display='none'}
+ }catch(e){_setStat('statLocal','off',tr('不可用'),'')}
+ // Teams 机器人
+ try{
+  const d=await api('/v1/plugins/teams-bot/api/status');
+  let st='off', txt=tr('未启用'), detail='';
+  if(d.enabled){
+   if(d.last_error){st='bad';txt=tr('异常');detail=d.last_error}
+   else if(d.busy){st='warn';txt=tr('处理中')}
+   else if(d.dry_run){st='warn';txt=tr('演练中')}
+   else if(!d.send_enabled){st='warn';txt=tr('只读')}
+   else {st='ok';txt=tr('就绪')}
+  }
+  _setStat('statTeams',st,txt,detail);
+ }catch(e){_setStat('statTeams','off',tr('未加载'),'')}
 }
+try{setInterval(_updateStatusBar,15000)}catch(e){}
+if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',_updateStatusBar,{once:true});
+else _updateStatusBar();
 /* 填充模型下拉；keep 为当前会话的模型（不在可用列表里也要保留并标注） */
 function fillModelSelect(sel, avail, keep){
  if(!sel)return;
