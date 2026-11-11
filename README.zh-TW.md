@@ -8,7 +8,7 @@
 
 > **沒有 Copilot 也能用**：瀏覽器按需啟動——服務啟動時不碰瀏覽器，WebUI 與供應商模型（DeepSeek/Kimi/OpenAI 等）立即可用；只有用到 Copilot 時才會拉起它，介面頂部會顯示狀態並提供「重試瀏覽器」。**注意**：lazy 模式下，重新啟動後的第一個 Copilot 任務要等瀏覽器拉起與 SSO（企業租用戶可達數分鐘），這段時間不算任務逾時；供應商模型不受影響。
 
-> **版本**：主線 `main` 目前是 **11.0.0-preview.87**（多視窗並行預覽線已併入）。
+> **版本**：主線 `main` 目前是 **11.0.0-preview.88**（多視窗並行預覽線已併入）。
 > 舊穩定線歸檔在 tag `v10.2.1-archive` / 分支 `archive/10.2.1-stable`。
 > 版本規則、發版流程與多機器協作約定見 [docs/VERSIONING.md](docs/VERSIONING.md)，
 > 每次發布的改動見 [CHANGELOG.md](CHANGELOG.md)。
