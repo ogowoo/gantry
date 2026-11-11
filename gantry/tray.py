@@ -157,6 +157,13 @@ TEXT = {
         "shutdown": "停止服务并退出",
         "running": "运行中",
         "down": "未响应",
+        "teams": "Teams 机器人",
+        "teams_ready": "就绪",
+        "teams_dry": "演练中",
+        "teams_readonly": "只读",
+        "teams_busy": "处理中",
+        "teams_error": "异常",
+        "teams_off": "未启用",
         "tip": "{title} {ver} · {state} · 端口 {port}",
         "starting_browser": "正在启动自动化浏览器…",
         "browser_ready": "浏览器已就绪（{mode}）",
@@ -179,6 +186,13 @@ TEXT = {
         "shutdown": "停止服務並結束",
         "running": "執行中",
         "down": "無回應",
+        "teams": "Teams 機器人",
+        "teams_ready": "就緒",
+        "teams_dry": "演練中",
+        "teams_readonly": "唯讀",
+        "teams_busy": "處理中",
+        "teams_error": "異常",
+        "teams_off": "未啟用",
         "tip": "{title} {ver} · {state} · 埠 {port}",
         "starting_browser": "正在啟動自動化瀏覽器…",
         "browser_ready": "瀏覽器已就緒（{mode}）",
@@ -201,6 +215,13 @@ TEXT = {
         "shutdown": "Stop service and quit",
         "running": "running",
         "down": "not responding",
+        "teams": "Teams bot",
+        "teams_ready": "ready",
+        "teams_dry": "dry-run",
+        "teams_readonly": "read-only",
+        "teams_busy": "busy",
+        "teams_error": "error",
+        "teams_off": "disabled",
         "tip": "{title} {ver} · {state} · port {port}",
         "starting_browser": "Starting the automation browser…",
         "browser_ready": "Browser ready ({mode})",
@@ -258,10 +279,12 @@ def detect_lang(root: Path | None = None) -> str:
         return "zh"
 
 
-def http_json(url: str, payload=None, timeout: float = 8.0) -> dict:
+def http_json(url: str, payload=None, timeout: float = 8.0, token: str = "") -> dict:
     """POST/GET 本地接口。服务没起来时抛 OSError，由调用方转成气泡提示。"""
     data = None
     headers = {}
+    if token:
+        headers["X-Gantry-Token"] = token
     if payload is not None:
         data = json.dumps(payload).encode("utf-8")
         headers["Content-Type"] = "application/json"
@@ -504,10 +527,49 @@ class Tray:
         except Exception as exc:                 # noqa: BLE001
             log.warning("写 config.json 失败（本次会话内仍生效）：%s", exc)
 
+    def _api_token(self) -> str:
+        """托盘动作也要过 api_token：优先环境变量，其次 data/api_token。"""
+        tok = str(os.environ.get("GANTRY_API_TOKEN") or "").strip()
+        if tok:
+            return tok
+        try:
+            return (self.root / "data" / "api_token").read_text(
+                encoding="utf-8").strip()
+        except OSError:
+            return ""
+
+    def _http(self, path: str, payload=None, timeout: float = 8.0) -> dict:
+        return http_json(self.base_url() + path, payload, timeout,
+                         token=self._api_token())
+
+    def _teams_status(self) -> str:
+        """Teams 机器人就绪状态（托盘/控制台可见）。"""
+        try:
+            d = self._http("/v1/plugins/teams-bot/api/status", timeout=1.2)
+        except Exception:                        # noqa: BLE001
+            label = self.text["teams_off"]
+        else:
+            if not d.get("enabled"):
+                label = self.text["teams_off"]
+            elif d.get("last_error"):
+                label = self.text["teams_error"]
+            elif d.get("busy"):
+                label = self.text["teams_busy"]
+            elif d.get("dry_run"):
+                label = self.text["teams_dry"]
+            elif not d.get("send_enabled"):
+                label = self.text["teams_readonly"]
+            else:
+                label = self.text["teams_ready"]
+        if label != getattr(self, "_teams_last", ""):
+            log.info("Teams 机器人状态：%s", label)
+            self._teams_last = label
+        return label
+
     def _status(self) -> tuple[str, str]:
         """(状态文案, 版本号)；服务没起来就是"未响应"。"""
         try:
-            h = http_json(self.base_url() + "/health", timeout=1.2)
+            h = self._http("/health", timeout=1.2)
             ok = h.get("status") == "ok"
             return (self.text["running"] if ok else self.text["down"],
                     str(h.get("version") or ""))
@@ -516,9 +578,11 @@ class Tray:
 
     def _tooltip(self) -> str:
         state, ver = self._status()
-        return self.text["tip"].format(title=self.title,
-                                       ver=("v" + ver) if ver else "",
-                                       state=state, port=self.port)
+        teams = self._teams_status()
+        return (self.text["tip"].format(title=self.title,
+                                        ver=("v" + ver) if ver else "",
+                                        state=state, port=self.port)
+                + f" · {self.text['teams']}: {teams}")
 
     def _refresh_status_loop(self) -> None:
         while not self._status_stop.wait(8.0):
@@ -579,7 +643,7 @@ class Tray:
         log.info("托盘：启动自动化浏览器（按需拉起，无需先跑登录脚本）")
         self.balloon(self.title, self.text["starting_browser"])
         try:
-            r = http_json(self.base_url() + "/v1/agent/browser", {}, timeout=180)
+            r = self._http("/v1/agent/browser", {}, timeout=180)
         except Exception as exc:                        # noqa: BLE001
             self.balloon(self.text["failed"], self.text["no_service"].format(err=str(exc)[:160]), error=True)
             return
@@ -588,13 +652,13 @@ class Tray:
 
     def _a_toggle_browser(self) -> None:
         try:
-            cur = http_json(self.base_url() + "/v1/agent/browser")
+            cur = self._http("/v1/agent/browser")
         except Exception as exc:                        # noqa: BLE001
             self.balloon(self.text["failed"], self.text["no_service"].format(err=str(exc)[:160]), error=True)
             return
         target = not bool(cur.get("headless"))
         try:
-            http_json(self.base_url() + "/v1/agent/browser", {"headless": target}, timeout=120)
+            self._http("/v1/agent/browser", {"headless": target}, timeout=120)
             self.balloon(self.title, self.text["browser_ready"].format(
                 mode=self.text["headless"] if target else self.text["visible"]))
         except Exception as exc:                        # noqa: BLE001
@@ -627,7 +691,7 @@ class Tray:
         log.info("托盘：重启服务")
         self.balloon(self.title, self.text["restarting"])
         try:
-            http_json(self.base_url() + "/v1/restart", {}, timeout=20)
+            self._http("/v1/restart", {}, timeout=20)
         except Exception as exc:                        # noqa: BLE001
             # 重启时连接被主动断开是正常的，继续等 /health
             log.info("重启请求返回异常（可能是连接先断）：%s", exc)
@@ -635,7 +699,7 @@ class Tray:
         while time.time() < deadline:
             time.sleep(1.0)
             try:
-                h = http_json(self.base_url() + "/health", timeout=2.0)
+                h = self._http("/health", timeout=2.0)
                 if h.get("status") == "ok":
                     self.balloon(self.title, self.text["restarted"])
                     log.info("托盘：服务已恢复（%s）", h.get("version") or "")
@@ -657,7 +721,7 @@ class Tray:
     def _a_shutdown(self) -> None:
         log.info("托盘：停止服务并退出")
         try:
-            http_json(self.base_url() + "/v1/shutdown", {}, timeout=20)
+            self._http("/v1/shutdown", {}, timeout=20)
         except Exception as exc:                        # noqa: BLE001
             log.warning("停止服务请求失败（可能已经停了）：%s", exc)
         self.stop()
@@ -671,9 +735,11 @@ def default_menu(tray: Tray) -> list:
     """
     t = tray.text
     state, ver = tray._status()
+    teams = tray._teams_status()
     head = f"{tray.title} v{ver}" if ver else f"{tray.title} · {state}"
     return [
         (None, head),
+        (None, f"{t['teams']}: {teams}"),
         ("-",),
         ("open_webui", t["open_webui"]),
         ("start_browser", t["start_browser"]),

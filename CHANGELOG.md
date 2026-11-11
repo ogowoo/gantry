@@ -14,6 +14,25 @@
 ### Fixed
 - 
 
+## [11.0.0-preview.90] - 2026-11-12
+
+### Added
+
+- 托盘菜单新增 **Teams 机器人状态行**，图标 tooltip 也显示状态：
+  `就绪 / 演练中 / 只读 / 处理中 / 异常 / 未启用`；
+  状态变化会写一条 `Teams 机器人状态：…` 日志到控制台/`data/logs/gantry.log`。
+- 状态来源是 `GET /v1/plugins/teams-bot/api/status`，不需要托盘 import 插件内部对象。
+
+### Fixed
+
+- 托盘动作（启动浏览器、重启、停机）现在携带 `api_token`，修复开启 token 后这些菜单
+  返回 401 的问题。
+
+### 实测
+
+- 托盘状态探测：`运行中 · 端口 8765 · Teams 机器人: 未启用`；
+- `tests.test_tray`、`test_restart_service`、`test_shutdown`：53 项 OK；不变量 25/0。
+
 ## [11.0.0-preview.89] - 2026-11-12
 
 ### Changed

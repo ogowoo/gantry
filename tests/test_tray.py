@@ -100,6 +100,14 @@ class MenuTests(unittest.TestCase):
         self.assertIn("9", tip, f"tooltip 应含端口: {tip}")
         self.assertTrue(any(w in tip for w in ("未响应", "运行中")), tip)
 
+    def test_teams_status_line(self):
+        """托盘菜单要能看到 Teams 机器人就绪状态。"""
+        self.t._teams_status = lambda: "就绪"
+        menu = self.tray.default_menu(self.t)
+        labels = [item[1] for item in menu if item[0] is None]
+        self.assertTrue(any("Teams" in x and "就绪" in x for x in labels), labels)
+        self.assertIn("Teams", self.t._tooltip())
+
     def test_start_browser_uses_http_not_login_script(self):
         """托盘启动浏览器必须走服务的按需接口，不依赖登录脚本。"""
         fn = getattr(self.tray.Tray, "_a_start_browser")
