@@ -162,14 +162,13 @@ async function _updateLocalStatusIndicator(){
   let active=ps.filter(p=>p.loaded);
   if(!ps.length){el.style.display='none';return}
   el.style.display='';
+  el.textContent='';
   if(active.length){
    let names=active.map(p=>p.model_file||p.provider).join(', ');
    let perf=active[0].tok_per_second>0?` · ${active[0].tok_per_second} tok/s`:'';
-   el.textContent='●';
    el.className='local-status on';
    el.title=`${names}${perf}`;
   }else{
-   el.textContent='';
    el.className='local-status';
    el.title=tr('本地模型未加载，首次调用会慢一些');
   }
