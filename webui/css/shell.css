@@ -296,21 +296,13 @@ details>summary{cursor:pointer;color:var(--accent2);font-size:12.5px;user-select
   gap:6px;padding:8px 12px 10px;border-top:0;background:var(--panel);
   min-height:34px;box-sizing:content-box}
 .railfoot-main{display:flex;align-items:center;gap:8px;min-width:0}
-/* 状态条：设置下方一排小横条（服务 / 本地模型 / Teams） */
-.railstats{display:flex;align-items:center;gap:4px;min-width:0;overflow:hidden}
-.statseg{display:flex;align-items:center;gap:4px;flex:1 1 0;min-width:0;
-  padding:3px 6px;border:1px solid var(--line2);border-radius:6px;
-  background:var(--panel2);font-size:10px;line-height:1.2;color:var(--muted);
-  overflow:hidden;white-space:nowrap}
-.statseg i{width:6px;height:6px;border-radius:50%;background:var(--faint);flex:none}
-.statseg .statlabel{flex:none;opacity:.8}
-.statseg .statval{min-width:0;overflow:hidden;text-overflow:ellipsis;color:var(--text)}
-.statseg[data-state="ok"] i{background:var(--green)}
-.statseg[data-state="ok"] .statval{color:var(--green)}
-.statseg[data-state="warn"] i{background:var(--amber, #d18b00)}
-.statseg[data-state="warn"] .statval{color:var(--amber, #d18b00)}
-.statseg[data-state="bad"] i{background:var(--red)}
-.statseg[data-state="bad"] .statval{color:var(--red)}
+/* 状态条：设置下方三条纯色横线（服务 / 本地模型 / Teams），不显示文字 */
+.railstats{display:flex;align-items:center;gap:4px;min-width:0;overflow:hidden;padding:1px 0}
+.statbar{display:block;flex:1 1 0;height:3px;border-radius:2px;
+  background:var(--line2);opacity:.8;transition:background .2s ease}
+.statbar[data-state="ok"]{background:var(--green);opacity:1}
+.statbar[data-state="warn"]{background:var(--amber, #d18b00);opacity:1}
+.statbar[data-state="bad"]{background:var(--red);opacity:1}
 /* 分隔线：中间实、两端渐隐（1px 渐变，不吃布局） */
 .railfoot::before{content:"";position:absolute;left:0;right:0;top:0;height:1px;
   background:linear-gradient(90deg,

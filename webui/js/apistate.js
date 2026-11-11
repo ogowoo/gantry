@@ -158,8 +158,8 @@ async function loadModels(){
 function _setStat(id, state, value, title){
  const el=document.getElementById(id); if(!el)return;
  el.dataset.state=state;
- const v=el.querySelector('.statval'); if(v)v.textContent=value;
- if(title!==undefined)el.title=title||'';
+ el.setAttribute('aria-label', value);
+ el.title=title||value;
 }
 async function _updateStatusBar(){
  // 服务
