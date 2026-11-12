@@ -1,0 +1,35 @@
+{
+  "name": "power-automate",
+  "version": "0.1.0",
+  "description": "Power Automate maker 门户的直接 UI 操作：模型用 Playwright 打开/查看/点击/填写，复用租户 SSO；默认关闭",
+  "gantry": {
+    "entry": "plugin.py",
+    "permissions": [
+      "tools",
+      "api",
+      "storage"
+    ],
+    "config": {
+      "enabled": false,
+      "dry_run": true,
+      "max_items": 80
+    },
+    "contributes": {
+      "tools": [
+        "pa_status",
+        "pa_probe",
+        "pa_snapshot",
+        "pa_goto",
+        "pa_click",
+        "pa_fill",
+        "pa_press",
+        "pa_select",
+        "pa_import"
+      ],
+      "api": [
+        "GET api/status",
+        "POST api/settings"
+      ]
+    }
+  }
+}

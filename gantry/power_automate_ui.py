@@ -396,6 +396,73 @@ async def click_text(text: str, role: str = "", wait: float = 2.0) -> dict[str, 
     return snap
 
 
+async def fill_text(label: str = "", value: str = "", index: int = 0,
+                    wait: float = 0.5) -> dict[str, Any]:
+    """按 label/placeholder/aria-label 填一个输入框；返回 DOM 快照。
+
+    Power Automate 的对话框常把 label 放在兄弟节点，`get_by_label` 不一定命中，
+    所以再退回 placeholder / role=textbox / aria-label 子串。
+    """
+    page, err = await _ensure_page()
+    if err:
+        return err
+    target_label = str(label or "").strip()
+    if not target_label:
+        return {"ok": False, "error": "label 不能为空"}
+    candidates = []
+    for f in page.frames:
+        try:
+            candidates.append(f.get_by_label(target_label))
+        except Exception:
+            pass
+        try:
+            candidates.append(f.get_by_placeholder(target_label))
+        except Exception:
+            pass
+        try:
+            candidates.append(f.get_by_role(
+                "textbox", name=re.compile(re.escape(target_label), re.I)))
+        except Exception:
+            pass
+        try:
+            safe = target_label.replace('"', '\\"')
+            candidates.append(f.locator(f'[aria-label*="{safe}"]'))
+        except Exception:
+            pass
+    last = ""
+    for loc in candidates:
+        try:
+            count = await loc.count()
+            if not count:
+                continue
+            target = loc.nth(min(max(0, int(index)), count - 1))
+            if not await target.is_visible():
+                continue
+            await target.fill(str(value))
+            await asyncio.sleep(max(0.1, wait))
+            return await _snap(page, filled=True, label=target_label)
+        except Exception as exc:
+            last = str(exc)
+    return await _snap(page, filled=False, label=target_label,
+                       error=last or "没有找到可填写的输入框")
+
+
+async def press_key(key: str, wait: float = 0.5) -> dict[str, Any]:
+    """在当前 maker 页面按一个键（Enter/Tab/Escape/Control+A 等）。"""
+    page, err = await _ensure_page()
+    if err:
+        return err
+    combo = str(key or "").strip()
+    if not combo:
+        return {"ok": False, "error": "key 不能为空"}
+    try:
+        await page.keyboard.press(combo)
+        await asyncio.sleep(max(0.1, wait))
+        return await _snap(page, pressed=combo)
+    except Exception as exc:
+        return await _snap(page, pressed=False, error=str(exc)[:300])
+
+
 # ── 导入流程 ─────────────────────────────────────────────────────
 _LEGACY_TEXTS = (
     "Import Package (Legacy)", "Import package (legacy)", "Import Package",

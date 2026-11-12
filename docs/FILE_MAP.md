@@ -75,7 +75,7 @@ skills/                         Agent 技能说明与模板
 | `brand.py` | 品牌与兼容层：Gantry（原 CopilotBridge Agent）。 | env, header_names, marker_prefixes, marker_prefix_regex |
 | `bridge.py` | 全局运行时桥：配置、浏览器、模型、Agent、工具注册表的共享状态。 |  |
 | `browser.py` | Playwright 浏览器生命周期、持久化 profile、登录态恢复。 |  |
-| `cli.py` | 命令行入口（headless）：把服务当作本地 API 用，无需打开 WebUI。 | _client, _fail, _get, cmd_run, cmd_serve, cmd_fanout |
+| `cli.py` | 命令行入口（headless）：把服务当作本地 API 用，无需打开 WebUI。 | _file_token, _client, _fail, _get, cmd_run, cmd_serve |
 | `copilot_delete.py` | Copilot 侧栏会话删除流程（从 bridge.py 拆出）。 | __getattr__, _open_chat_sidebar, _conversation_link_by_title, _conversation_sidebar_link, _chat_row_from_link, _conversation_belongs_to_session |
 | `copilot_tools.py` | Copilot 网页模型的 tool_calls 合成层。 | enabled, _tool_specs, _transcript, build_prompt, _repair_json, _loads_tolerant |
 | `downloads.py` | downloads.py — Copilot 回答区下载：候选链接解析、href 落盘、调试快照、copilot_file（生成文件并下载进工作区） | _answer_area_html, _download_candidates, _resolve_href, pathlib_basename, debug_download_now, debug_page_snapshot |
@@ -196,6 +196,8 @@ skills/                         Agent 技能说明与模板
 | `kb/plugin.py` | kb 插件：把"本地知识库"做成可插拔能力（原来是塞在 teams-bot 里的两个工具）。 | _root, _cfg, _kb, _emb_cfg, _ocr_settings, _sem |
 | `mcp/plugin.json` | 插件元数据：权限、配置、面板、贡献点。 |  |
 | `mcp/plugin.py` | MCP 客户端插件（stdio + streamable HTTP/SSE 两种传输，含 resources）。 | McpError, _safe, _schema_to_args, _content_text, _resource_text, McpStdioClient |
+| `power-automate/plugin.json` | 插件元数据：权限、配置、面板、贡献点。 |  |
+| `power-automate/plugin.py` | Power Automate 直接 UI 操作插件（Playwright）。 | _cfg, _require, _trim, _status, setup |
 | `research/plugin.json` | 插件元数据：权限、配置、面板、贡献点。 |  |
 | `research/plugin.py` | research 插件：深度检索（把"搜 → 抓 → 归结"的机械部分做扎实）。 | _clean, _decode_ddg, _search_one, _fetch_excerpt, deep_research, setup |
 | `schedule/plugin.json` | 插件元数据：权限、配置、面板、贡献点。 |  |
@@ -372,9 +374,10 @@ Web 控制台；`index.html` + `css/` + `js/`（ES 模块）。
 | `test_plugins.py` | 插件系统（gantry/plugins.py）：清单解析、权限、加载/卸载、启停、路由分发。 | _write_plugin, PluginTests |
 | `test_power_automate_tools.py` | Power Automate 工程生成：definition / 工程目录 / 旧版导入包 / 解决方案包 / 工具。 | _spec, DefinitionTests, ValidationTests, ProjectTests, LegacyPackageTests, SolutionPackageTests |
 | `test_power_automate_ui.py` | Power Automate maker 门户探测：无浏览器时安全降级 + 路由存在。 | ProbeTests |
+| `test_power_automate_ui_plugin.py` | power-automate UI 插件：默认关闭、可配置、快照裁剪。 | _load, FakeCtx, PowerAutomateUiPluginTests |
 | `test_precise_edit_guard.py` | 精确编辑守卫：禁止静默整文件覆盖，编辑前必须先读。 | PreciseEditGuardTests |
 | `test_press_fallback.py` | issue #1 的回归测试：句柄失效时 `_press_box` / `_type_prompt` 必须逐级兜底。 | _Boom, _KeyboardLike, _Page, _Ok, PressFallbackTests, SendUsesHelpersTests |
-| `test_projection.py` | 事件投影（P2-10 第二期）：重放能重建状态，并与数据库列一致。 | ProjectionUnitTests, ProjectionAgainstRealRunTests |
+| `test_projection.py` | 事件投影（P2-10 第二期）：重放能重建状态，并与数据库列一致。 | ProjectionUnitTests, ProjectionAgainstRealRunTests, ProjectionStoreTests |
 | `test_prompt_language.py` | 发给 Copilot 的提示词要支持简体 / 繁體 / English。 | ResolveTests, LocalizeTests, TraditionalTests, RegistryCallableTests, ApiWiringTests, WholePromptTests |
 | `test_prompt_registry.py` | 提示词分段注册表：顺序、作用域遮蔽、变量 fail-fast、兼容既有拼接（逐字不变）。 | RegistryTests, SystemPromptUsesRegistryTests |
 | `test_prompt_stability.py` | 系统提示词必须逐字稳定（提供商 prompt cache 的前提），且不含每步易变成分。 | PromptStabilityTests |
@@ -578,6 +581,7 @@ Web 控制台；`index.html` + `css/` + `js/`（ES 模块）。
 |---|---|---|
 | `ANALYSIS.md` | Gantry 代码与工程分析报告 |  |
 | `ARCHITECTURE.md` | Gantry 架构基线 |  |
+| `AUDIT-2026-11-10.md` | 项目审计报告（2026-11-10） |  |
 | `CSS-SPLIT.md` | 样式结构：`webui/css/*.css`（12 个文件） |  |
 | `DELIVERY-SUMMARY.md` | 交付物登记与遗留问题汇总 |  |
 | `ESM-MIGRATION.md` | app.js → ES Modules 迁移（已完成） |  |

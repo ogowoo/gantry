@@ -1,6 +1,6 @@
 ---
 name: power-automate
-description: 生成 Power Automate 工程的标准做法——同租户 automate 环境、spec/连接器目录、definition.json、旧版导入包与解决方案 zip
+description: 生成 Power Automate 工程，或让模型用 Playwright 直接操作 maker 门户——同租户、spec/连接器目录、UI 点击/填写/导入
 ---
 
 # 生成 Power Automate 工程
@@ -14,7 +14,7 @@ Microsoft 365 租户里默认可用的 automate 环境与内置连接器。
 **边界**：本仓库没有 Power Platform 凭据，**不要调用任何真实 Power Automate API**。
 只生成工程文件/导入包；导入由用户在 make.powerautomate.com 里手动完成。
 
-## 两种用法
+## 三种用法
 
 ### 用法 A：直接用工具生成（推荐）
 
@@ -73,6 +73,44 @@ flows/daily-report-solution.zip   # 解决方案包
 ```powershell
 python scripts/power_automate_gen.py spec.json --workspace workspace --target all
 ```
+
+### 用法 C：模型直接操作 maker 门户（Playwright）
+
+适合“先快速搭一个流/改一个流”，不想走生成 zip → 导入包流程。由 `plugins/power-automate`
+提供以下工具（默认 **关闭**，需在 `data/plugins.json` 里设置 `enabled=true`）：
+
+| 工具 | 作用 |
+|---|---|
+| `pa_status` | 看是否启用、是否 dry_run |
+| `pa_probe` | 打开 `make.powerautomate.com`，检查登录/许可并截图 |
+| `pa_snapshot(query=...)` | 读取当前页面可见控件，可按文本/aria 过滤（只回有限条） |
+| `pa_goto(path)` | 导航，例如 `/flows`、`/solutions` |
+| `pa_click(text, role?)` | 按可见文本点击按钮/菜单/链接 |
+| `pa_fill(label, value, index?)` | 按 label/placeholder/aria-label 填写输入框 |
+| `pa_press(key)` | 按键，如 `Enter`、`Tab`、`Escape` |
+| `pa_select(label?, value?, index?)` | 选择 `<select>` |
+| `pa_import(zip_path, dry_run?)` | 导入旧版包；默认 dry_run 只上传不确认 |
+
+典型顺序：
+
+```text
+pa_probe()
+pa_goto("/flows")
+pa_snapshot(query="Create")
+pa_click("Create")
+pa_snapshot(query="Automated")
+pa_click("Automated cloud flow")
+pa_fill("Flow name", "daily-report")
+pa_click("Create")
+pa_snapshot()
+```
+
+原则：
+
+- 每步先 `pa_snapshot` 拿控件，再点击/填写；Power Automate 是 SPA + iframe，纯文本猜测很容易点错。
+- 连接器/触发器的配置优先用“代码视图”粘贴 `definition.json`，比在可视化编辑器里逐个点快。
+- `pa_import` 默认 `dry_run=true` 只上传不点最终导入；确认无误后再 `dry_run=false`。
+- 需要可复现、可批量、可 code review 时，仍优先用法 A（生成 zip）。
 
 ## 交付目录
 

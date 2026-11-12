@@ -43,6 +43,19 @@ class ProbeTests(unittest.TestCase):
         self.assertIn('@router.post("/v1/power-automate/select-connection")', src)
         self.assertIn('@router.post("/v1/power-automate/html")', src)
 
+    def test_fill_and_press_degrade_without_browser(self):
+        old_ctx = getattr(b, "ctx", None)
+        b.ctx = None
+        try:
+            fill = asyncio.run(power_automate_ui.fill_text("Flow name", "x"))
+            press = asyncio.run(power_automate_ui.press_key("Enter"))
+        finally:
+            b.ctx = old_ctx
+        self.assertFalse(fill["ok"])
+        self.assertFalse(press["ok"])
+        self.assertIn("浏览器", fill["error"])
+        self.assertIn("浏览器", press["error"])
+
 
 if __name__ == "__main__":
     unittest.main()

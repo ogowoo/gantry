@@ -12,8 +12,27 @@
 - 
 
 ### Fixed
-- `tests/test_teams_bot.py` 两个用例（水位/幂等箱）改为显式关掉 `fallback_agent`，
-  不再真的去驱动 Copilot 页面（旧行为会起自动化浏览器、真发一条问题，模块偶发卡 60s+）。
+- 
+
+## [11.0.0-preview.93] - 2026-11-12
+
+### Added
+
+- 新增 `power-automate` 插件：模型可通过 Playwright 直接操作 maker 门户：
+  `pa_probe / pa_snapshot / pa_goto / pa_click / pa_fill / pa_press / pa_select / pa_import`。
+  默认关闭，`dry_run=true` 时导入只上传不确认；复用 EdgeProfile 租户 SSO。
+- `power_automate_ui.fill_text()` / `press_key()`，供 UI 操作与插件复用。
+- `skills/power-automate` 增加“用法 C：模型直接操作 maker 门户”。
+
+### Fixed
+
+- `tests/test_teams_bot.py` 两个用例显式关闭 `fallback_agent`，不再驱动 Copilot 页面。
+
+### 实测
+
+- 插件默认关闭、settings 可切换、快照裁剪测试通过；
+- 无浏览器时 `fill_text/press_key` 安全降级；
+- 不变量 25/0。
 
 ## [11.0.0-preview.92] - 2026-11-12
 
