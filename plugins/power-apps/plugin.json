@@ -1,0 +1,33 @@
+{
+  "name": "power-apps",
+  "version": "0.1.0",
+  "description": "Power Apps maker 门户的直接 UI 操作：模型用 Playwright 打开/查看/点击/填写，复用租户 SSO；默认关闭",
+  "gantry": {
+    "entry": "plugin.py",
+    "permissions": [
+      "tools",
+      "api",
+      "storage"
+    ],
+    "config": {
+      "enabled": false,
+      "max_items": 80
+    },
+    "contributes": {
+      "tools": [
+        "papp_status",
+        "papp_probe",
+        "papp_snapshot",
+        "papp_goto",
+        "papp_click",
+        "papp_fill",
+        "papp_press",
+        "papp_select"
+      ],
+      "api": [
+        "GET api/status",
+        "POST api/settings"
+      ]
+    }
+  }
+}

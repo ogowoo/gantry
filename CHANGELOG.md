@@ -14,6 +14,20 @@
 ### Fixed
 - 
 
+## [11.0.0-preview.94] - 2026-11-12
+
+### Added
+- 新增 `power-apps` 插件与 `gantry/power_apps_ui.py`：模型可用 Playwright 直接操作
+  `make.powerapps.com`（`papp_probe / papp_snapshot / papp_goto / papp_click /
+  papp_fill / papp_press / papp_select`）；默认关闭，复用 EdgeProfile 租户 SSO。
+- `skills/power-apps` 技能与 `docs/POWER_PLATFORM_COVERAGE.md` 覆盖矩阵：
+  已覆盖 Power Automate / Power Apps，列出 Power Pages、Copilot Studio、Power BI、
+  PPAC、Dataverse、连接器、AI Builder、Power Automate Desktop、`pac` 等缺口。
+
+### 实测
+- 插件加载成功，`papp_status` 返回 `enabled=true`；
+- 插件/技能/无浏览器降级定向测试通过；不变量 25/0。
+
 ## [11.0.0-preview.93] - 2026-11-12
 
 ### Added

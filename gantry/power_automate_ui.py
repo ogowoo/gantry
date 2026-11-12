@@ -20,8 +20,8 @@ from typing import Any
 PA_URL = "https://make.powerautomate.com/"
 PA_DOMAIN = "make.powerautomate.com"
 _LOGIN_MARK = re.compile(r"(login\.microsoftonline\.com|login\.live\.com|/oauth2/|/common/login)", re.I)
-_AUTH_COOKIE_MARKS = ("powerautomate.com", "powerplatform.com", "microsoftonline.com",
-                      "microsoft.com", "office.com",
+_AUTH_COOKIE_MARKS = ("powerautomate.com", "powerapps.com", "powerplatform.com",
+                      "microsoftonline.com", "microsoft.com", "office.com",
                       "teams.cloud.microsoft", "teams.microsoft.com")
 
 

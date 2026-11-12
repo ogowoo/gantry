@@ -98,6 +98,7 @@ skills/                         Agent 技能说明与模板
 | `owa.py` | Outlook Web 自动化后端。 |  |
 | `page.py` | 通用页面操作/登录页识别/菜单选择。 |  |
 | `plugins.py` | 插件系统：发现、加载、启停、面板、插件 API、权限。 |  |
+| `power_apps_ui.py` | Power Apps maker 门户 UI 自动化（Playwright）。 | _find_or_open, _ensure_page, probe, dom_snapshot, goto_path, click_text |
 | `power_automate.py` | Power Automate 工程/旧版包/解决方案包生成与校验。 |  |
 | `power_automate_ui.py` | maker 门户 UI 自动化：probe/login/dom/import。 |  |
 | `projection.py` | 事件投影（P2-10 第二期）：把事件流重放成状态，验证"日志足以重建状态"。 | project, compare_with_columns |
@@ -196,6 +197,8 @@ skills/                         Agent 技能说明与模板
 | `kb/plugin.py` | kb 插件：把"本地知识库"做成可插拔能力（原来是塞在 teams-bot 里的两个工具）。 | _root, _cfg, _kb, _emb_cfg, _ocr_settings, _sem |
 | `mcp/plugin.json` | 插件元数据：权限、配置、面板、贡献点。 |  |
 | `mcp/plugin.py` | MCP 客户端插件（stdio + streamable HTTP/SSE 两种传输，含 resources）。 | McpError, _safe, _schema_to_args, _content_text, _resource_text, McpStdioClient |
+| `power-apps/plugin.json` | 插件元数据：权限、配置、面板、贡献点。 |  |
+| `power-apps/plugin.py` | Power Apps maker 门户直接 UI 操作插件（Playwright）。 | _cfg, _require, _trim, _status, setup |
 | `power-automate/plugin.json` | 插件元数据：权限、配置、面板、贡献点。 |  |
 | `power-automate/plugin.py` | Power Automate 直接 UI 操作插件（Playwright）。 | _cfg, _require, _trim, _status, setup |
 | `research/plugin.json` | 插件元数据：权限、配置、面板、贡献点。 |  |
@@ -372,6 +375,7 @@ Web 控制台；`index.html` + `css/` + `js/`（ES 模块）。
 | `test_plugin_i18n.py` | 插件自带译文：清单解析、只合并已加载插件、接口可用。 | _write, PluginI18nTests |
 | `test_plugin_install.py` | 插件安装/升级/卸载：版本比较、备份、zip-slip 防护。 | _mk_plugin, InstallTests |
 | `test_plugins.py` | 插件系统（gantry/plugins.py）：清单解析、权限、加载/卸载、启停、路由分发。 | _write_plugin, PluginTests |
+| `test_power_apps_ui_plugin.py` | power-apps UI 插件与基础控件：默认关闭、可配置、无浏览器降级。 | _load, FakeCtx, PowerAppsUiTests |
 | `test_power_automate_tools.py` | Power Automate 工程生成：definition / 工程目录 / 旧版导入包 / 解决方案包 / 工具。 | _spec, DefinitionTests, ValidationTests, ProjectTests, LegacyPackageTests, SolutionPackageTests |
 | `test_power_automate_ui.py` | Power Automate maker 门户探测：无浏览器时安全降级 + 路由存在。 | ProbeTests |
 | `test_power_automate_ui_plugin.py` | power-automate UI 插件：默认关闭、可配置、快照裁剪。 | _load, FakeCtx, PowerAutomateUiPluginTests |
@@ -427,6 +431,7 @@ Web 控制台；`index.html` + `css/` + `js/`（ES 模块）。
 | `test_settings_config.py` | 设置页：配置白名单接口 + 前端入口/弹窗的单测。 | ConfigEndpointTests, SettingsDialogTests |
 | `test_shutdown.py` | 终止服务 / 退出：UI 按钮背后要真的能停掉服务。 | LifecycleTests, ShutdownEndpointTests, tempfile_dir |
 | `test_skill_create.py` | skill_create 工具测试：两级作用域、权限门、覆盖保护与 frontmatter 格式。 | SkillCreateTests |
+| `test_skill_power_apps.py` | power-apps 技能：可发现、内容包含 maker 门户与 UI 工具。 | PowerAppsSkillTests |
 | `test_skill_power_automate.py` | power-automate 技能测试：可发现、可读、模板 JSON 可解析、要点覆盖。 | PowerAutomateSkillTests |
 | `test_slash_followup.py` | 「继续对话」输入框的斜杠菜单（`/`）回归。 | fn_body, FollowupWiringTests, SlashModuleTests |
 | `test_snapshot_versions.py` | 快照版本化（按 Copilot 回合计版本）：一次 complete = 一个版本。 | SnapshotVersionTests |
@@ -589,6 +594,7 @@ Web 控制台；`index.html` + `css/` + `js/`（ES 模块）。
 | `MULTI-WINDOW.md` | Copilot 通道多窗口并行（`agent.copilot_windows`） |  |
 | `POWER_AUTOMATE_DEV.md` | Power Automate 开发指南 |  |
 | `POWER_AUTOMATE_VERIFIED.md` | Power Automate operationId 实测状态 |  |
+| `POWER_PLATFORM_COVERAGE.md` | Power Platform 工具覆盖矩阵 |  |
 | `PROVIDER-deepseek-web.md` | 用 DeepSeek 网页版当免费/备用模型的三种接法（调研 + 我们的插件） |  |
 | `QUICKSTART.md` | 快速使用手册（一页版） |  |
 | `REVIEW-2026-11-agent-session.md` | CopilotBridge Agent 代码审查报告（真实缺陷清单） |  |
@@ -613,6 +619,7 @@ Agent 技能定义、模板与示例。
 |---|---|---|
 | `debug-agent-task/SKILL.md` | Agent 任务异常排查 |  |
 | `gantry-tool-plugin/SKILL.md` | Gantry 工具插件开发 |  |
+| `power-apps/SKILL.md` | Power Apps maker 门户直接操作 |  |
 | `power-automate/SKILL.md` | 生成 Power Automate 工程 |  |
 | `power-automate/examples/outlook-daily.json` | 数据/配置/示例 JSON。 |  |
 | `power-automate/examples/sharepoint-to-teams.json` | 数据/配置/示例 JSON。 |  |
