@@ -1,0 +1,34 @@
+{
+  "name": "power-platform",
+  "version": "0.1.0",
+  "description": "通用 Power Platform 门户 UI 操作：Power Apps / Power Automate / Power Pages / Copilot Studio / Power BI / PPAC；默认关闭",
+  "gantry": {
+    "entry": "plugin.py",
+    "permissions": [
+      "tools",
+      "api",
+      "storage"
+    ],
+    "config": {
+      "enabled": false,
+      "max_items": 80
+    },
+    "contributes": {
+      "tools": [
+        "pp_status",
+        "pp_open",
+        "pp_probe",
+        "pp_snapshot",
+        "pp_goto",
+        "pp_click",
+        "pp_fill",
+        "pp_press",
+        "pp_select"
+      ],
+      "api": [
+        "GET api/status",
+        "POST api/settings"
+      ]
+    }
+  }
+}

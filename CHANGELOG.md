@@ -14,6 +14,20 @@
 ### Fixed
 - 
 
+## [11.0.0-preview.95] - 2026-11-12
+
+### Added
+- 新增通用 `power-platform` 插件与 `gantry/power_platform_ui.py`：
+  `pp_open / pp_probe / pp_snapshot / pp_goto / pp_click / pp_fill / pp_press / pp_select`
+  覆盖 Power Apps、Power Automate、Power Pages、Copilot Studio、Power BI、PPAC；
+  域名白名单、默认关闭、复用 EdgeProfile 租户 SSO。
+- `skills/power-platform` 技能；覆盖矩阵更新为“通用门户已覆盖，剩 Dataverse /
+  解决方案生命周期 / pac / AI Builder 等”。
+
+### 实测
+- 插件加载成功，`pp_status` 返回 6 个门户；
+- 插件/白名单/无浏览器降级定向测试通过；不变量 25/0。
+
 ## [11.0.0-preview.94] - 2026-11-12
 
 ### Added

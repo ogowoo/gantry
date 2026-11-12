@@ -101,6 +101,7 @@ skills/                         Agent 技能说明与模板
 | `power_apps_ui.py` | Power Apps maker 门户 UI 自动化（Playwright）。 | _find_or_open, _ensure_page, probe, dom_snapshot, goto_path, click_text |
 | `power_automate.py` | Power Automate 工程/旧版包/解决方案包生成与校验。 |  |
 | `power_automate_ui.py` | maker 门户 UI 自动化：probe/login/dom/import。 |  |
+| `power_platform_ui.py` | 通用 Power Platform 门户 UI 操作（Playwright）。 | _resolve, _domain_of, _find_or_open, _current_page, _ensure_browser, probe |
 | `projection.py` | 事件投影（P2-10 第二期）：把事件流重放成状态，验证"日志足以重建状态"。 | project, compare_with_columns |
 | `prompt.py` | 提示词分段注册表（借 DSH 的 SystemPrompt.section/order 思路）。 | PromptError, PromptRegistry, _cfg_lang, agent_protocol, agent_team, deliverable_rule |
 | `prompt_lang.py` | 发给 Copilot 的提示词也要跟着语言走（简体 / 繁體 / English）。 | normalize, set_request_lang, request_lang, effective_lang, to_tw, localize |
@@ -201,6 +202,8 @@ skills/                         Agent 技能说明与模板
 | `power-apps/plugin.py` | Power Apps maker 门户直接 UI 操作插件（Playwright）。 | _cfg, _require, _trim, _status, setup |
 | `power-automate/plugin.json` | 插件元数据：权限、配置、面板、贡献点。 |  |
 | `power-automate/plugin.py` | Power Automate 直接 UI 操作插件（Playwright）。 | _cfg, _require, _trim, _status, setup |
+| `power-platform/plugin.json` | 插件元数据：权限、配置、面板、贡献点。 |  |
+| `power-platform/plugin.py` | 通用 Power Platform 门户 UI 操作插件（Playwright）。 | _cfg, _require, _trim, _status, setup |
 | `research/plugin.json` | 插件元数据：权限、配置、面板、贡献点。 |  |
 | `research/plugin.py` | research 插件：深度检索（把"搜 → 抓 → 归结"的机械部分做扎实）。 | _clean, _decode_ddg, _search_one, _fetch_excerpt, deep_research, setup |
 | `schedule/plugin.json` | 插件元数据：权限、配置、面板、贡献点。 |  |
@@ -379,6 +382,7 @@ Web 控制台；`index.html` + `css/` + `js/`（ES 模块）。
 | `test_power_automate_tools.py` | Power Automate 工程生成：definition / 工程目录 / 旧版导入包 / 解决方案包 / 工具。 | _spec, DefinitionTests, ValidationTests, ProjectTests, LegacyPackageTests, SolutionPackageTests |
 | `test_power_automate_ui.py` | Power Automate maker 门户探测：无浏览器时安全降级 + 路由存在。 | ProbeTests |
 | `test_power_automate_ui_plugin.py` | power-automate UI 插件：默认关闭、可配置、快照裁剪。 | _load, FakeCtx, PowerAutomateUiPluginTests |
+| `test_power_platform_ui_plugin.py` | 通用 power-platform 插件：门户白名单、默认关闭、无浏览器降级。 | _load, FakeCtx, PowerPlatformUiTests |
 | `test_precise_edit_guard.py` | 精确编辑守卫：禁止静默整文件覆盖，编辑前必须先读。 | PreciseEditGuardTests |
 | `test_press_fallback.py` | issue #1 的回归测试：句柄失效时 `_press_box` / `_type_prompt` 必须逐级兜底。 | _Boom, _KeyboardLike, _Page, _Ok, PressFallbackTests, SendUsesHelpersTests |
 | `test_projection.py` | 事件投影（P2-10 第二期）：重放能重建状态，并与数据库列一致。 | ProjectionUnitTests, ProjectionAgainstRealRunTests, ProjectionStoreTests |
@@ -628,6 +632,7 @@ Agent 技能定义、模板与示例。
 | `power-automate/templates/apis.json` | 数据/配置/示例 JSON。 |  |
 | `power-automate/templates/connections.json` | 数据/配置/示例 JSON。 |  |
 | `power-automate/templates/flow-definition.json` | 数据/配置/示例 JSON。 |  |
+| `power-platform/SKILL.md` | 通用 Power Platform 门户操作 |  |
 | `self-upgrade-github-release/SKILL.md` | 自升级后推送 GitHub |  |
 | `self-upgrade-task/SKILL.md` | 自升级任务（改服务自身代码） |  |
 | `webui-change/SKILL.md` | WebUI 修改规范 |  |
