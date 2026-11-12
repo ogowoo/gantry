@@ -541,7 +541,11 @@ class WatermarkAndAuthTests(BotTestCase):
         self.fake.conversations = [conv(dm(), "@Gantry 问题")]
         self.kb.hits = []
         ctx = FakeCtx(enabled=True, mention_tokens=["@Gantry"], dry_run=True,
-                      outbox_path=":memory:", kb_synthesize=False, kb_min_coverage=0)
+                      outbox_path=":memory:", kb_synthesize=False, kb_min_coverage=0,
+                      # 必须显式关掉模型兜底：默认 fallback_agent/reply_when_unknown
+                      # 都为 True，单测会真的去调 Copilot 页面（起浏览器、发问题），
+                      # 表现为模块偶发卡 60s+，且污染自动化浏览器。
+                      fallback_agent=False, reply_when_unknown=False)
         bot = plugin.Bot(ctx)
         loop = asyncio.new_event_loop()
         try:
@@ -686,7 +690,9 @@ class MentionsTests(BotTestCase):
                          "path": "t.md", "text": "答案"}]
         ctx = FakeCtx(enabled=True, source="mentions", dry_run=False,
                       send_enabled=True, my_name="Alex Chen - Example",
-                      outbox_path=":memory:", max_replies_per_cycle=1)
+                      outbox_path=":memory:", max_replies_per_cycle=1,
+                      # 同上：走真实模型兜底会起浏览器，这里只测幂等箱
+                      kb_synthesize=False, fallback_agent=False)
         bot = plugin.Bot(ctx)
         key = f"mention|{row['key']}"
         bot.outbox().reserve(key, row["time"], text="x")

@@ -12,7 +12,8 @@
 - 
 
 ### Fixed
-- 
+- `tests/test_teams_bot.py` 两个用例（水位/幂等箱）改为显式关掉 `fallback_agent`，
+  不再真的去驱动 Copilot 页面（旧行为会起自动化浏览器、真发一条问题，模块偶发卡 60s+）。
 
 ## [11.0.0-preview.92] - 2026-11-12
 
