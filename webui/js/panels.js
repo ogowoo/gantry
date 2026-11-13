@@ -172,6 +172,28 @@ async function loadPanel(p){
 }
 function closePanels(){closeMask('panelMask')}
 
+const PLUGINS_BASE=['power-apps','power-automate','power-platform','teams-bot','mcp','research','web-search','image-gen','telegram','schedule','kb'];
+function _pluginLabel(name){
+ if(name==='power-apps')return 'Power Apps';
+ if(name==='power-automate')return 'Power Automate';
+ if(name==='power-platform')return 'Power Platform';
+ if(name==='teams-bot')return 'Teams Bot';
+ return name;
+}
+/* 插件启用/禁用/重载：UI 统一走这里，插件管理页按钮和 /plugin 斜杠命令共用。
+   启用后写 data/plugins.json（永久生效），并提示合并插件 i18n。 */
+async function setPluginEnabled(name, enabled){
+ const d=await api('/v1/plugins/'+encodeURIComponent(name)+'/'+(enabled?'enable':'disable'),{method:'POST'});
+ toast(tr('已')+(enabled?tr('启用'):tr('禁用'))+': '+name,'ok');
+ try{ await mergePluginI18n(false); }catch(e){}
+ return d;
+}
+async function togglePlugin(name){
+ const d=await api('/v1/plugins');
+ const p=(d.plugins||[]).find(x=>x.name===name);
+ if(!p){ toast(tr('插件不存在: ')+name,'err'); return; }
+ await setPluginEnabled(name, !p.enabled);
+}
 async function openPlugins(){
  openMask('pluginsMask');
  const box=document.getElementById('pluginsBody');
@@ -200,8 +222,8 @@ async function openPlugins(){
   const btn=document.createElement('button');btn.type='button';btn.className='btn';
   btn.textContent=p.enabled?tr('禁用'):tr('启用');
   btn.onclick=async()=>{ btn.disabled=true;
-    try{ await api('/v1/plugins/'+encodeURIComponent(p.name)+'/'+(p.enabled?'disable':'enable'),{method:'POST'});
-      toast(tr('已')+(p.enabled?tr('禁用'):tr('启用'))+': '+p.name,'ok'); await openPlugins();mergePluginI18n(false); }
+    try{ await setPluginEnabled(p.name, !p.enabled);
+      await openPlugins(); }
     catch(e){ btn.disabled=false; toast(tr('操作失败: ')+(e.text||e),'err') } };
   const rb=document.createElement('button');rb.type='button';rb.className='btn ghost';rb.textContent=tr('重载');
   rb.onclick=async()=>{ try{ await api('/v1/plugins/'+encodeURIComponent(p.name)+'/reload',{method:'POST'});
@@ -272,9 +294,24 @@ const SLASH_COMMANDS=[
     setTaskMode('agent');
     toast(tr('已载入自升级模板：把 <…> 部分填掉即可'),'ok');
     t.focus()}}},
+ {id:'plugin',label:'plugin',aliases:['plugin','插件','plug'],
+  desc:'启用或禁用插件：/plugin <名称> [on|off]，如 /plugin power-apps on',
+  run:(arg)=>{
+   const parts=String(arg||'').trim().split(/\s+/).filter(Boolean);
+   let name=parts[0]||'', act=parts[1]||'';
+   if(!name){
+    const d=PLUGINS_BASE.map(n=>_pluginLabel(n)+' ('+n+')').join('  ');
+    toast(tr('可用插件: ')+d,'ok'); return;
+   }
+   const real=PLUGINS_BASE.find(n=>n===name.toLowerCase())||PLUGINS_BASE.find(n=>_pluginLabel(n).toLowerCase()===name.toLowerCase());
+   if(!real){ toast(tr('未知插件: ')+name,'err'); return; }
+   if(act==='on'||act==='enable'||act==='启用'){ setPluginEnabled(real,true).catch(e=>toast(tr('操作失败: ')+(e.text||e),'err')); }
+   else if(act==='off'||act==='disable'||act==='禁用'){ setPluginEnabled(real,false).catch(e=>toast(tr('操作失败: ')+(e.text||e),'err')); }
+   else{ togglePlugin(real).catch(e=>toast(tr('操作失败: ')+(e.text||e),'err')); }
+  }},
  {id:'help',label:'help',aliases:['help','?','帮助'],
   desc:'列出全部可用命令',run:()=>{const t=document.getElementById('task');
    if(t){t.value='/';slashUpdate(true);t.focus()}}},
 ];
 
-export { openPanels, refreshPanels, loadPanel, closePanels, openPlugins, closePlugins, SLASH_COMMANDS };
+export { openPanels, refreshPanels, loadPanel, closePanels, openPlugins, closePlugins, setPluginEnabled, togglePlugin, SLASH_COMMANDS };

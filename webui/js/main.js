@@ -17,7 +17,7 @@ import { toggleToolLog, renderToolLog, loadTurns, summarizeAnswer, turnRow, rend
 import { toggleTodos, refreshChatBarMeta, trDetail, updateStreamStatus, toggleStreamDetail, showLastPrompt, inferCurrentTodo, mountTeamCard, syncTeamCard, clearGoalSubagents, renderGoalBar } from './teamcard.js';
 import { syncFixedLanes, showConnBanner, hideConnBanner, pingInterrupt, clearInterruptPing, beepOnce, showApprovalBar, showQuestionBar } from './approvals.js';
 import { refreshSubagents, renderSubagents } from './subagents.js';
-import { openPanels, refreshPanels, loadPanel, closePanels, openPlugins, closePlugins } from './panels.js';
+import { openPanels, refreshPanels, loadPanel, closePanels, openPlugins, closePlugins, setPluginEnabled, togglePlugin } from './panels.js';
 import { slashMatch, slashOpen, slashUpdate, loadMcpPrompts, slashPick, slashKey, mergePluginI18n, fanoutNow, auditNow, slashRun, deepResearchNow } from './slash.js';
 import { wsCollapsedList, wsIsCollapsed, wsToggleCollapse, newWorkspace, pickWorkspace, openWsBrowser, wsNavigate, wsUp, wsDefault, wsChoose, wsMkdir, newSessionInWorkspace, closeWs } from './workspace.js';
 import { api, esc, isProviderModel, assistantLabel, fmtStamp, jv, stateText, stateIcon, stateClass, subRunningOf, stateLabel, stateClassOf, setPill, setKpis, loadModels, fillModelSelect, refreshSessModelOptions, setSessionModel, modelDesc, refreshModels, drawBrowserBtn, browserState, toggleBrowser } from './apistate.js';
@@ -238,6 +238,8 @@ window.loadPanel = loadPanel;
 window.closePanels = closePanels;
 window.openPlugins = openPlugins;
 window.closePlugins = closePlugins;
+window.setPluginEnabled = setPluginEnabled;
+window.togglePlugin = togglePlugin;
 window.refreshSubagents = refreshSubagents;
 window.renderSubagents = renderSubagents;
 window.syncFixedLanes = syncFixedLanes;
