@@ -222,23 +222,9 @@ async def _status(ctx: Any) -> dict[str, Any]:
 def setup(ctx: Any) -> None:
     cfg = _cfg(ctx)
     prefix = str(cfg["provider"])
+    # 同步探测会阻塞 setup（TCP 连接超时 ~1.5s），拖慢整个插件页打开。
+    # 改为后台线程探测：先注册兜底模型列表，探测成功后自动刷新。
     models = [str(m) for m in (cfg["models"] or []) if str(m).strip()]
-    # 反代连不上就先不列出模型（否则 /v1/models 里会冒出选了就失败的 dsweb/*）
-    # 同步探测（host 不会 await 协程）；1.5 秒足够判断本机反代在不在，别拖慢启动
-    probe = probe_sync(str(cfg["base_url"]), str(cfg["api_key"]),
-                       timeout=float(cfg.get("probe_timeout_seconds", 1.5)))
-    if probe["ok"] and probe["models"]:
-        models = probe["models"]
-    elif not probe["ok"]:
-        models = []
-        ctx.log(f"deepseek-web：反代 {cfg['base_url']} 连不上（{probe['error']}），"
-                "先把反代跑起来；跑起来后在插件面板刷新即可出现模型")
-    else:
-        # 反代在线但一个模型都没有：多半是还没登录 DeepSeek（token 为空）
-        models = []
-        ctx.log(f"deepseek-web：反代 {cfg['base_url']} 在线但没有可用模型——"
-                "打开它的管理面板登录 DeepSeek 账号后，回插件面板刷新即可")
-    # 注册提供商：模型 ID = "dsweb/<反代里的模型名>"，与内置 deepseek 官方 API 并存
     ctx.register_provider(prefix, {
         "base_url": str(cfg["base_url"]),
         "api_key": str(cfg["api_key"]),
