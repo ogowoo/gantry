@@ -222,9 +222,10 @@ async def _status(ctx: Any) -> dict[str, Any]:
 def setup(ctx: Any) -> None:
     cfg = _cfg(ctx)
     prefix = str(cfg["provider"])
-    # 同步探测会阻塞 setup（TCP 连接超时 ~1.5s），拖慢整个插件页打开。
-    # 改为后台线程探测：先注册兜底模型列表，探测成功后自动刷新。
-    models = [str(m) for m in (cfg["models"] or []) if str(m).strip()]
+    # 先做一次很短（≤0.4s）的同步探测：本地反代通常立即返回；连不上/慢就
+    # 不把兜底模型当成"已就绪"，交给后台刷新，避免插件页被 1.5s 连接超时拖住。
+    quick = probe_sync(str(cfg["base_url"]), str(cfg["api_key"]), timeout=0.4)
+    models = [str(m) for m in (quick["models"] if quick["ok"] else []) if str(m).strip()]
     ctx.register_provider(prefix, {
         "base_url": str(cfg["base_url"]),
         "api_key": str(cfg["api_key"]),
