@@ -14,6 +14,21 @@
 ### Fixed
 - 
 
+## [11.0.0-preview.100] - 2026-11-15
+
+### Added
+- Power Apps Canvas App 声明式生成器：`power_apps_generate` 生成
+  `CanvasManifest.json + Src/*.pa.yaml`；`power_apps_pack` 可选调用
+  `pac canvas pack --layout SourceCode` 打包 `.msapp`；`power_apps_validate` 校验。
+- `gantry/power_apps_source.py` 与 `docs/POWER_APPS_SOURCE.md`（含 pac 安装说明）。
+
+### Changed
+- `skills/power-apps` 增加“声明式生成”模式；UI 操作保留为登录/一次性导入兜底。
+
+### 实测
+- 生成器测试 3 项 OK：source 结构、manifest、pac 缺失提示、pack 命令参数；
+- 不变量 25/0。
+
 ## [11.0.0-preview.99] - 2026-11-15
 
 ### Added

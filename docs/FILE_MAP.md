@@ -98,6 +98,7 @@ skills/                         Agent 技能说明与模板
 | `owa.py` | Outlook Web 自动化后端。 |  |
 | `page.py` | 通用页面操作/登录页识别/菜单选择。 |  |
 | `plugins.py` | 插件系统：发现、加载、启停、面板、插件 API、权限。 |  |
+| `power_apps_source.py` | Power Apps Canvas App source 生成器（YAML + CanvasManifest）。 | PowerAppsSourceError, _slug, _ident, _quote, _num, _control |
 | `power_apps_ui.py` | Power Apps maker 门户 UI 自动化（Playwright）。 | _find_or_open, _ensure_page, probe, dom_snapshot, goto_path, click_text |
 | `power_automate.py` | Power Automate 工程/旧版包/解决方案包生成与校验。 |  |
 | `power_automate_ui.py` | maker 门户 UI 自动化：probe/login/dom/import。 |  |
@@ -151,6 +152,7 @@ skills/                         Agent 技能说明与模板
 | `tool_plugins/move_path.py` | move_path tool plugin (auto-migrated from tools_files.py). | move_path, register |
 | `tool_plugins/notebook_edit.py` | notebook_edit tool plugin: edit Jupyter notebook cells (Claude Code NotebookEdit). | _source_lines, _new_cell, notebook_edit, register |
 | `tool_plugins/notebook_read.py` | notebook_read tool plugin: read Jupyter notebook cells (Claude Code NotebookRead). | _cell_source, notebook_read, register |
+| `tool_plugins/power_apps.py` | Power Apps Canvas App 源码生成工具：生成 YAML source，可选 pac 打包 .msapp。 | _spec, power_apps_generate, power_apps_pack, power_apps_validate, register |
 | `tool_plugins/power_automate.py` | Power Automate 工程生成工具（同租户、不调用真实 API）。 | power_automate_catalog, _parse_spec, _snapper, power_automate_generate, power_automate_validate, register |
 | `tool_plugins/python_symbols.py` | python_symbols tool plugin (auto-migrated from tools_files.py). | python_symbols, register |
 | `tool_plugins/read_text.py` | read_text tool plugin (auto-migrated from tools_files.py). | read_text, register |
@@ -378,6 +380,7 @@ Web 控制台；`index.html` + `css/` + `js/`（ES 模块）。
 | `test_plugin_i18n.py` | 插件自带译文：清单解析、只合并已加载插件、接口可用。 | _write, PluginI18nTests |
 | `test_plugin_install.py` | 插件安装/升级/卸载：版本比较、备份、zip-slip 防护。 | _mk_plugin, InstallTests |
 | `test_plugins.py` | 插件系统（gantry/plugins.py）：清单解析、权限、加载/卸载、启停、路由分发。 | _write_plugin, PluginTests |
+| `test_power_apps_source.py` | Power Apps Canvas App YAML source 生成器：结构、校验与 pac 打包失败提示。 | PowerAppsSourceTests |
 | `test_power_apps_ui_plugin.py` | power-apps UI 插件与基础控件：默认关闭、可配置、无浏览器降级。 | _load, FakeCtx, PowerAppsUiTests |
 | `test_power_automate_tools.py` | Power Automate 工程生成：definition / 工程目录 / 旧版导入包 / 解决方案包 / 工具。 | _spec, DefinitionTests, ValidationTests, ProjectTests, LegacyPackageTests, SolutionPackageTests |
 | `test_power_automate_ui.py` | Power Automate maker 门户探测：无浏览器时安全降级 + 路由存在。 | ProbeTests |
@@ -596,6 +599,7 @@ Web 控制台；`index.html` + `css/` + `js/`（ES 模块）。
 | `ESM-MIGRATION.md` | app.js → ES Modules 迁移（已完成） |  |
 | `FILE_MAP.md` | 项目文件功能地图 |  |
 | `MULTI-WINDOW.md` | Copilot 通道多窗口并行（`agent.copilot_windows`） |  |
+| `POWER_APPS_SOURCE.md` | Power Apps Canvas App 源码生成与 pac |  |
 | `POWER_AUTOMATE_DEV.md` | Power Automate 开发指南 |  |
 | `POWER_AUTOMATE_VERIFIED.md` | Power Automate operationId 实测状态 |  |
 | `POWER_PLATFORM_COVERAGE.md` | Power Platform 工具覆盖矩阵 |  |

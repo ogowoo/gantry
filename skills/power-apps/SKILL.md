@@ -5,6 +5,58 @@ description: 用 Playwright 直接操作 Power Apps maker 门户——打开应�
 
 # Power Apps maker 门户直接操作
 
+## 声明式生成（推荐用于可复现的 app）
+
+工具：
+
+| 工具 | 作用 |
+|---|---|
+| `power_apps_generate` | 生成 `CanvasManifest.json + Src/*.pa.yaml`，可选 `pac` 打包 `.msapp` |
+| `power_apps_pack` | 用 `pac canvas pack` 把 source 打包成 `.msapp` |
+| `power_apps_validate` | 校验 manifest / App.pa.yaml / Screen 文件 |
+
+示例 spec：
+
+```json
+{
+  "display_name": "Gantry E2E App",
+  "screen_name": "Home",
+  "controls": [
+    {"name": "lblTitle", "type": "Label", "text": "Hello Gantry",
+     "x": 40, "y": 40, "width": 600, "height": 80, "size": 28},
+    {"name": "btnGo", "type": "Button", "text": "Go",
+     "x": 40, "y": 140, "width": 160, "height": 60}
+  ]
+}
+```
+
+调用：
+
+```text
+power_apps_generate(name="gantry-demo", spec=<上面的对象>, pack=false)
+```
+
+产出：
+
+```text
+apps/gantry-demo/
+├── CanvasManifest.json
+└── Src/
+    ├── App.pa.yaml
+    └── Home.pa.yaml
+```
+
+打包成 `.msapp`：
+
+```powershell
+pac canvas pack --sources apps/gantry-demo --msapp apps/gantry-demo.msapp --layout SourceCode --overwrite
+```
+
+`pac` 是可选外部工具；没装时仍可生成/审查 YAML。安装见
+[docs/POWER_APPS_SOURCE.md](../../docs/POWER_APPS_SOURCE.md)。
+
+## 直接 UI 操作（兜底）
+
 由 `plugins/power-apps` 提供，复用 Gantry 的 EdgeProfile / 租户 SSO，
 不调用 Power Platform API。默认关闭，需在 `data/plugins.json` 里设置
 `power-apps.enabled=true`。
