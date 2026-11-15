@@ -26,7 +26,14 @@
       ],
       "api": [
         "GET api/status",
-        "POST api/settings"
+        "POST api/settings",
+        "POST api/probe",
+        "POST api/dom",
+        "POST api/goto",
+        "POST api/click",
+        "POST api/fill",
+        "POST api/press",
+        "POST api/select"
       ]
     }
   }

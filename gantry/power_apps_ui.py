@@ -86,14 +86,17 @@ async def probe() -> dict[str, Any]:
         url, title = "", ""
     text = await core._body_text(page, 8000)
     lower = text.lower()
+    home = any(k in text for k in ("Apps", "应用", "Create", "创建",
+                                    "Solutions", "解决方案", "Power Apps"))
     login_required = bool(core._LOGIN_MARK.search(url)) or any(
-        k in lower for k in ("sign in", "sign-in", "登录", "输入密码"))
+        k in lower for k in ("sign in required", "please select sign in",
+                             "refresh_token_expired", "sign in to continue",
+                             "登录已过期")) or (
+        not home and any(k in lower for k in ("sign in", "sign-in", "登录", "输入密码")))
     license_problem = any(k in lower for k in (
         "don't have a license", "do not have a license", "no license",
         "start free trial", "免费试用", "没有许可证", "upgrade your plan",
         "purchase a plan"))
-    home = any(k in text for k in ("Apps", "应用", "Create", "创建",
-                                    "Solutions", "解决方案", "Power Apps"))
     if home and not login_required:
         try:
             await core.save_auth_state(b.ctx)

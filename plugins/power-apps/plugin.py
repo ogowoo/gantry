@@ -103,11 +103,54 @@ def setup(ctx: Any) -> None:
     async def api_status(request=None) -> dict[str, Any]:
         return await _status(ctx)
 
-    async def api_settings(request=None) -> dict[str, Any]:
+    async def _body(request) -> dict[str, Any]:
         try:
             body = await request.json() if request is not None else {}
         except Exception:
             body = {}
+        return body if isinstance(body, dict) else {}
+
+    async def api_probe(request=None) -> dict[str, Any]:
+        _require(ctx)
+        return _trim(await ui.probe())
+
+    async def api_dom(request=None) -> dict[str, Any]:
+        _require(ctx)
+        body = await _body(request)
+        return _trim(await ui.dom_snapshot(), query=str(body.get("query") or ""))
+
+    async def api_goto(request=None) -> dict[str, Any]:
+        _require(ctx)
+        body = await _body(request)
+        return _trim(await ui.goto_path(str(body.get("path") or "/")))
+
+    async def api_click(request=None) -> dict[str, Any]:
+        _require(ctx)
+        body = await _body(request)
+        return _trim(await ui.click_text(str(body.get("text") or ""),
+                                         role=str(body.get("role") or "")))
+
+    async def api_fill(request=None) -> dict[str, Any]:
+        _require(ctx)
+        body = await _body(request)
+        return _trim(await ui.fill_text(str(body.get("label") or ""),
+                                        str(body.get("value") or ""),
+                                        index=int(body.get("index") or 0)))
+
+    async def api_press(request=None) -> dict[str, Any]:
+        _require(ctx)
+        body = await _body(request)
+        return _trim(await ui.press_key(str(body.get("key") or "")))
+
+    async def api_select(request=None) -> dict[str, Any]:
+        _require(ctx)
+        body = await _body(request)
+        return _trim(await ui.select_option(str(body.get("label") or ""),
+                                            str(body.get("value") or ""),
+                                            index=int(body.get("index") or 0)))
+
+    async def api_settings(request=None) -> dict[str, Any]:
+        body = await _body(request)
         overrides = dict(ctx.state.get("overrides") or {})
         for key in ("enabled", "max_items"):
             if key in body:
@@ -140,3 +183,10 @@ def setup(ctx: Any) -> None:
                       {"label": "选项 label", "value": "选项 value", "index": "下拉框序号"})
     ctx.register_api("GET", "api/status", api_status)
     ctx.register_api("POST", "api/settings", api_settings)
+    ctx.register_api("POST", "api/probe", api_probe)
+    ctx.register_api("POST", "api/dom", api_dom)
+    ctx.register_api("POST", "api/goto", api_goto)
+    ctx.register_api("POST", "api/click", api_click)
+    ctx.register_api("POST", "api/fill", api_fill)
+    ctx.register_api("POST", "api/press", api_press)
+    ctx.register_api("POST", "api/select", api_select)

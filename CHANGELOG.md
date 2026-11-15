@@ -14,6 +14,23 @@
 ### Fixed
 - 
 
+## [11.0.0-preview.97] - 2026-11-15
+
+### Added
+- Power Apps 插件增加诊断 HTTP API：`api/probe`、`api/dom`、`api/goto`、
+  `api/click`、`api/fill`、`api/press`、`api/select`，便于在不开模型的情况下实测。
+
+### Fixed
+- Power Apps / Power Automate / 通用 Power Platform 的 probe 登录判断：
+  - 识别 `Sign in required` / `refresh_token_expired` / `Please select sign in` 弹窗；
+  - 先计算 `home`，避免 `UnboundLocalError`。
+- 实测确认：PA 页面能加载到 DSV 环境（但当前租户会话弹出 `Sign in required`）；
+  Power Apps 会跳到 Microsoft 登录页选择账号，需用户完成 MFA。
+
+### 实测
+- 相关 UI 插件测试 12 项 OK；不变量 25/0。
+- 未创建/修改任何 flow 或 app（登录未完成，且不应擅自改租户内容）。
+
 ## [11.0.0-preview.96] - 2026-11-13
 
 ### Fixed
