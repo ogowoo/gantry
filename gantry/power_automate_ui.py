@@ -372,7 +372,7 @@ async def click_text(text: str, role: str = "", wait: float = 2.0) -> dict[str, 
             locs.append(f.get_by_text(pat))
         for loc in locs:
             try:
-                if await loc.count():
+                if await loc.count() and await loc.first.is_visible():
                     await loc.first.click(timeout=8000)
                     clicked = True
                     break
@@ -385,7 +385,16 @@ async def click_text(text: str, role: str = "", wait: float = 2.0) -> dict[str, 
             clicked = bool(await page.evaluate(
                 """(label) => {
                   const all = [...document.querySelectorAll('button,a,[role=menuitem],[role=button]')];
-                  const el = all.find(e => ((e.innerText || '') + ' ' + (e.getAttribute('aria-label') || '')).trim().includes(label));
+                  const el = all.find(e => {
+                    const t = ((e.innerText || '') + ' ' + (e.getAttribute('aria-label') || '')).trim();
+                    if (!t.includes(label)) return false;
+                    const r = e.getBoundingClientRect();
+                    if (r.width <= 0 || r.height <= 0) return false;
+                    const st = getComputedStyle(e);
+                    if (st.visibility === 'hidden' || st.display === 'none') return false;
+                    if ((e.getAttribute('href') || '') === 'about:blank') return false;
+                    return true;
+                  });
                   if (el) { el.click(); return true; }
                   return false;
                 }""", target))

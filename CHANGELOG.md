@@ -14,6 +14,22 @@
 ### Fixed
 - 
 
+## [11.0.0-preview.98] - 2026-11-15
+
+### Fixed
+- PA / Power Apps / 通用 Power Platform 的 `click` 只点击**可见**控件，回退 JS 也跳过
+  隐藏元素和 `about:blank` 链接，避免点击到隐藏模板导致页面变空白。
+
+### 实测（用户完成登录后）
+- Power Automate：`probe` 返回 `logged_in=true`；`/flows` 42 个控件；
+  `click("Create", role="menuitem")` 进入 `/create`，53 个控件。
+- Power Apps：`probe` 返回 `logged_in=true`；`/apps` 26 个控件；
+  `click("Create")` 进入模板页，37 个控件，能看到 Canvas/Model-driven 模板。
+- 全程未创建、保存或删除任何 flow/app。
+
+### 测试
+- 相关 UI 插件测试 10 项 OK；不变量 25/0。
+
 ## [11.0.0-preview.97] - 2026-11-15
 
 ### Added
