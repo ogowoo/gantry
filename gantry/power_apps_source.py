@@ -147,6 +147,10 @@ Gantry 生成的 Power Apps Canvas App source。
 pac canvas pack --sources "{out}" --msapp "{out / (slug + '.msapp')}" --layout SourceCode --overwrite
 ```
 
+> 注意：pac 的 SourceCode pack 要求该 app 先在 Power Apps Studio 打开/验证过。
+> 新生成的 source 直接 pack 会报 `must be validated first`；请先从 Studio 导出一个
+> baseline `.msapp`，`pac canvas unpack` 后在此基础上修改。
+
 `pac` 是可选的；没安装时本目录仍可作为可审查的 YAML source 使用。
 
 ## 文件
@@ -181,9 +185,12 @@ def pack_msapp(source_dir: str | Path, msapp: str | Path | None = None,
     except Exception as exc:                     # noqa: BLE001
         raise PowerAppsSourceError(f"pac canvas pack 启动失败: {exc}") from exc
     if p.returncode != 0:
+        detail = (p.stderr or p.stdout or "").strip()
+        if "must be validated first" in detail:
+            detail += ("\n提示：pac 要求先有一个在 Power Apps Studio 打开/验证过的 "
+                       "baseline .msapp；不能仅凭新生成的 YAML 直接 pack。")
         raise PowerAppsSourceError(
-            f"pac canvas pack 失败（exit {p.returncode}）: "
-            f"{(p.stderr or p.stdout or '')[:800]}")
+            f"pac canvas pack 失败（exit {p.returncode}）: {detail[:1000]}")
     if not out.is_file():
         raise PowerAppsSourceError(f"pac 返回成功但没有生成 .msapp: {out}")
     return {"ok": True, "source": str(src), "msapp": str(out),

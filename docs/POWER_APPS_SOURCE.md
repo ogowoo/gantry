@@ -48,6 +48,32 @@ pac --version
 官方文档：
 [Install Power Platform CLI with .NET tool](https://learn.microsoft.com/en-us/power-platform/developer/howto/install-cli-net-tool)
 
+## 重要限制：新 source 不能直接 pack
+
+实际测试（pac 2.15.1，portable）确认：
+
+```text
+pac canvas pack --layout SourceCode
+→ Canvas apps packed using yaml SourceCode must be validated first by opening
+  the app for edit within the Power Apps studio.
+```
+
+也就是说，`pac canvas pack` 需要一个**在 Power Apps Studio 打开/验证过的 baseline**；
+仅凭新生成的 YAML source 直接 pack 会被拒绝。可用流程：
+
+1. 先在 Studio 建一个空白 app，保存/导出 `.msapp`
+2. `pac canvas unpack --msapp baseline.msapp --sources app-src`
+3. 用生成器修改/生成 `Src/*.pa.yaml`
+4. 再 `pac canvas pack --sources app-src --msapp app.msapp --layout SourceCode`
+
+因此生成器更适合：
+
+- 生成可审查的 YAML
+- 在已有 baseline 上批量改屏幕/控件
+- 配合 Git integration
+
+而不是“从零直接产出可导入 `.msapp`”。
+
 ## 打包命令
 
 ```powershell

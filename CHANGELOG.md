@@ -14,6 +14,18 @@
 ### Fixed
 - 
 
+## [11.0.0-preview.101] - 2026-11-15
+
+### Changed
+- 记录 `pac canvas pack --layout SourceCode` 的实际限制：新生成的 YAML source
+  必须先有 Power Apps Studio 打开/验证过的 baseline `.msapp`，不能直接 pack；
+  生成器/README/技能已加提示。
+- 实测 pac 可便携运行：NuGet `Microsoft.PowerApps.CLI.Tool` + 便携 ASP.NET Core
+  runtime，无需系统安装（但仍需下载约 150MB）。
+
+### 测试
+- Power Apps source 生成器 3 项 OK；不变量 25/0。
+
 ## [11.0.0-preview.100] - 2026-11-15
 
 ### Added

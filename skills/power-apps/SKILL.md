@@ -55,6 +55,10 @@ pac canvas pack --sources apps/gantry-demo --msapp apps/gantry-demo.msapp --layo
 `pac` 是可选外部工具；没装时仍可生成/审查 YAML。安装见
 [docs/POWER_APPS_SOURCE.md](../../docs/POWER_APPS_SOURCE.md)。
 
+> 限制：`pac canvas pack --layout SourceCode` 要求 app 已在 Power Apps Studio
+> 打开/验证过；新 YAML 不能直接 pack。请先用 Studio 导出一个 baseline `.msapp`，
+> `pac canvas unpack` 后再修改/打包。
+
 ## 直接 UI 操作（兜底）
 
 由 `plugins/power-apps` 提供，复用 Gantry 的 EdgeProfile / 租户 SSO，
