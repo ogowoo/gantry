@@ -346,8 +346,12 @@ async def goto_path(path: str, wait: float = 3.0) -> dict[str, Any]:
     return await dom_snapshot()
 
 
-async def click_text(text: str, role: str = "", wait: float = 2.0) -> dict[str, Any]:
-    """按可见文本/角色点击（诊断与导入流程用）；点完返回 DOM 快照。"""
+async def click_text(text: str, role: str = "", wait: float = 2.0,
+                     index: int = 0) -> dict[str, Any]:
+    """按可见文本/角色点击（诊断与导入流程用）；点完返回 DOM 快照。
+
+    index：同名控件下标；-1 表示最后一个（用于弹窗底部的 Create 等按钮）。
+    """
     from . import bridge as b
 
     if b.ctx is None:
@@ -372,8 +376,15 @@ async def click_text(text: str, role: str = "", wait: float = 2.0) -> dict[str, 
             locs.append(f.get_by_text(pat))
         for loc in locs:
             try:
-                if await loc.count() and await loc.first.is_visible():
-                    await loc.first.click(timeout=8000)
+                count = await loc.count()
+                if not count:
+                    continue
+                idx = int(index)
+                if idx < 0:
+                    idx = count + idx
+                target_el = loc.nth(min(max(0, idx), count - 1))
+                if await target_el.is_visible():
+                    await target_el.click(timeout=8000)
                     clicked = True
                     break
             except Exception as exc:

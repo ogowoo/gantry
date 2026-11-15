@@ -36,6 +36,8 @@ class ProbeTests(unittest.TestCase):
         self.assertIn('@router.post("/v1/power-automate/login")', src)
         self.assertIn('@router.post("/v1/power-automate/goto")', src)
         self.assertIn('@router.post("/v1/power-automate/click")', src)
+        self.assertIn('@router.post("/v1/power-automate/fill")', src)
+        self.assertIn('@router.post("/v1/power-automate/press")', src)
         self.assertIn('@router.post("/v1/power-automate/import/open")', src)
         self.assertIn('@router.post("/v1/power-automate/import/run")', src)
         self.assertIn('@router.post("/v1/power-automate/frames")', src)

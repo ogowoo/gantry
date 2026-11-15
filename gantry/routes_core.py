@@ -565,7 +565,23 @@ async def power_automate_goto(payload: dict):
 async def power_automate_click(payload: dict):
     from . import power_automate_ui
     return await power_automate_ui.click_text(str(payload.get("text") or ""),
-                                              role=str(payload.get("role") or ""))
+                                              role=str(payload.get("role") or ""),
+                                              index=int(payload.get("index") or 0))
+
+
+@router.post("/v1/power-automate/fill")
+async def power_automate_fill(payload: dict):
+    from . import power_automate_ui
+    return await power_automate_ui.fill_text(
+        str(payload.get("label") or ""),
+        str(payload.get("value") or ""),
+        index=int(payload.get("index") or 0))
+
+
+@router.post("/v1/power-automate/press")
+async def power_automate_press(payload: dict):
+    from . import power_automate_ui
+    return await power_automate_ui.press_key(str(payload.get("key") or ""))
 
 
 @router.post("/v1/power-automate/import/open")

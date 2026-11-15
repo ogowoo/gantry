@@ -14,6 +14,25 @@
 ### Fixed
 - 
 
+## [11.0.0-preview.99] - 2026-11-15
+
+### Added
+- Power Automate 诊断接口：`/v1/power-automate/fill`、`/v1/power-automate/press`，
+  支持实测时填写 flow 名称、按键提交。
+
+### Fixed
+- PA `click` 支持 `index` 选择同名控件，并只点击可见元素，避免点到隐藏导航项。
+
+### 实测
+- 登录后 PA/Power Apps probe 均 `logged_in=true`；
+- PA `/flows`、`/create`、Instant flow 弹窗可打开并填名；
+- Power Apps `/apps`、Create → 模板页 → Blank canvas 尺寸弹窗可打开；
+- 创建按钮在弹窗内受前端状态约束（PA Create 按钮 disabled；PAPP 尺寸卡片未响应
+  文本点击），本轮未完成保存，避免误建；没有创建/修改/删除任何 flow 或 app。
+
+### 测试
+- UI 插件测试 10 项 OK；不变量 25/0。
+
 ## [11.0.0-preview.98] - 2026-11-15
 
 ### Fixed
