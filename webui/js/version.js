@@ -39,8 +39,8 @@ function _clearUpdateBadge(){
  const el=document.getElementById('appVersion');
  if(!el)return;
  el.classList.remove('has-update');
- const b=el.querySelector('.verupd');if(b)b.remove();
  el.removeAttribute('data-update');
+ if(el.dataset.version)el.textContent='v'+el.dataset.version;
  window.gantryUpdateInfo=null;
 }
 
@@ -51,10 +51,9 @@ function _showUpdateBadge(info){
  window.gantryUpdateInfo=info;
  el.classList.add('has-update');
  el.setAttribute('data-update','1');
+ el.textContent=tr('有更新');
  el.title=tr('发现新版本 {a} → {b}；点击查看更新',{a:info.current||'?',b:info.latest||'?'});
  el.setAttribute('aria-label',tr('有新版本可用，点击打开更新管理'));
- let b=el.querySelector('.verupd');
- if(!b){b=document.createElement('span');b.className='verupd';b.setAttribute('aria-hidden','true');el.appendChild(b)}
 }
 
 /** 自动检查（只提示，不安装）；失败静默，不打扰已有界面。 */
@@ -82,6 +81,7 @@ async function loadVersion(){
   const v=String(d.version||'').trim();
   if(!v)return;
   el.textContent='v'+v;
+  el.dataset.version=v;
   el.title=tr('版本')+'：'+v+'（'+(d.name||'Gantry')+'）';
   el.hidden=false;
   el.addEventListener('keydown',e=>{

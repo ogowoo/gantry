@@ -320,14 +320,12 @@ details>summary{cursor:pointer;color:var(--accent2);font-size:12.5px;user-select
   font-size:11.5px;letter-spacing:.02em;white-space:nowrap;overflow:hidden;
   text-overflow:ellipsis;user-select:none}
 .btmver[hidden]{display:none}
-/* 有新版本时：版本号可点，右侧一个很小的强调色上升箭头（不挤宽侧栏） */
-.btmver[data-act]{cursor:pointer;border-radius:5px;padding:2px 4px}
-.btmver[data-act]:hover,.btmver[data-act]:focus-visible{background:var(--panel2);
-  color:var(--accent);outline:none}
+/* 有新版本时：把版本号换成「有更新」，只变文字颜色，不加整条背景。
+   点击整个版本号进入设置 → 危险区 → 更新。 */
+.btmver[data-act]{cursor:pointer}
+.btmver[data-act]:hover,.btmver[data-act]:focus-visible{color:var(--accent);
+  text-decoration:underline;outline:none}
 .btmver.has-update{color:var(--accent);font-weight:600}
-.btmver .verupd{display:inline-block;margin-left:4px;color:var(--accent);
-  font-size:11px;line-height:1;transform:translateY(-1px)}
-.btmver .verupd::before{content:"↑"}
 /* 侧栏收起（桌面只剩 34px 图标条）：只留齿轮图标，标签与版本号藏起来 */
 :root[data-rail="closed"] .railfoot{padding:8px 0;justify-content:center}
 :root[data-rail="closed"] .railfoot::before{display:none}

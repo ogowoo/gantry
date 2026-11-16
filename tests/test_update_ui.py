@@ -19,7 +19,7 @@ class UpdateUiTests(unittest.TestCase):
         self.assertIn("/v1/update/check", src)
         self.assertIn("UPDATE_INTERVAL_MS", src)
         self.assertIn("has-update", src)
-        self.assertIn("verupd", src)
+        self.assertIn("有更新", src)
         self.assertIn("gantryUpdateInfo", src)
 
     def test_settings_has_update_panel_and_actions(self):

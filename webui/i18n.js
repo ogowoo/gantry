@@ -815,6 +815,7 @@ Object.assign(I18N_EN, {
     "Check GitHub for a newer version; updates back up code first and can be rolled back",
   "当前版本 {a}，最新 {b}": "Current {a}, latest {b}",
   "已是最新版本": "Already up to date",
+  "有更新": "Update available",
   "发现新版本": "New version available",
   "发现新版本 {a} → {b}（{m}）。更新前会备份代码，服务将重启。确定更新？":
     "New version {a} → {b} ({m}). Code is backed up first and the service will restart. Update now?",
