@@ -58,6 +58,15 @@ def _port() -> int:
         return int(SERVER.get("port", DEFAULT_PORT))
 
 
+def _t(lang: str, key: str, **kw: Any) -> str:
+    """按语言取文案，缺 key 回落到 zh，再缺回落到 key 本身。"""
+    template = TEXT.get(lang, TEXT["zh"]).get(key) or TEXT["zh"].get(key) or key
+    try:
+        return template.format(**kw)
+    except Exception:                                # noqa: BLE001
+        return template
+
+
 def ensure_api_token() -> None:
     """回环服务也默认生成 token：本机其它进程/用户不能裸调 /v1/*。
 
@@ -83,7 +92,13 @@ def ensure_api_token() -> None:
             os.chmod(token_file, 0o600)
         except OSError:
             pass
-        print(f"[gantry] 已生成 API token：{token_file}（WebUI 会提示输入，CLI 自动读取）")
+        lang = _detect_lang()
+        msg = {
+            "zh": f"[gantry] 已生成 API token：{token_file}（WebUI 会提示输入，CLI 自动读取）",
+            "tw": f"[gantry] 已產生 API token：{token_file}（WebUI 會提示輸入，CLI 自動讀取）",
+            "en": f"[gantry] API token generated: {token_file} (WebUI will prompt, CLI reads automatically)",
+        }
+        print(msg.get(lang, msg["zh"]))
     os.environ["GANTRY_API_TOKEN"] = token
 
 
@@ -240,27 +255,100 @@ def health_ok(port: int) -> bool:
     return _wait_ready(port, 1.0)
 
 
+def _detect_lang(argv: list[str] | None = None) -> str:
+    """复用 gantry.tray 的语言探测（--lang > config.json ui.language > GANTRY_LANG > Windows 界面语言）。"""
+    if argv:
+        v = _arg_lang(argv)
+        if v in ("zh", "tw", "en"):
+            return v
+    try:
+        from gantry.tray import detect_lang as _detect
+
+        return _detect(BASE)
+    except Exception:                                # noqa: BLE001
+        return "zh"
+
+
+TEXT = {
+    "zh": {
+        "already_running": "服务已在运行：http://127.0.0.1:{port}/ui/（托盘图标在系统托盘里）",
+        "missing_deps": "启动失败：当前 Python 缺依赖（无法 import uvicorn）。",
+        "use_venv": "  项目里有虚拟环境，请用它启动：{venv} start.py",
+        "install_deps": "  先安装依赖：python -m pip install -r requirements.txt",
+        "auto_switched": "提示：当前 Python 缺依赖，已自动改用 {py}",
+        "spawn_failed": "派生后台进程失败：{err}",
+        "started_bg": "已在后台启动（无窗口）。这个终端可以关了。",
+        "ready": "服务就绪：http://127.0.0.1:{port}/ui/",
+        "not_ready": "服务 30 秒内未就绪——看日志：",
+        "crash_tail": "crash.log 最后几行：",
+        "log_file": "日志文件：{path}",
+        "tray_hint": "托盘图标在右下角系统托盘：右键可「打开控制台 / 启动自动化浏览器 / 重启 / 停止」。",
+        "bg_failed_fg": "后台启动失败，改为前台运行…",
+    },
+    "tw": {
+        "already_running": "服務已在執行：http://127.0.0.1:{port}/ui/（托盤圖示在系統托盤裡）",
+        "missing_deps": "啟動失敗：目前 Python 缺少依賴（無法 import uvicorn）。",
+        "use_venv": "  專案裡有虛擬環境，請用它啟動：{venv} start.py",
+        "install_deps": "  先安裝依賴：python -m pip install -r requirements.txt",
+        "auto_switched": "提示：目前 Python 缺少依賴，已自動改用 {py}",
+        "spawn_failed": "派生後台程式失敗：{err}",
+        "started_bg": "已在後台啟動（無視窗）。這個終端機可以關了。",
+        "ready": "服務就緒：http://127.0.0.1:{port}/ui/",
+        "not_ready": "服務 30 秒內未就緒——看日誌：",
+        "crash_tail": "crash.log 最後幾行：",
+        "log_file": "日誌檔案：{path}",
+        "tray_hint": "托盤圖示在右下角系統托盤：右鍵可「開啟控制台 / 啟動自動化瀏覽器 / 重新啟動 / 停止」。",
+        "bg_failed_fg": "後台啟動失敗，改為前景執行…",
+    },
+    "en": {
+        "already_running": "Service already running: http://127.0.0.1:{port}/ui/ (tray icon in system tray)",
+        "missing_deps": "Startup failed: current Python is missing dependencies (cannot import uvicorn).",
+        "use_venv": "  A virtual environment exists; use it to start: {venv} start.py",
+        "install_deps": "  Install dependencies first: python -m pip install -r requirements.txt",
+        "auto_switched": "Note: current Python is missing dependencies, auto-switched to {py}",
+        "spawn_failed": "Failed to spawn background process: {err}",
+        "started_bg": "Started in background (no window). You can close this terminal.",
+        "ready": "Service ready: http://127.0.0.1:{port}/ui/",
+        "not_ready": "Service not ready within 30s — check logs:",
+        "crash_tail": "Last lines of crash.log:",
+        "log_file": "Log file: {path}",
+        "tray_hint": "Tray icon is in the system tray (bottom-right): right-click for menu (Open console / Start automation browser / Restart / Stop).",
+        "bg_failed_fg": "Background start failed, switching to foreground…",
+    },
+}
+
+
+def _t(lang: str, key: str, **kw: Any) -> str:
+    """按语言取文案，缺 key 回落到 zh，再缺回落到 key 本身。"""
+    template = TEXT.get(lang, TEXT["zh"]).get(key) or TEXT["zh"].get(key) or key
+    try:
+        return template.format(**kw)
+    except Exception:                                # noqa: BLE001
+        return template
+
+
 def detach(args: list[str]) -> int:
     """把服务丢到后台（无控制台），等它就绪后返回。终端随后可以关掉。"""
     _utf8_stdio()
     from gantry.logcfg import log_file
 
+    lang = _detect_lang(args)
     port = _port()
     if health_ok(port):
-        print(f"服务已在运行：http://127.0.0.1:{port}/ui/（托盘图标在系统托盘里）")
+        print(_t(lang, "already_running", port=port))
         return 0
     # 缺依赖预检：否则子进程刚起就死，只能看到"30 秒未就绪"这种误导信息
     child_py = _pythonw() or _preferred_python()
     if not _has_uvicorn(child_py):
         venv = _venv_python()
-        print("启动失败：当前 Python 缺依赖（无法 import uvicorn）。", file=sys.stderr)
+        print(_t(lang, "missing_deps"), file=sys.stderr)
         if venv:
-            print(f"  项目里有虚拟环境，请用它启动：{venv} start.py", file=sys.stderr)
+            print(_t(lang, "use_venv", venv=venv), file=sys.stderr)
         else:
-            print("  先安装依赖：python -m pip install -r requirements.txt", file=sys.stderr)
+            print(_t(lang, "install_deps"), file=sys.stderr)
         return 2
     if Path(child_py).resolve() != Path(sys.executable).resolve():
-        print(f"提示：当前 Python 缺依赖，已自动改用 {child_py}")
+        print(_t(lang, "auto_switched", py=child_py))
     flags = 0
     if os.name == "nt":
         # DETACHED_PROCESS：不继承父控制台；CREATE_NO_WINDOW：即使目标 pythonw.exe
@@ -277,19 +365,19 @@ def detach(args: list[str]) -> int:
                          close_fds=True, stdin=subprocess.DEVNULL,
                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     except Exception as exc:                    # noqa: BLE001
-        print(f"派生后台进程失败：{exc}", file=sys.stderr)
+        print(_t(lang, "spawn_failed", err=exc), file=sys.stderr)
         return 1
-    print("已在后台启动（无窗口）。这个终端可以关了。")
+    print(_t(lang, "started_bg"))
     if _wait_ready(port, 30.0):
-        print(f"服务就绪：http://127.0.0.1:{port}/ui/")
+        print(_t(lang, "ready", port=port))
     else:
-        print("服务 30 秒内未就绪——看日志：", file=sys.stderr)
+        print(_t(lang, "not_ready"), file=sys.stderr)
         tail = _crash_tail()
         if tail:
-            print("crash.log 最后几行：", file=sys.stderr)
+            print(_t(lang, "crash_tail"), file=sys.stderr)
             print(tail, file=sys.stderr)
-    print(f"日志文件：{log_file(BASE)}")
-    print("托盘图标在右下角系统托盘：右键可「打开控制台 / 启动自动化浏览器 / 重启 / 停止」。")
+    print(_t(lang, "log_file", path=log_file(BASE)))
+    print(_t(lang, "tray_hint"))
     return 0
 
 
@@ -471,5 +559,6 @@ if __name__ == "__main__":
             sys.exit(0)
         if code == 2:
             sys.exit(2)
-        print("后台启动失败，改为前台运行…", file=sys.stderr)
+        _lang = _detect_lang(argv)
+        print(_t(_lang, "bg_failed_fg"), file=sys.stderr)
     sys.exit(main(argv + ["--foreground"]))
