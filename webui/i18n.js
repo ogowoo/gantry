@@ -808,6 +808,25 @@ Object.assign(I18N_EN, {
   "时间线已导出（": "Timeline exported (",
   "智谱": "Zhipu",
   "更新失败: ": "Update failed: ",
+  "更新": "Update",
+  "检查更新": "Check for updates",
+  "回滚最近更新": "Roll back last update",
+  "检查 GitHub 上的新版本；更新会先备份代码，可回滚":
+    "Check GitHub for a newer version; updates back up code first and can be rolled back",
+  "当前版本 {a}，最新 {b}": "Current {a}, latest {b}",
+  "已是最新版本": "Already up to date",
+  "发现新版本": "New version available",
+  "发现新版本 {a} → {b}（{m}）。更新前会备份代码，服务将重启。确定更新？":
+    "New version {a} → {b} ({m}). Code is backed up first and the service will restart. Update now?",
+  "已更新到 {v}，等待服务重启…": "Updated to {v}; waiting for service restart…",
+  "正在更新到 {v}…": "Updating to {v}…",
+  "服务未在 120 秒内恢复，请查看 data/logs/crash.log":
+    "Service did not recover within 120s; check data/logs/crash.log",
+  "确定回滚最近一次代码更新并重启服务？":
+    "Roll back the most recent code update and restart the service?",
+  "已回滚：{b}": "Rolled back: {b}",
+  "正在回滚更新…": "Rolling back update…",
+  "回滚失败: ": "Rollback failed: ",
   "最多附加 4 张图片": "Up to 4 images",
   "最终答复": "Final answer",
   "最近发送的内容": "Last prompt",

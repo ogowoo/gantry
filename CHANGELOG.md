@@ -14,6 +14,28 @@
 ### Fixed
 - 
 
+## [0.11.0-beta.1] - 2026-11-16
+
+### Added
+- **更新系统**：检查 GitHub 新版本，手动一键更新；支持 git fast-forward 与 zip
+  源码包两种安装形态；更新前备份、失败/手动可回滚、更新后重启服务。
+  - API：`GET /v1/update/{status,check}`、`POST /v1/update/{apply,rollback}`；
+  - CLI：`python scripts/update.py status|check|apply|rollback|list`；
+  - WebUI：设置 → 危险区 → 更新（检查/回滚）；
+  - `data/ workspace/ .venv/ EdgeProfile/ config.json` 不会被替换；
+  - 私有仓库用 `GITHUB_TOKEN`，不落日志。
+- `docs/UPDATES.md`、`tests/test_updater.py`；`config.example.json` 增加 `update` 段。
+
+### Changed
+- 版本线从 `11.0.0-preview.102` 切到正式 `0.11.0-beta.1`；0.11.x 为补丁，
+  0.12.0 为功能线，1.0.0 再宣布 API 稳定（见 `docs/VERSIONING.md`）。
+
+### Fixed
+- 版本测试允许 0.x 正式线（此前硬性要求 major ≥ 1）。
+
+### 测试
+- 更新器/版本目标测试 16 项 OK；不变量 25/0。
+
 ## [11.0.0-preview.102] - 2026-11-16
 
 ### Changed

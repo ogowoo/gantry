@@ -114,6 +114,7 @@ skills/                         Agent 技能说明与模板
 | `routes_config.py` | 配置、插件、面板、插件 API 分发路由。 |  |
 | `routes_core.py` | 核心路由：健康检查、重启、浏览器、Power Automate UI 等。 |  |
 | `routes_sessions.py` | routes_sessions.py — 会话端点：列表/详情/快照/改动/回滚/消息/继续/插话/队列/事件/运行时/投影/审批/删除 | sessions, session_file, session_turns, session, session_snapshots, _session_workspace_root |
+| `routes_update.py` | 自身更新 API：检查 / 安装 / 回滚。 | _updater, update_status, update_check, update_apply, update_rollback |
 | `run_code.py` | 程序化工具调用（P2-13）：让模型写一段代码，在**独立进程**里批量调用只读工具。 | allowed_tools, run_code |
 | `s2t_data.py` | 简→繁字符对照（**由 webui/i18n.js 的 S2T_CHARS 生成**,勿手改）。 |  |
 | `s2t_extra.py` | 简繁补充表：`s2t_data.py`（由界面表生成）在**技术词**上有缺口。 |  |
@@ -179,6 +180,7 @@ skills/                         Agent 技能说明与模板
 | `tray.py` | 系统托盘/后台进程管理。 |  |
 | `ui_refs.py` | 前端 id 引用完整性：JS 里 `getElementById('x')`/`querySelector('#x')` 引用的 | check_ui_id_refs |
 | `ui_src.py` | 前端源码取用（测试用）：`webui/*.js`（经典脚本）+ `webui/js/*.js`（ES 模块 + globals）。 | ui_js, ui_css, css_rule, fn_body |
+| `updater.py` | 更新检查与自升级。 |  |
 | `version.py` | 版本号唯一来源与版本解析/比较工具。 |  |
 | `window_pool.py` | Copilot 自动化窗口池：一个窗口 = 一个独立的 Copilot 网页标签页。 | WindowBusy, _page_closed, Window, WindowPool |
 | `workspace_files.py` | workspace_files.py — 工作区文件与目录操作：写文件、建目录、系统目录选择对话框、目录浏览 | save_workspace_file, create_directory, pick_directory_native, browse_directories |
@@ -485,6 +487,7 @@ Web 控制台；`index.html` + `css/` + `js/`（ES 模块）。
 | `test_ui_control_styles.py` | 控件样式回归：「强行插入」对话框的两个单选项被撑变形。 | InputStylingTests |
 | `test_ui_id_refs.py` | 前端 id 引用完整性（ui_refs）：JS 里引用的元素必须在 index.html 或动态生成里存在。 | CheckFunctionTests, RealCodeTests |
 | `test_unknown_outcome.py` | 结果未知封锁：超时后禁止原样重试不可幂等动作，直到只读动作核对过。 | UnknownOutcomeGateTests |
+| `test_updater.py` | 更新系统：版本排序、git 检查、zip 替换/回滚与安全解压。 | VersionCompareTests, UpdaterCheckTests, UpdaterZipTests |
 | `test_validation_gate.py` | 验证闭环旗的持久化回归测试。 | act, GatePersistenceTests |
 | `test_version.py` | 版本相关的回归测试：保证"单一来源"不被破坏。 | VersionFormatTests, SingleSourceTests |
 | `test_version_chip.py` | WebUI 版本信息与侧栏底栏（DSH 式：⚙ 设置 + 版本号固定在侧栏底部）。 | css_block, RailFooterTests, SettingsI18nTests |
@@ -567,6 +570,7 @@ Web 控制台；`index.html` + `css/` + `js/`（ES 模块）。
 | `ui_i18n_audit.py` | i18n 覆盖率审计：三语言逐面切换，列出未翻译/漏 key/原始 key 泄漏。 | s2t_simplified_chars, en_sentence_values, audit, main |
 | `ui_layout_audit.py` | UI 布局审计：在多种视口宽度下**实测**溢出、遮挡、固定元素碰撞，并截图存档。 | audit, main |
 | `ui_smoke.py` | WebUI 冒烟测试：用真实浏览器加载 /ui，捕获控制台错误并验证关键行为。 | run, main |
+| `update.py` | Gantry 更新命令行（离线可用）。 | _print, main |
 | `verify_ctx_fit.py` | 复现并验证修复：向 local/minicpm5-2b 发一个约 1 万 token 的提示。 | post |
 | `verify_full_reload.py` | 整套重载后的验证：版本 / 插件加载 / 工具注册 / IndexedDB 读侧 / 安全开关。 | get, post |
 | `verify_kb_auto_live.py` | 线上验证 auto：① 普通文字截图应走 RapidOCR（快）；② 表格截图应自动转 Xiaomi（OTSL）。 | post, get, png |
@@ -611,6 +615,7 @@ Web 控制台；`index.html` + `css/` + `js/`（ES 模块）。
 | `TECHNICAL.md` | Gantry 技术文档 |  |
 | `TODO.md` | Gantry 治理 TODO |  |
 | `TRAY.md` | 托盘与后台启动 |  |
+| `UPDATES.md` | Gantry 更新系统 |  |
 | `VERSIONING.md` | 版本规则与协作流程 |  |
 | `audit-pyshot.md` | 审计报告：用 pyshot 任务（388 步 / 11.3 小时）反查 CBP 的 Copilot 利用效率 |  |
 | `gantry-mindmap.md` | Gantry 结构与流程 Mindmap |  |

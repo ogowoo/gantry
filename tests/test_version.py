@@ -21,7 +21,7 @@ class VersionFormatTests(unittest.TestCase):
     def test_version_parses_as_semver(self):
         p = parse()
         self.assertEqual(p["version"], VERSION)
-        self.assertGreaterEqual(p["major"], 1)
+        self.assertGreaterEqual(p["major"], 0)
 
     def test_tag_name_prefix(self):
         self.assertEqual(tag_name("1.2.3"), "v1.2.3")

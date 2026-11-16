@@ -1,6 +1,6 @@
 // settings.js — 
 // 从原 webui/app.js 拆出的 ES 模块（该单体已退役，见 docs/ESM-MIGRATION.md）。
-import { SETTINGS_GROUPS, SANDBOX_UI, ENUM_LABEL, openMemory } from './themeboot.js';
+import { SETTINGS_GROUPS, SANDBOX_UI, ENUM_LABEL, openMemory, showRestarting } from './themeboot.js';
 import { CODE_EXT } from './codeux.js';
 import { stepFilterInput } from './steps.js';
 import { readAnimPrefs, applyAnimPrefs, setAnimPref, animPrefLabel, ANIM_RANGES } from './animprefs.js';
@@ -287,7 +287,13 @@ async function renderSettings(){
     <button type="button" class="btn ghost" data-act="restartService">↻ ${esc(tr('重启服务'))}</button>
     <button type="button" class="btn ghost danger" data-act="shutdownService">⏻ ${esc(tr('终止服务 / 退出'))}</button>
    </div>
-   <p class="sethint">${esc(tr('重启/终止都会中断正在跑的任务；状态已落库，重启后可恢复。'))}</p>`;
+   <p class="sethint">${esc(tr('重启/终止都会中断正在跑的任务；状态已落库，重启后可恢复。'))}</p>
+   <h4>${esc(tr('更新'))}</h4>
+   <div class="setbtns">
+    <button type="button" class="btn ghost" data-act="checkUpdate">⟳ ${esc(tr('检查更新'))}</button>
+    <button type="button" class="btn ghost danger" data-act="rollbackUpdate">↶ ${esc(tr('回滚最近更新'))}</button>
+   </div>
+   <p class="sethint" id="updateHint">${esc(tr('检查 GitHub 上的新版本；更新会先备份代码，可回滚'))}</p>`;
 
  function _cfgSection(gid,path){
   if(gid==='exec'){
@@ -535,6 +541,50 @@ async function saveSettings(){
  }catch(e){ toast(tr('保存失败: ')+((e&&(e.text||e.detail||e.message))||String(e)),'err') }
 }
 
+async function _waitHealth(ms){
+ const t0=Date.now();
+ while(Date.now()-t0<ms){
+  try{
+   const r=await fetch('/health',{cache:'no-store'});
+   if(r.ok){await r.json();return true}
+  }catch(e){}
+  await new Promise(r=>setTimeout(r,1000));
+ }
+ return false;
+}
+
+/* 检查 GitHub 更新：只检查不自动装；用户确认后才安装并等 /health 恢复。 */
+async function checkUpdate(){
+ try{
+  const r=await api('/v1/update/check');
+  const hint=document.getElementById('updateHint');
+  if(hint)hint.textContent=tr('当前版本 {a}，最新 {b}',{a:r.current||'?',b:r.latest||'?'});
+  if(!r.update_available){toast(tr('已是最新版本'),'ok');return}
+  const ok=await window.dlgConfirm(
+   tr('发现新版本 {a} → {b}（{m}）。更新前会备份代码，服务将重启。确定更新？',
+      {a:r.current,b:r.latest,m:r.method}),tr('发现新版本'),false);
+  if(!ok)return;
+  const d=await api('/v1/update/apply',{method:'POST',headers:{'Content-Type':'application/json'},
+   body:JSON.stringify({version:r.latest,method:r.method,restart:true})});
+  toast(tr('已更新到 {v}，等待服务重启…',{v:d.target||r.latest}),'ok');
+  showRestarting(tr('正在更新到 {v}…',{v:d.target||r.latest}));
+  if(await _waitHealth(120000)){location.reload();return}
+  toast(tr('服务未在 120 秒内恢复，请查看 data/logs/crash.log'),'err');
+ }catch(e){toast(tr('更新失败: ')+((e&&(e.text||e.detail||e.message))||e),'err')}
+}
+
+async function rollbackUpdate(){
+ if(!await window.dlgConfirm(tr('确定回滚最近一次代码更新并重启服务？'),tr('回滚最近更新'),true))return;
+ try{
+  const d=await api('/v1/update/rollback',{method:'POST',headers:{'Content-Type':'application/json'},
+   body:JSON.stringify({restart:true})});
+  toast(tr('已回滚：{b}',{b:d.backup||''}),'ok');
+  showRestarting(tr('正在回滚更新…'));
+  if(await _waitHealth(120000)){location.reload();return}
+  toast(tr('服务未在 120 秒内恢复，请查看 data/logs/crash.log'),'err');
+ }catch(e){toast(tr('回滚失败: ')+((e&&(e.text||e.detail||e.message))||e),'err')}
+}
+
 const ACTIONS={
  /* 复制文件卡片里的正文（按卡片 data-path 找到对应 pre） */
  copyFile:async(el)=>{
@@ -651,6 +701,8 @@ const ACTIONS={
  toggleGlobalSearch:()=>toggleGlobalSearch(),
  shutdownService:()=>shutdownService(),
  restartService:()=>restartService(),
+ checkUpdate:()=>checkUpdate(),
+ rollbackUpdate:()=>rollbackUpdate(),
  toggleTodos:()=>toggleTodos(),
  imgZoom:(el)=>imgZoom(el),
  mCopy:(el)=>{const m=codeMenuEl;if(m)copyText(m.dataset.code||'',el);closeCodeMenu()},

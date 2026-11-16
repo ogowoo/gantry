@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import re
 
-VERSION = "11.0.0-preview.102"
+VERSION = "0.11.0-beta.1"
 
 _SEMVER = re.compile(
     r"^(?P<major>0|[1-9]\d*)\.(?P<minor>0|[1-9]\d*)\.(?P<patch>0|[1-9]\d*)"
@@ -52,6 +52,28 @@ def parse(version: str | None = None) -> dict:
 
 def is_stable(version: str | None = None) -> bool:
     return parse(version)["stable"]
+
+
+# 发布通道的相对顺序：alpha < beta < preview < stable
+_CHANNEL_RANK = {"alpha": 0, "beta": 1, "preview": 2, "": 3}
+
+
+def sort_key(version: str | None = None) -> tuple:
+    """可比较的版本键；预发布按通道排序，同通道按 serial。"""
+    p = parse(version)
+    rank = _CHANNEL_RANK.get(p["channel"], -1)
+    return (p["major"], p["minor"], p["patch"], rank, p["serial"])
+
+
+def compare(a: str, b: str) -> int:
+    """a > b 返回 1，a < b 返回 -1，相等返回 0。"""
+    ka, kb = sort_key(a), sort_key(b)
+    return (ka > kb) - (ka < kb)
+
+
+def is_newer(candidate: str | None, current: str | None = None) -> bool:
+    """candidate 是否严格新于 current（默认当前 VERSION）。"""
+    return compare(str(candidate), VERSION if current is None else str(current)) > 0
 
 
 def tag_name(version: str | None = None) -> str:

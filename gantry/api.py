@@ -568,6 +568,12 @@ from .routes_sessions import (  # noqa: F401
     list_approvals,
     grant_approval,
 )
-from . import routes_core, routes_config, routes_agents, routes_sessions  # noqa: E402
-for _routes_mod in (routes_core, routes_config, routes_agents, routes_sessions):
+from .routes_update import (  # noqa: F401
+    update_status,
+    update_check,
+    update_apply,
+    update_rollback,
+)
+from . import routes_core, routes_config, routes_agents, routes_sessions, routes_update  # noqa: E402
+for _routes_mod in (routes_core, routes_config, routes_agents, routes_sessions, routes_update):
     app.include_router(_routes_mod.router)
