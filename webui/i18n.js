@@ -510,6 +510,7 @@ Object.assign(I18N_EN, {
   "已将自动化 Edge 切换到该会话": "Automation Edge switched to this session",
   "已恢复，正在续跑任务": "Resumed — continuing the task",
   "已授权并继续执行（该授权仅对这一次操作有效）": "Authorized and continuing (this authorization is single-use)",
+  "仅本次": "This time only",
   "已排队，等待处理…": "Queued, waiting…",
   "已插入": "Injected",
   "已更新排队消息": "Queued message updated",

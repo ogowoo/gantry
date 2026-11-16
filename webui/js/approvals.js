@@ -81,10 +81,7 @@ function showApprovalBar(p,scope){
  if(approvalSeen!==key){approvalSeen=key;
   el.innerHTML='';
   const span=document.createElement('span');
-  const _sess=scope==='session';
-  span.textContent=tr('需要授权：')+p.tool+( _sess
-    ? ' '+tr('属于不可回滚操作；授权仅对本会话有效（会话结束即失效）')
-    : ' '+tr('属于不可回滚操作；授权仅对这一次执行有效（用后即焚）'));
+  span.textContent=tr('需要授权：')+p.tool+' '+tr('属于不可回滚操作；授权仅对本会话有效（会话结束即失效），或选择「仅本次」只放行这一次');
   const btn=document.createElement('button');
   btn.className='btn accent';btn.type='button';btn.textContent=tr('授权执行');
   btn.onclick=async()=>{
@@ -92,17 +89,28 @@ function showApprovalBar(p,scope){
    try{
     await api(`/v1/agent/sessions/${encodeURIComponent(current)}/approvals`,
               {method:'POST',headers:{'Content-Type':'application/json'},
-               body:JSON.stringify({tool:p.tool,args_hash:p.args_hash||'',scope:_sess?'session':'once'})});
+               body:JSON.stringify({tool:p.tool,args_hash:p.args_hash||'',scope:'session'})});
     await api(`/v1/agent/sessions/${encodeURIComponent(current)}/actions/resume`,{method:'POST'});
-    toast(_sess?tr('已授权并继续执行（本会话内不再逐次询问）')
-               :tr('已授权并继续执行（该授权仅对这一次操作有效）'),'ok');
+    toast(tr('已授权并继续执行（本会话内不再逐次询问）'),'ok');
     el.style.display='none';approvalSeen=null;clearInterruptPing();await runtime();
    }catch(e){btn.disabled=false;btn.textContent=tr('授权执行');toast(tr('授权失败: ')+(e.text||e),'err')}};
+  const btnOnce=document.createElement('button');
+  btnOnce.className='btn ghost';btnOnce.type='button';btnOnce.textContent=tr('仅本次');
+  btnOnce.onclick=async()=>{
+   btnOnce.disabled=true;btnOnce.textContent=tr('授权中…');
+   try{
+    await api(`/v1/agent/sessions/${encodeURIComponent(current)}/approvals`,
+              {method:'POST',headers:{'Content-Type':'application/json'},
+               body:JSON.stringify({tool:p.tool,args_hash:p.args_hash||'',scope:'once'})});
+    await api(`/v1/agent/sessions/${encodeURIComponent(current)}/actions/resume`,{method:'POST'});
+    toast(tr('已授权并继续执行（该授权仅对这一次操作有效）'),'ok');
+    el.style.display='none';approvalSeen=null;clearInterruptPing();await runtime();
+   }catch(e){btnOnce.disabled=false;btnOnce.textContent=tr('仅本次');toast(tr('授权失败: ')+(e.text||e),'err')}};
   const no=document.createElement('button');
   no.className='btn ghost';no.type='button';no.textContent=tr('暂不授权');
   no.onclick=()=>{el.style.display='none';approvalDismissed=key;
     clearInterruptPing()};   // 记住这次拒绝；用户已确认看到，停止闪烁
-  el.appendChild(span);el.appendChild(btn);el.appendChild(no)}
+  el.appendChild(span);el.appendChild(btn);el.appendChild(btnOnce);el.appendChild(no)}
  el.style.display='flex';
  // 抢注意力：中断类提醒（需要授权）错过就会卡住整个任务，必须显眼
  try{el.setAttribute('role','alert');el.classList.add('needs-attn');
