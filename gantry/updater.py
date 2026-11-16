@@ -25,6 +25,7 @@ import zipfile
 from pathlib import Path
 from typing import Any
 
+from .subproc import hidden_kwargs
 from .version import VERSION, compare, parse, sort_key
 
 log = logging.getLogger("gantry.updater")
@@ -127,7 +128,8 @@ class Updater:
         env.setdefault("GCM_INTERACTIVE", "never")
         try:
             p = subprocess.run([exe, *args], cwd=self.root, capture_output=True,
-                               text=True, errors="replace", timeout=timeout, env=env)
+                               text=True, errors="replace", timeout=timeout,
+                               env=env, **hidden_kwargs())
         except Exception as exc:                 # noqa: BLE001
             raise UpdateError(f"git {' '.join(args)} 启动失败: {exc}") from exc
         if p.returncode != 0:

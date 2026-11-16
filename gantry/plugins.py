@@ -63,6 +63,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Awaitable, Callable
 
+from .subproc import hidden_kwargs
+
 PLUGIN_DIR_NAME = "plugins"
 MANIFEST_NAMES = ("plugin.json", "package.json")
 # 插件声明式面板支持的渲染方式（插件只给数据，前端负责渲染——插件不注入 HTML）
@@ -521,7 +523,8 @@ class PluginHost:
                     raise PluginError("安装 git 插件需要本机有 git")
                 dest = tmpdir / "src"
                 proc = subprocess.run([git, "clone", "--depth", "1", src, str(dest)],
-                                      capture_output=True, text=True, timeout=180)
+                                      capture_output=True, text=True, timeout=180,
+                                      **hidden_kwargs())
                 if proc.returncode != 0:
                     raise PluginError(f"git clone 失败: {(proc.stderr or proc.stdout)[:200]}")
                 staged = dest

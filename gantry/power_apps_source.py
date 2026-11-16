@@ -17,6 +17,8 @@ from typing import Any
 
 import yaml
 
+from .subproc import hidden_kwargs
+
 
 class PowerAppsSourceError(RuntimeError):
     """生成/打包 Canvas App source 失败。"""
@@ -176,7 +178,8 @@ def pack_msapp(source_dir: str | Path, msapp: str | Path | None = None,
     cmd = [exe, "canvas", "pack", "--sources", str(src), "--msapp", str(out),
            "--layout", "SourceCode", "--overwrite"]
     try:
-        p = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+        p = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout,
+                           **hidden_kwargs())
     except Exception as exc:                     # noqa: BLE001
         raise PowerAppsSourceError(f"pac canvas pack 启动失败: {exc}") from exc
     if p.returncode != 0:

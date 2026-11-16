@@ -14,6 +14,19 @@
 ### Fixed
 - 
 
+## [0.11.0-beta.7] - 2026-11-16
+
+### Fixed
+- 自动更新检查在 Windows 后台运行时不再闪出黑色控制台窗口：
+  `updater` 的 `git ls-remote/fetch/merge` 等子进程统一使用 `CREATE_NO_WINDOW`。
+- Agent 的 Python 执行与验证不再抢前台：`run_unittest`、`run_python`、
+  `validate_python`、`run_code`、`self_validate`/`self_unittest`、`pwsh`
+  以及插件 git clone / pac 打包的子进程全部隐藏控制台窗口。
+- 新增 `gantry/subproc.py`（跨平台 `hidden_kwargs()`），POSIX 不受影响。
+
+### 测试
+- 隐藏子进程/工具目标测试 23 项 OK；不变量 25/0。
+
 ## [0.11.0-beta.6] - 2026-11-16
 
 ### Added

@@ -46,6 +46,8 @@ import uuid
 from pathlib import Path
 from typing import Any, Awaitable, Callable
 
+from .subproc import hidden_kwargs
+
 try:  # httpx 是 FastAPI 的既有依赖；缺失时 web 组降级为 urllib
     import httpx
 except Exception:  # pragma: no cover
@@ -323,7 +325,8 @@ class _Extra:
         exe = self._shell_exe()
         return asyncio.create_subprocess_exec(
             exe, "-NoProfile", "-NonInteractive", "-Command", command,
-            cwd=str(cwd), stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
+            cwd=str(cwd), stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+            **hidden_kwargs())
 
     @staticmethod
     async def _kill_tree(proc: Any) -> None:
@@ -341,7 +344,8 @@ class _Extra:
                 await asyncio.create_subprocess_exec(
                     "taskkill", "/T", "/F", "/PID", str(proc.pid),
                     stdout=asyncio.subprocess.DEVNULL,
-                    stderr=asyncio.subprocess.DEVNULL)
+                    stderr=asyncio.subprocess.DEVNULL,
+                    **hidden_kwargs())
             else:
                 import signal
                 os.killpg(os.getpgid(proc.pid), signal.SIGKILL)

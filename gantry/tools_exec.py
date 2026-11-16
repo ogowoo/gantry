@@ -22,6 +22,7 @@ from pathlib import Path
 from typing import Any, Awaitable, Callable
 
 from . import editmatch
+from .subproc import hidden_kwargs
 
 from .tools import ToolError  # noqa: F401
 
@@ -36,7 +37,8 @@ class ExecMixin:
         for item in files:
             proc = await asyncio.create_subprocess_exec(
                 sys.executable, "-m", "py_compile", str(item), cwd=str(self.root),
-                stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
+                stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+                **hidden_kwargs())
             _, stderr = await proc.communicate()
             if proc.returncode:
                 failures.append({"path": str(item.relative_to(self.root)),
@@ -49,7 +51,8 @@ class ExecMixin:
             raise ToolError(f"测试目录不存在: {path}")
         proc = await asyncio.create_subprocess_exec(
             sys.executable, "-m", "unittest", "discover", "-s", str(target), "-p", pattern, "-v",
-            cwd=str(self.root), stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
+            cwd=str(self.root), stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+            **hidden_kwargs())
         try:
             stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=max(self.python_timeout, 120))
         except asyncio.TimeoutError:
@@ -84,6 +87,7 @@ class ExecMixin:
             cwd=str(self.root),
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
+            **hidden_kwargs(),
         )
         try:
             stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=self.python_timeout)

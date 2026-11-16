@@ -23,6 +23,8 @@ import json
 import sys
 from typing import Any
 
+from .subproc import hidden_kwargs
+
 PRELUDE = r'''
 import json, sys, builtins
 
@@ -91,7 +93,7 @@ async def run_code(tools: Any, code: str, *, timeout: float = 30.0, max_calls: i
     proc = await asyncio.create_subprocess_exec(
         sys.executable, "-X", "utf8", "-u", "-c", PRELUDE + "\n" + (code or ""),
         stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE)
+        stderr=asyncio.subprocess.PIPE, **hidden_kwargs())
     calls = 0        # 尝试次数（含被拒的）
     executed = 0     # 真正执行的次数（预算按它计）
     final_value: Any = None

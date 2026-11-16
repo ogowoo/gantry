@@ -22,6 +22,7 @@ from pathlib import Path
 from typing import Any, Awaitable, Callable
 
 from . import editmatch
+from .subproc import hidden_kwargs
 
 from .tools import ToolError  # noqa: F401
 
@@ -342,7 +343,8 @@ class SelfUpgradeMixin:
         for item in files:
             proc = await asyncio.create_subprocess_exec(
                 sys.executable, "-m", "py_compile", str(item), cwd=str(self.global_root),
-                stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
+                stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+                **hidden_kwargs())
             _, stderr = await proc.communicate()
             if proc.returncode:
                 failures.append({"path": str(item.relative_to(self.global_root)),
@@ -373,7 +375,8 @@ class SelfUpgradeMixin:
         proc = await asyncio.create_subprocess_exec(
             sys.executable, "-m", "unittest", "discover", "-s", str(tests_dir), "-p", pattern, "-v",
             cwd=str(self.global_root),
-            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
+            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+            **hidden_kwargs())
         try:
             stdout, stderr = await asyncio.wait_for(proc.communicate(),
                                                     timeout=max(self.python_timeout, 180))
