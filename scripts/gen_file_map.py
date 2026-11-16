@@ -75,7 +75,7 @@ CURATED = {
     "gantry/office.py": "Office 文档读写/转换。",
     "gantry/i18n.py": "后端国际化。",
     "gantry/tray.py": "系统托盘/后台进程管理。",
-    "gantry/updater.py": "更新检查与自升级。",
+    "gantry/updater.py": "检查 GitHub 版本、git/zip 更新、备份与回滚。",
     "gantry/security.py": "敏感配置、脱敏、权限与命令安全。",
     "gantry/workspace.py": "工作区路径、隔离与清理。",
     "gantry/audit.py": "审计日志与事件。",

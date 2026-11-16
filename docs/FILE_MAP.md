@@ -180,7 +180,7 @@ skills/                         Agent 技能说明与模板
 | `tray.py` | 系统托盘/后台进程管理。 |  |
 | `ui_refs.py` | 前端 id 引用完整性：JS 里 `getElementById('x')`/`querySelector('#x')` 引用的 | check_ui_id_refs |
 | `ui_src.py` | 前端源码取用（测试用）：`webui/*.js`（经典脚本）+ `webui/js/*.js`（ES 模块 + globals）。 | ui_js, ui_css, css_rule, fn_body |
-| `updater.py` | 更新检查与自升级。 |  |
+| `updater.py` | 检查 GitHub 版本、git/zip 更新、备份与回滚。 |  |
 | `version.py` | 版本号唯一来源与版本解析/比较工具。 |  |
 | `window_pool.py` | Copilot 自动化窗口池：一个窗口 = 一个独立的 Copilot 网页标签页。 | WindowBusy, _page_closed, Window, WindowPool |
 | `workspace_files.py` | workspace_files.py — 工作区文件与目录操作：写文件、建目录、系统目录选择对话框、目录浏览 | save_workspace_file, create_directory, pick_directory_native, browse_directories |
@@ -487,6 +487,7 @@ Web 控制台；`index.html` + `css/` + `js/`（ES 模块）。
 | `test_ui_control_styles.py` | 控件样式回归：「强行插入」对话框的两个单选项被撑变形。 | InputStylingTests |
 | `test_ui_id_refs.py` | 前端 id 引用完整性（ui_refs）：JS 里引用的元素必须在 index.html 或动态生成里存在。 | CheckFunctionTests, RealCodeTests |
 | `test_unknown_outcome.py` | 结果未知封锁：超时后禁止原样重试不可幂等动作，直到只读动作核对过。 | UnknownOutcomeGateTests |
+| `test_update_ui.py` | 侧栏更新提示与设置更新面板的静态回归。 | UpdateUiTests |
 | `test_updater.py` | 更新系统：版本排序、git 检查、zip 替换/回滚与安全解压。 | VersionCompareTests, UpdaterCheckTests, UpdaterZipTests |
 | `test_validation_gate.py` | 验证闭环旗的持久化回归测试。 | act, GatePersistenceTests |
 | `test_version.py` | 版本相关的回归测试：保证"单一来源"不被破坏。 | VersionFormatTests, SingleSourceTests |
