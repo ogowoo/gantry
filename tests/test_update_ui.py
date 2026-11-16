@@ -35,6 +35,13 @@ class UpdateUiTests(unittest.TestCase):
         for key in ("检查更新", "发现新版本", "有新版本可用，点击打开更新管理"):
             self.assertIn(f'"{key}"', i18n)
 
+    def test_version_pill_shrinks_to_text(self):
+        css = (ROOT / "webui" / "css" / "shell.css").read_text(encoding="utf-8")
+        block = css[css.index(".btmver{"):css.index(".btmver[hidden]")]
+        self.assertIn("flex:0 0 auto", block)
+        self.assertIn("margin-left:auto", block)
+        self.assertIn("padding:2px 6px", css)
+
 
 if __name__ == "__main__":
     unittest.main()
