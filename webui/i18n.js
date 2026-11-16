@@ -772,6 +772,12 @@ Object.assign(I18N_EN, {
  "启用": "Enable",
  "禁用": "Disable",
  "重载": "Reload",
+ "卸载": "Uninstall",
+ "卸载插件": "Uninstall plugin",
+ "确定卸载插件 {name}？会先摘除它的工具/API/面板，并保留备份。":
+   "Uninstall plugin {name}? Its tools/APIs/panels are removed first, and a backup is kept.",
+ "已卸载: {name}（备份: {backup}）": "Uninstalled: {name} (backup: {backup})",
+ "卸载失败: ": "Uninstall failed: ",
  "权限: ": "Permissions: ",
  "贡献: ": "Contributes: ",
  "没有安装插件（把插件放进 plugins/ 目录）": "No plugins installed (put them under plugins/)",

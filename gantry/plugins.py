@@ -580,11 +580,19 @@ class PluginHost:
         return {"name": target_name, "version": new_ver, "previous": old_ver,
                 "backup": backup, "status": (loaded or {}).get("status", "loaded")}
 
-    def uninstall(self, name: str, keep_backup: bool = True) -> dict[str, Any]:
-        """卸载插件：先卸载运行时贡献，再删目录（默认留备份）。"""
+    def uninstall(self, name: str, keep_backup: bool = True,
+                  allow_builtin: bool = False) -> dict[str, Any]:
+        """卸载插件：先卸载运行时贡献，再删目录（默认留备份）。
+
+        内置插件（没有 installed 元数据）默认拒绝卸载：它们随服务发布，
+        删掉会破坏功能；请用 disable。外部安装的插件才可真正删除。
+        """
         dest = self._plugin_dir(name)
         if not dest.is_dir() and name not in self.records:
             raise PluginError(f"没有名为 {name} 的插件")
+        meta = (self._state.get(name) or {}).get("installed") or {}
+        if not meta and not allow_builtin:
+            raise PluginError(f"{name} 是内置插件，不能卸载；请用禁用/重载")
         self._unload(name)
         backup = self._backup(name) if keep_backup and dest.is_dir() else ""
         if dest.is_dir():
@@ -642,6 +650,7 @@ class PluginHost:
         rec = self.records.get(name) or {}
         manifest: PluginManifest | None = rec.get("manifest")
         ctx: PluginContext | None = rec.get("ctx")
+        installed = (self._state.get(name) or {}).get("installed") or {}
         return {
             "name": name,
             "version": manifest.version if manifest else "",
@@ -649,6 +658,8 @@ class PluginHost:
             "status": rec.get("status") or ("disabled" if not self.enabled(name) else "not_loaded"),
             "error": rec.get("error"),
             "enabled": self.enabled(name),
+            "source": installed.get("source") or "builtin",
+            "removable": bool(installed),
             "permissions": list(manifest.permissions) if manifest else [],
             "contributes": (manifest.contributes if manifest else {}),
             "dsh": (manifest.dsh if manifest else {}),

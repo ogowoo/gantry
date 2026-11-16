@@ -347,7 +347,8 @@ async def plugin_uninstall(payload: dict | None = None):
     if not name:
         raise HTTPException(400, "需要 name")
     try:
-        return b.PLUGINS.uninstall(name, bool(data.get("keep_backup", True)))
+        return b.PLUGINS.uninstall(name, bool(data.get("keep_backup", True)),
+                                   allow_builtin=bool(data.get("allow_builtin", False)))
     except b.PluginError as exc:
         raise HTTPException(400, str(exc))
 

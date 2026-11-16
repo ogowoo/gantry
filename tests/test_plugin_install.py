@@ -105,6 +105,16 @@ class InstallTests(unittest.TestCase):
         with self.assertRaises(PluginError):
             self.host.uninstall("nope")
 
+    def test_uninstall_builtin_refused_unless_explicit(self):
+        src = _mk_plugin(self.tmp, "core", "1.0.0")
+        shutil.copytree(src, self.plugdir / "core")
+        with self.assertRaises(PluginError) as ctx:
+            self.host.uninstall("core")
+        self.assertIn("内置插件", str(ctx.exception))
+        self.assertTrue((self.plugdir / "core").is_dir(), "拒绝卸载时不能删目录")
+        out = self.host.uninstall("core", allow_builtin=True)
+        self.assertTrue(out["removed"])
+
     def test_version_compare(self):
         v = PluginHost._version_tuple
         self.assertGreater(v("0.10.0"), v("0.9.9"))

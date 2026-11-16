@@ -42,6 +42,15 @@ class UpdateUiTests(unittest.TestCase):
         self.assertIn("margin-left:auto", block)
         self.assertIn("padding:2px 6px", css)
 
+    def test_plugin_manager_has_uninstall(self):
+        js = (ROOT / "webui" / "js" / "panels.js").read_text(encoding="utf-8")
+        self.assertIn("/v1/plugins/uninstall", js)
+        self.assertIn("p.removable", js)
+        self.assertIn("卸载", js)
+        i18n = (ROOT / "webui" / "i18n.js").read_text(encoding="utf-8")
+        self.assertIn('"卸载插件"', i18n)
+        self.assertIn('"卸载失败: "', i18n)
+
 
 if __name__ == "__main__":
     unittest.main()

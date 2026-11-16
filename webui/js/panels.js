@@ -229,6 +229,25 @@ async function openPlugins(){
   rb.onclick=async()=>{ try{ await api('/v1/plugins/'+encodeURIComponent(p.name)+'/reload',{method:'POST'});
       toast(tr('已重载: ')+p.name,'ok'); await openPlugins(); }catch(e){ toast(tr('重载失败: ')+(e.text||e),'err') } };
   acts.appendChild(btn);acts.appendChild(rb);
+  if(p.removable){
+   const ub=document.createElement('button');ub.type='button';ub.className='btn danger';ub.textContent=tr('卸载');
+   ub.onclick=async()=>{
+    const ok=await window.dlgConfirm(
+      tr('确定卸载插件 {name}？会先摘除它的工具/API/面板，并保留备份。',{name:p.name}),
+      tr('卸载插件'),true);
+    if(!ok)return;
+    ub.disabled=true;
+    try{
+     const r=await api('/v1/plugins/uninstall',{method:'POST',
+       headers:{'Content-Type':'application/json'},
+       body:JSON.stringify({name:p.name,keep_backup:true})});
+     toast(tr('已卸载: {name}（备份: {backup}）',{name:p.name,backup:r.backup||'—'}),'ok');
+     try{await mergePluginI18n(false)}catch(e){}
+     await openPlugins();
+    }catch(e){ub.disabled=false;toast(tr('卸载失败: ')+((e&&(e.text||e.detail))||e),'err')}
+   };
+   acts.appendChild(ub);
+  }
   row.appendChild(head);row.appendChild(desc);row.appendChild(meta);row.appendChild(acts);
   if(p.error){ const er=document.createElement('div');er.className='perr';er.textContent=p.error; row.appendChild(er) }
   box.appendChild(row)});

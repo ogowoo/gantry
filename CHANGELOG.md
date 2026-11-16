@@ -14,6 +14,20 @@
 ### Fixed
 - 
 
+## [0.11.0-beta.6] - 2026-11-16
+
+### Added
+- WebUI 插件管理补上「卸载」：外部安装的插件可一键卸载（默认保留备份），
+  会先摘除工具/API/面板再删目录；内置插件只显示启用/禁用/重载，避免误删。
+- `/v1/plugins` 返回 `source` 与 `removable`；外部安装才可卸载。
+
+### Fixed
+- `PluginHost.uninstall` 默认拒绝内置插件（需显式 `allow_builtin=true`），
+  防止 WebUI/CLI 误删随服务发布的插件。
+
+### 测试
+- 插件安装/卸载/UI 目标测试 42 项 OK；不变量 25/0。
+
 ## [0.11.0-beta.5] - 2026-11-16
 
 ### Changed
