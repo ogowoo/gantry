@@ -69,13 +69,15 @@ function renderToolLog(steps,opts){
 }
 /* 回合流：把「发送 / 回答 / 工具调用」按回合边界合成一条时间线。
    数据来自 /v1/agent/sessions/{sid}/turns（老会话没有 prompt 就标"未留存"）。 */
-var turnCache={sid:null,rows:[]};
-async function loadTurns(sid){
- if(turnCache.sid===sid)return turnCache.rows;
+var turnCache={sid:null,rows:[],sig:''};
+async function loadTurns(sid,sig){
+ // sig：当前步骤签名（数量+最后一步标识）。变了说明有新步骤/回合完成，必须刷新缓存，
+ // 否则任务运行期间新完成的回合一直不显示（用户要切换会话才触发 load() 清缓存）。
+ if(turnCache.sid===sid&&turnCache.sig===sig)return turnCache.rows;
  try{
   const d=await api('/v1/agent/sessions/'+encodeURIComponent(sid)+'/turns');
-  turnCache={sid:sid,rows:(d&&d.turns)||[]};
- }catch(e){turnCache={sid:sid,rows:[]}}
+  turnCache={sid:sid,rows:(d&&d.turns)||[],sig:sig};
+ }catch(e){turnCache={sid:sid,rows:[],sig:sig}}
  return turnCache.rows;
 }
 /* 把回合回答摘要成一句人话（原始 JSON 放进 title/详情） */
@@ -130,9 +132,10 @@ var turnShown=20;                  // 默认只画最近 20 个回合（可点"�
 async function renderTurnFlow(sid,steps){
  const body=document.getElementById('toolLogBody');
  if(!body||!sid)return;
- const allTurns=await loadTurns(sid);
- if(!allTurns.length)return false;
  const list=(steps||[]).slice().sort((x,y)=>(Number(x.step)||0)-(Number(y.step)||0));
+ const _sig=list.length+'|'+(list.length?String(list[list.length-1].step??'')+'|'+String(list[list.length-1]._time||''):'');
+ const allTurns=await loadTurns(sid,_sig);
+ if(!allTurns.length)return false;
  const from=Math.max(0, allTurns.length-turnShown);
  const turns=allTurns.slice(from);
  // 被裁掉的回合所占的步骤也要跳过
