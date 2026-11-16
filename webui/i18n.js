@@ -818,6 +818,10 @@ Object.assign(I18N_EN, {
   "发现新版本": "New version available",
   "发现新版本 {a} → {b}（{m}）。更新前会备份代码，服务将重启。确定更新？":
     "New version {a} → {b} ({m}). Code is backed up first and the service will restart. Update now?",
+  "发现新版本 {a} → {b}；点击查看更新":
+    "New version {a} → {b}; click to open update management",
+  "有新版本可用，点击打开更新管理":
+    "A new version is available; click to open update management",
   "已更新到 {v}，等待服务重启…": "Updated to {v}; waiting for service restart…",
   "正在更新到 {v}…": "Updating to {v}…",
   "服务未在 120 秒内恢复，请查看 data/logs/crash.log":

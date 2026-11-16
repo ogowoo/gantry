@@ -289,11 +289,13 @@ async function renderSettings(){
    </div>
    <p class="sethint">${esc(tr('重启/终止都会中断正在跑的任务；状态已落库，重启后可恢复。'))}</p>
    <h4>${esc(tr('更新'))}</h4>
-   <div class="setbtns">
-    <button type="button" class="btn ghost" data-act="checkUpdate">⟳ ${esc(tr('检查更新'))}</button>
-    <button type="button" class="btn ghost danger" data-act="rollbackUpdate">↶ ${esc(tr('回滚最近更新'))}</button>
-   </div>
-   <p class="sethint" id="updateHint">${esc(tr('检查 GitHub 上的新版本；更新会先备份代码，可回滚'))}</p>`;
+   <div id="updatePanel">
+    <div class="setbtns">
+     <button type="button" class="btn ghost" data-act="checkUpdate">⟳ ${esc(tr('检查更新'))}</button>
+     <button type="button" class="btn ghost danger" data-act="rollbackUpdate">↶ ${esc(tr('回滚最近更新'))}</button>
+    </div>
+    <p class="sethint" id="updateHint">${esc(tr('检查 GitHub 上的新版本；更新会先备份代码，可回滚'))}</p>
+   </div>`;
 
  function _cfgSection(gid,path){
   if(gid==='exec'){
@@ -585,6 +587,19 @@ async function rollbackUpdate(){
  }catch(e){toast(tr('回滚失败: ')+((e&&(e.text||e.detail||e.message))||e),'err')}
 }
 
+/** 侧栏版本号点击：直接打开设置的危险区，并滚到更新面板。 */
+async function openUpdateSettings(){
+ try{await openSettings()}catch(e){return}
+ window.settingsTab='danger';
+ setSettingsTab('danger');
+ const info=window.gantryUpdateInfo||null;
+ const hint=document.getElementById('updateHint');
+ if(hint&&info&&info.update_available){
+  hint.textContent=tr('当前版本 {a}，最新 {b}',{a:info.current||'?',b:info.latest||'?'});
+ }
+ try{document.getElementById('updatePanel')?.scrollIntoView({block:'nearest'})}catch(e){}
+}
+
 const ACTIONS={
  /* 复制文件卡片里的正文（按卡片 data-path 找到对应 pre） */
  copyFile:async(el)=>{
@@ -703,6 +718,7 @@ const ACTIONS={
  restartService:()=>restartService(),
  checkUpdate:()=>checkUpdate(),
  rollbackUpdate:()=>rollbackUpdate(),
+ openUpdateSettings:()=>openUpdateSettings(),
  toggleTodos:()=>toggleTodos(),
  imgZoom:(el)=>imgZoom(el),
  mCopy:(el)=>{const m=codeMenuEl;if(m)copyText(m.dataset.code||'',el);closeCodeMenu()},

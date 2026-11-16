@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import re
 
-VERSION = "0.11.0-beta.1"
+VERSION = "0.11.0-beta.2"
 
 _SEMVER = re.compile(
     r"^(?P<major>0|[1-9]\d*)\.(?P<minor>0|[1-9]\d*)\.(?P<patch>0|[1-9]\d*)"

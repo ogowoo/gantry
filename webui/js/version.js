@@ -30,6 +30,49 @@ async function fetchMeta(){
  return null;
 }
 
+/** 最近一次检查结果，供设置页“更新”面板和点击入口使用。 */
+let updateInfo=null;
+let updateTimer=null;
+const UPDATE_INTERVAL_MS=6*60*60*1000;
+
+function _clearUpdateBadge(){
+ const el=document.getElementById('appVersion');
+ if(!el)return;
+ el.classList.remove('has-update');
+ const b=el.querySelector('.verupd');if(b)b.remove();
+ el.removeAttribute('data-update');
+ window.gantryUpdateInfo=null;
+}
+
+function _showUpdateBadge(info){
+ const el=document.getElementById('appVersion');
+ if(!el)return;
+ updateInfo=info;
+ window.gantryUpdateInfo=info;
+ el.classList.add('has-update');
+ el.setAttribute('data-update','1');
+ el.title=tr('发现新版本 {a} → {b}；点击查看更新',{a:info.current||'?',b:info.latest||'?'});
+ el.setAttribute('aria-label',tr('有新版本可用，点击打开更新管理'));
+ let b=el.querySelector('.verupd');
+ if(!b){b=document.createElement('span');b.className='verupd';b.setAttribute('aria-hidden','true');el.appendChild(b)}
+}
+
+/** 自动检查（只提示，不安装）；失败静默，不打扰已有界面。 */
+async function checkForUpdate(){
+ try{
+  const fn=window.api||api;
+  const r=await fn('/v1/update/check');
+  if(r&&r.update_available){_showUpdateBadge(r)}
+  else{_clearUpdateBadge();updateInfo=r||null}
+ }catch(e){/* 禁用/断网/私有仓库未授权：保持现状 */}
+}
+
+function startUpdateWatch(){
+ if(updateTimer)clearInterval(updateTimer);
+ updateTimer=setInterval(checkForUpdate,UPDATE_INTERVAL_MS);
+ setTimeout(checkForUpdate,1200);
+}
+
 async function loadVersion(){
  const el=document.getElementById('appVersion');
  if(!el)return;
@@ -41,7 +84,11 @@ async function loadVersion(){
   el.textContent='v'+v;
   el.title=tr('版本')+'：'+v+'（'+(d.name||'Gantry')+'）';
   el.hidden=false;
+  el.addEventListener('keydown',e=>{
+   if(e.key==='Enter'||e.key===' '){e.preventDefault();el.click()}
+  });
   applyTitleVersion(v, d.name);
+  startUpdateWatch();
  }catch(e){/* 拿不到就不显示 */}
 }
 
