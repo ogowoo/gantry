@@ -328,6 +328,8 @@ details>summary{cursor:pointer;color:var(--accent2);font-size:12.5px;user-select
 .btmver[data-act]:hover,.btmver[data-act]:focus-visible{color:var(--accent);
   background:color-mix(in srgb,var(--accent) 12%,var(--panel2));outline:none}
 .btmver.has-update{color:var(--accent);font-weight:600}
+/* 有更新时在文字后带一个很小的 ↑；它是胶囊内容的一部分，所以底色仍只包住文字。 */
+.btmver.has-update::after{content:" ↑";font-weight:600}
 /* 侧栏收起（桌面只剩 34px 图标条）：只留齿轮图标，标签与版本号藏起来 */
 :root[data-rail="closed"] .railfoot{padding:8px 0;justify-content:center}
 :root[data-rail="closed"] .railfoot::before{display:none}
