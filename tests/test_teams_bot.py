@@ -302,7 +302,8 @@ class AnswerTests(BotTestCase):
         orig = plugin.Bot._agent_answer
         plugin.Bot._agent_answer = fake_answer
         try:
-            bot = plugin.Bot(FakeCtx(kb_synthesize=True, fallback_agent=True, kb_min_coverage=0))
+            bot = plugin.Bot(FakeCtx(kb_synthesize=True, fallback_agent=True,
+                                     kb_min_coverage=0, model="deepseek"))
             text, source = asyncio.new_event_loop().run_until_complete(
                 bot.answer("我 GD 用不了了"))
         finally:
@@ -336,7 +337,7 @@ class AnswerTests(BotTestCase):
         plugin.Bot._agent_answer = fake_answer
         try:
             self.fake.conversations = [conv(dm(), "@Gantry 这个怎么弄")]
-            out = self.run_cycle(dry_run=True, fallback_agent=True)
+            out = self.run_cycle(dry_run=True, fallback_agent=True, model="deepseek")
         finally:
             plugin.Bot._agent_answer = orig
         self.assertEqual(out["would"][0]["text"], "模型给的答案")

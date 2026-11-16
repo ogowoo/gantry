@@ -31,9 +31,10 @@ CSS = re.sub(r"/\*[\s\S]*?\*/", " ", _RAW)
 
 APPROVAL_KEYS = [
     "授权执行",
-    "属于不可回滚操作；授权仅对本会话有效（会话结束即失效）",
-    "属于不可回滚操作；授权仅对这一次执行有效（用后即焚）",
+    "属于不可回滚操作；授权仅对本会话有效（会话结束即失效），或选择「仅本次」只放行这一次",
     "已授权并继续执行（本会话内不再逐次询问）",
+    "已授权并继续执行（该授权仅对这一次操作有效）",
+    "仅本次",
 ]
 SHUTDOWN_KEYS = [
     "即将终止本服务（进程退出）：",
@@ -62,16 +63,16 @@ class InterruptI18nTests(unittest.TestCase):
             self.assertIn(f'"{k}"', I18N, f"i18n.js 缺少英文词条: {k}")
 
     def test_scope_aware_wording(self):
-        """一次性授权与本会话授权不能共用"用后即焚"这种措辞。"""
-        # app.js 退役后前端是"i18n.js + js/*.js"拼接：同一句话在词条表和 approvals.js 都有，
-        # 只认 approvals.js 里那处 toast（按 `_sess?tr(` 精确定位），否则会命中 i18n 词典。
-        i = APP.index("_sess?tr('已授权并继续执行")
-        seg = APP[max(0, i - 300):i + 300]
-        self.assertIn("_sess", seg, "toast 要按 scope 分开措辞")
+        """会话授权与仅本次授权必须是两个独立动作，不能混成一个按钮。"""
+        i = APP.index("function showApprovalBar")
+        seg = APP[i:i + 5000]
+        self.assertIn("scope:'session'", seg)
+        self.assertIn("scope:'once'", seg)
+        self.assertIn("仅本次", seg)
 
 
 class InterruptProminenceTests(unittest.TestCase):
-    def _fn(self, name: str, span: int = 2600) -> str:
+    def _fn(self, name: str, span: int = 5000) -> str:
         i = APP.index(f"function {name}")
         return APP[i:i + span]
 

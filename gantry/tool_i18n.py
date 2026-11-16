@@ -84,6 +84,12 @@ DESC_EN: dict[str, str] = {
                                 "as a legacy import package and/or solution zip; never calls real APIs"),
     "power_automate_validate": ("Validate a generated Power Automate project: JSON parses and the "
                                 "definition has required keys"),
+    "power_apps_generate": ("Generate Power Apps canvas app YAML source (CanvasManifest.json + "
+                            "Src/*.pa.yaml); optionally pack it into .msapp with pac"),
+    "power_apps_pack": ("Pack an existing Power Apps canvas app source directory into .msapp "
+                        "using pac canvas pack (requires a Studio-validated baseline)"),
+    "power_apps_validate": ("Validate a Power Apps canvas app source directory: manifest, "
+                            "App.pa.yaml and screen files"),
     "validate_python": ("Check Python syntax of a file or directory; run it only after all files "
                         "are complete (a half-written file always fails — that is not a defect)"),
     "run_unittest": "Run unittest discovery; run it only after all files are complete",
@@ -198,6 +204,16 @@ ARG_EN: dict[str, str] = {
     "power_automate_generate.version": "Solution version (default 1.0.0.0)",
     "power_automate_validate.name": "Project name",
     "power_automate_validate.output_dir": "Project directory, default flows",
+    "power_apps_generate.name": "App name (lowercase kebab-case)",
+    "power_apps_generate.spec": "Object or JSON: display_name / screen_name / controls",
+    "power_apps_generate.output_dir": "Output directory, default apps",
+    "power_apps_generate.pack": "Call pac canvas pack after generating",
+    "power_apps_generate.pac": "Path to pac executable (optional)",
+    "power_apps_generate.msapp": "Output .msapp path (optional)",
+    "power_apps_pack.source_dir": "Source directory",
+    "power_apps_pack.msapp": "Output .msapp path (optional)",
+    "power_apps_pack.pac": "Path to pac executable (optional)",
+    "power_apps_validate.source_dir": "Source directory",
     "validate_python.path": "Relative path, defaults to .",
     "run_unittest.path": "Test directory, defaults to tests",
     "run_unittest.pattern": "Defaults to test_*.py",

@@ -15,10 +15,7 @@ import uuid
 from pathlib import Path
 from typing import Any
 
-try:
-    import yaml
-except Exception:                                # pragma: no cover
-    yaml = None
+import yaml
 
 
 class PowerAppsSourceError(RuntimeError):
@@ -78,8 +75,6 @@ def generate_source(name: str, spec: dict[str, Any] | None = None,
       display_name / screen_name / screen / controls:
         [{name,type,text,x,y,width,height,size,fill,on_select,properties}]
     """
-    if yaml is None:
-        raise PowerAppsSourceError("缺少 PyYAML：pip install pyyaml")
     spec = dict(spec or {})
     slug = _slug(name)
     display = str(spec.get("display_name") or name or slug)
@@ -199,8 +194,6 @@ def pack_msapp(source_dir: str | Path, msapp: str | Path | None = None,
 
 def validate_source(source_dir: str | Path) -> dict[str, Any]:
     """轻量校验：manifest、App.pa.yaml、至少一个 Screen 文件。"""
-    if yaml is None:
-        raise PowerAppsSourceError("缺少 PyYAML：pip install pyyaml")
     src = Path(source_dir).resolve()
     problems: list[str] = []
     manifest = src / "CanvasManifest.json"

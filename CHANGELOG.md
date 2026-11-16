@@ -14,6 +14,24 @@
 ### Fixed
 - 
 
+## [11.0.0-preview.102] - 2026-11-16
+
+### Changed
+- 同步 `origin/main` 4 个提交：`start.py` 中英台三语控制台、审批默认会话级 +
+  “仅本次”按钮、工具日志 turn 缓存失效、`start.py` 补 `Any` 导入。
+- 审批 UI 现在主按钮默认 **session** scope，另提供“仅本次”；旧的
+  `approval_scope=once` 不再决定主按钮行为。
+
+### Fixed
+- 补齐审批横幅新文案的英文词条，避免英文界面露中文。
+- `power_apps_generate/pack/validate` 补工具/参数英文描述；修正 PyYAML
+  静态导入，消除未定义名检查失败。
+- 修复 Power Apps UI / Teams bot 测试在完整套件中的顺序污染。
+
+### 测试
+- 同步相关目标测试 55 项 OK；不变量 25/0。
+- 完整套件在浏览器测试处挂起（服务/浏览器占用），未完成；此前 8 项失败已逐项修复。
+
 ## [11.0.0-preview.101] - 2026-11-15
 
 ### Changed

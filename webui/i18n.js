@@ -380,6 +380,8 @@ Object.assign(I18N_EN, {
     "is not reversible; the approval lasts for this session only (cleared when the session ends)",
   "属于不可回滚操作；授权仅对这一次执行有效（用后即焚）":
     "is not reversible; the approval covers this single run only (burned after use)",
+  "属于不可回滚操作；授权仅对本会话有效（会话结束即失效），或选择「仅本次」只放行这一次":
+    "is not reversible; the approval applies to this session (until it ends), or choose 'This time only' for a single run",
   "已授权并继续执行（本会话内不再逐次询问）":
     "Approved, resuming (no further prompts within this session)",
   "即将终止本服务（进程退出）：": "About to stop this service (the process will exit):",
