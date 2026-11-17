@@ -8,7 +8,7 @@
 
 > **Works without Copilot**: the browser starts on demand — service startup never touches the browser, and the WebUI plus provider models (DeepSeek/Kimi/OpenAI, etc.) are usable immediately; the browser is only launched when Copilot is actually needed, and a status with a "Retry browser" button is shown at the top of the UI. **Note**: in lazy mode, the first Copilot task after a restart must wait for the browser to launch and for SSO (can take several minutes on enterprise tenants); that waiting time does not count toward the task timeout. Provider models are unaffected.
 
-> **Version**: the `main` branch is currently **0.11.0-beta.11** (the multi-window parallel preview line has been merged in).
+> **Version**: the `main` branch is currently **0.11.0-beta.12** (the multi-window parallel preview line has been merged in).
 > The old stable line is archived at tag `v10.2.1-archive` / branch `archive/10.2.1-stable`.
 > For versioning rules, release process, and multi-machine collaboration conventions, see [docs/VERSIONING.md](docs/VERSIONING.md);
 > for changes in each release, see [CHANGELOG.md](CHANGELOG.md).
@@ -704,6 +704,7 @@ HTTP equivalents: `POST /v1/plugins/install {source, name?, force?}`, `POST /v1/
 - **Downgrades are refused by default** (to avoid accidentally swapping new features back to an old version); use `force=true` / `--force` if a downgrade is truly needed
 - Loaded immediately after install (tools/APIs/panels all take effect together), no restart needed
 - Uninstall first detaches the runtime contributions (tools/routes/panels) and then deletes the directory
+- **Optional heavy plugins** can declare `default_enabled: false` (example: `vector-index`, see [docs/VECTOR_INDEX.md](docs/VECTOR_INDEX.md)) and stay unloaded until enabled
 
 ### 5.6.1 Plugin UI: declarative panels
 
@@ -714,8 +715,9 @@ ctx.register_panel({"id": "schedules", "title": "定时任务", "view": "table",
                     "api": {"method": "GET", "path": "api/list"}})
 ```
 
-- `view` ∈ `kv` / `list` / `table` / `json` / `markdown`; plugins only provide a **data API**,
+- `view` ∈ `kv` / `list` / `table` / `json` / `markdown` / `admin`; plugins only provide a **data API**,
   rendering is done by the frontend—**plugins may not inject HTML/JS** (plugins are third-party code; allowing it would open an XSS surface)
+- `admin` adds declarative `fields`, `actions` (with optional confirm/danger) and a `search` box; all labels/paths are sanitized
 - Panel entry: plugin management dialog → "Plugin Panels", or `GET /v1/plugins/panels`
 - Uninstalling a plugin also removes its panels (no entry points left that 404 when clicked)
 - Built-in examples: `schedule`'s "Scheduled Tasks" table, `mcp`'s "MCP Servers" JSON

@@ -1,0 +1,45 @@
+{
+  "name": "vector-index",
+  "version": "0.1.0",
+  "description": "BGE-M3 向量索引插件：HTTP embedding、sqlite-vec/numpy 检索、完整管理面板与工具",
+  "gantry": {
+    "entry": "plugin.py",
+    "default_enabled": false,
+    "permissions": [
+      "tools",
+      "api",
+      "ui",
+      "storage"
+    ],
+    "contributes": {
+      "tools": [
+        "vector_index_status",
+        "vector_index_reindex",
+        "vector_index_search",
+        "vector_index_reset"
+      ],
+      "api": [
+        "GET api/admin",
+        "POST api/config",
+        "POST api/reindex",
+        "POST api/reset",
+        "GET api/search",
+        "GET api/status",
+        "GET api/health"
+      ],
+      "panels": [
+        "vector-index"
+      ]
+    },
+    "config": {
+      "base_url": "http://127.0.0.1:18087/v1",
+      "model": "BAAI/bge-m3",
+      "dim": 1024,
+      "batch_size": 8,
+      "timeout": 120,
+      "index_backend": "auto",
+      "top_k": 5,
+      "api_key": ""
+    }
+  }
+}

@@ -68,7 +68,9 @@ from .subproc import hidden_kwargs
 PLUGIN_DIR_NAME = "plugins"
 MANIFEST_NAMES = ("plugin.json", "package.json")
 # 插件声明式面板支持的渲染方式（插件只给数据，前端负责渲染——插件不注入 HTML）
-PANEL_VIEWS = ("kv", "list", "table", "json", "markdown")
+PANEL_VIEWS = ("kv", "list", "table", "json", "markdown", "admin")
+# 管理面板只接受安全的相对路径；插件不能把前端导航到任意 URL。
+_PANEL_PATH_RE = re.compile(r"^[A-Za-z0-9_./?=&%+-]+$")
 
 ALLOWED_PERMISSIONS = {"tools", "providers", "api", "ui", "events", "storage", "files"}
 PERMISSION_LABELS = {
@@ -95,6 +97,7 @@ class PluginManifest:
     permissions: list[str] = field(default_factory=list)
     contributes: dict[str, Any] = field(default_factory=dict)
     config: dict[str, Any] = field(default_factory=dict)
+    default_enabled: bool = True
     dsh: dict[str, Any] = field(default_factory=dict)     # DSH 兼容元数据（只读透传）
     # 插件自带译文：{"en": {"中文原文": "English"}, "tw": {...}}
     # 平台不知道第三方插件写了哪些中文，让它自己在清单里带上最不失真。
@@ -104,7 +107,8 @@ class PluginManifest:
     def to_dict(self) -> dict[str, Any]:
         return {"name": self.name, "version": self.version, "description": self.description,
                 "entry": self.entry, "permissions": self.permissions,
-                "contributes": self.contributes, "config": self.config, "dsh": self.dsh,
+                "contributes": self.contributes, "config": self.config,
+                "default_enabled": self.default_enabled, "dsh": self.dsh,
                 "i18n": self.i18n}
 
 
@@ -144,6 +148,8 @@ def _read_manifest(plugin_dir: Path) -> PluginManifest | None:
             permissions=perms,
             contributes=dict(block.get("contributes") or {}),
             config=dict(block.get("config") or {}),
+            default_enabled=bool(block.get("default_enabled",
+                                           not bool(block.get("default_disabled", False)))),
             dsh=dict(raw.get("dsh") or {}),
             dir=plugin_dir,
         )
@@ -219,14 +225,68 @@ class PluginContext:
         api = panel.get("api") or {}
         if not isinstance(api, dict) or not str(api.get("path") or "").strip():
             raise PluginError(f"{self.name}: panel.api 需要 path（插件自己的接口）")
+
+        def _clean_path(raw: Any) -> str:
+            p = str(raw or "").strip().lstrip("/")
+            if not p or ".." in p or p.startswith(("http:", "https:", "//")):
+                raise PluginError(f"{self.name}: panel 路径不合法: {raw!r}")
+            if not _PANEL_PATH_RE.match(p):
+                raise PluginError(f"{self.name}: panel 路径含非法字符: {raw!r}")
+            return p
+
+        fields = []
+        for f in (panel.get("fields") or [])[:24]:
+            if not isinstance(f, dict):
+                continue
+            key = str(f.get("key") or "").strip()
+            if not key or not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_.-]{0,60}", key):
+                continue
+            ftype = str(f.get("type") or "text").lower()
+            if ftype not in ("text", "password", "number", "checkbox", "select"):
+                ftype = "text"
+            fields.append({
+                "key": key, "label": str(f.get("label") or key)[:80],
+                "type": ftype,
+                "placeholder": str(f.get("placeholder") or "")[:120],
+                "default": f.get("default"),
+                "options": [{"value": str(o.get("value")), "label": str(o.get("label") or o.get("value"))}
+                            for o in (f.get("options") or [])[:40] if isinstance(o, dict)],
+            })
+        actions = []
+        for a in (panel.get("actions") or [])[:12]:
+            if not isinstance(a, dict):
+                continue
+            aid = str(a.get("id") or "").strip()
+            if not aid or not re.fullmatch(r"[A-Za-z0-9_-]{1,40}", aid):
+                continue
+            methods = str(a.get("method") or "POST").upper()
+            if methods not in ("GET", "POST"):
+                continue
+            actions.append({
+                "id": aid, "label": str(a.get("label") or aid)[:80],
+                "method": methods, "path": _clean_path(a.get("path")),
+                "confirm": str(a.get("confirm") or "")[:240],
+                "danger": bool(a.get("danger")),
+                "send_values": bool(a.get("send_values", True)),
+            })
+        search = panel.get("search") or None
+        if isinstance(search, dict) and search.get("path"):
+            search = {"path": _clean_path(search.get("path")),
+                      "label": str(search.get("label") or "Search")[:80],
+                      "placeholder": str(search.get("placeholder") or "")[:120]}
+        else:
+            search = None
         entry = {
             "plugin": self.name,
             "id": pid,
             "title": str(panel.get("title") or pid)[:80],
             "view": view,
             "method": str(api.get("method") or "GET").upper(),
-            "path": str(api.get("path") or "").strip(),
+            "path": _clean_path(api.get("path")),
             "hint": str(panel.get("hint") or "")[:200],
+            "fields": fields,
+            "actions": actions,
+            "search": search,
         }
         self.registered.setdefault("panels", []).append(entry)
         self.host.panels_list = [x for x in self.host.panels_list
@@ -340,7 +400,17 @@ class PluginHost:
             self.providers[name] = cfg
 
     def enabled(self, name: str) -> bool:
-        return bool((self._state.get(name) or {}).get("enabled", True))
+        entry = self._state.get(name) or {}
+        if "enabled" in entry:
+            return bool(entry.get("enabled"))
+        # 未显式启用/禁用时，允许清单声明 default_enabled=false（重型可选插件）。
+        try:
+            manifest = next((m for m in self.discover() if m.name == name), None)
+            if manifest is not None:
+                return bool(manifest.default_enabled)
+        except Exception:                        # noqa: BLE001
+            pass
+        return True
 
     def set_enabled(self, name: str, enabled: bool) -> None:
         entry = self._state.setdefault(name, {})

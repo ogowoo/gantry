@@ -14,6 +14,22 @@
 ### Fixed
 - 
 
+## [0.11.0-beta.12] - 2026-11-17
+
+### Added
+- **vector-index 插件**（默认关闭）：BGE-M3 HTTP `/embeddings` + 独立向量索引；
+  有 `sqlite-vec` 走原生 KNN，没有则 numpy/纯 Python 余弦兜底。
+  - 读取 KB child chunks，保留 parent_text/元数据；不修改 `data/kb.db`。
+  - 完整管理面板（配置/重建/测试连接/清空/检索测试）、4 个工具、7 个 HTTP API。
+  - 默认 `default_enabled=false`；插件管理里启用后生效。
+  - 管理面板是声明式 `admin`：支持字段、动作、确认框和检索测试，不注入 HTML/JS。
+- 插件清单支持 `default_enabled` / `default_disabled`；重型插件可不自动加载。
+- 插件面板新增 `admin` view，供插件提供配置表单、管理动作和测试检索。
+- `docs/VECTOR_INDEX.md`、`tests/test_vector_index_plugin.py`。
+
+### 测试
+- vector-index/插件/i18n 目标测试 72 项 OK；不变量 25/0。
+
 ## [0.11.0-beta.11] - 2026-11-17
 
 ### Fixed

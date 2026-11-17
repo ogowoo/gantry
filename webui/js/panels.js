@@ -30,6 +30,74 @@ function _renderJson(v){
  try{ return '<pre class="pjson">'+esc(JSON.stringify(v,null,2))+'</pre>' }
  catch(e){ return '<pre class="pjson">'+esc(String(v))+'</pre>' }
 }
+function _adminFieldHtml(f, values){
+ const key=esc(f.key), val=values&&values[f.key]!==undefined?values[f.key]:(f.default!==undefined?f.default:'');
+ if(f.type==='checkbox'){
+  return `<label class="setrow"><input type="checkbox" data-admin-key="${key}" ${val?'checked':''}><span data-i18n-skip="1">${esc(f.label)}</span></label>`;
+ }
+ if(f.type==='select'){
+  const opts=(f.options||[]).map(o=>`<option value="${esc(o.value)}" ${String(o.value)===String(val)?'selected':''}>${esc(o.label)}</option>`).join('');
+  return `<label class="setrow"><span data-i18n-skip="1">${esc(f.label)}</span><select class="kbinput" data-admin-key="${key}">${opts}</select></label>`;
+ }
+ return `<label class="setrow"><span data-i18n-skip="1">${esc(f.label)}</span><input class="kbinput" type="${esc(f.type||'text')}" data-admin-key="${key}" value="${esc(val===undefined||val===null?'':val)}" placeholder="${esc(f.placeholder||'')}"></label>`;
+}
+function _renderAdmin(p,data){
+ const body=document.getElementById('panelBody');
+ const values=(data&&data.values)||{};
+ const status=(data&&data.status)||data||{};
+ let html='';
+ if(p.hint)html+='<div class="meta">'+esc(tr(p.hint))+'</div>';
+ html+='<div class="adminstatus">'+_renderKv(status)+'</div>';
+ if((p.fields||[]).length){
+  html+='<div class="adminform">'+(p.fields||[]).map(f=>_adminFieldHtml(f,values)).join('')+'</div>';
+ }
+ html+='<div class="setbtns">';
+ (p.actions||[]).forEach(a=>{html+=`<button type="button" class="btn ${a.danger?'danger':'ghost'}" data-admin-action="${esc(a.id)}" data-i18n-skip="1">${esc(a.label)}</button>`});
+ html+='</div>';
+ if(p.search){
+  html+=`<div class="setrow"><span data-i18n-skip="1">${esc(p.search.label)}</span><input class="kbinput" id="adminSearchInput" placeholder="${esc(p.search.placeholder||'')}"><button type="button" class="btn ghost" id="adminSearchBtn">${esc(tr('搜索'))}</button></div>`;
+ }
+ html+='<div id="adminResult" class="adminresult"></div>';
+ body.innerHTML=html;
+ const vals=()=>{
+  const out={};
+  body.querySelectorAll('[data-admin-key]').forEach(el=>{
+   const k=el.dataset.adminKey;
+   out[k]=el.type==='checkbox'?!!el.checked:el.value;
+  });
+  return out;
+ };
+ const run=async(a)=>{
+  if(a.confirm&&!await window.dlgConfirm(tr(a.confirm),tr(a.label),!!a.danger))return;
+  const url=_panelUrl({plugin:p.plugin,path:a.path});
+  const opt={method:a.method||'POST'};
+  if(opt.method==='POST'){
+   opt.headers={'Content-Type':'application/json'};
+   opt.body=JSON.stringify(a.send_values===false?{}:{values:vals()});
+  }
+  try{
+   const d=await api(url,opt);
+   toast(tr('完成')+': '+a.label,'ok');
+   await loadPanel(p);
+   const r=document.getElementById('adminResult');
+   if(r)r.innerHTML=_renderJson(d);
+  }catch(e){toast(tr('操作失败: ')+((e&&(e.text||e.detail))||e),'err')}
+ };
+ body.querySelectorAll('[data-admin-action]').forEach(btn=>{
+  const a=(p.actions||[]).find(x=>x.id===btn.dataset.adminAction);
+  if(a)btn.onclick=()=>run(a);
+ });
+ const sb=document.getElementById('adminSearchBtn');
+ if(sb&&p.search){
+  sb.onclick=async()=>{
+   const q=(document.getElementById('adminSearchInput')||{}).value||'';
+   try{
+    const d=await api(_panelUrl({plugin:p.plugin,path:p.search.path})+(p.search.path.includes('?')?'&':'?')+'q='+encodeURIComponent(q));
+    const r=document.getElementById('adminResult');if(r)r.innerHTML=_renderJson(d);
+   }catch(e){toast(tr('搜索失败: ')+((e&&(e.text||e.detail))||e),'err')}
+  };
+ }
+}
 function _renderPanel(p,data){
  const body=document.getElementById('panelBody');
  if(!body)return;
@@ -37,6 +105,7 @@ function _renderPanel(p,data){
             ? data[p.id] : (data&&data.items!==undefined?data.items:data));
  let html='';
  const v=p.view||'kv';
+ if(v==='admin'){_renderAdmin(p,data);return}
  if(v==='table')html=_renderTable(Array.isArray(box)?box:_firstArray(data));
  else if(v==='list')html=_renderList(Array.isArray(box)?box:_firstArray(data));
  else if(v==='json')html=_renderJson(data);
@@ -172,7 +241,7 @@ async function loadPanel(p){
 }
 function closePanels(){closeMask('panelMask')}
 
-const PLUGINS_BASE=['power-apps','power-automate','power-platform','teams-bot','mcp','research','web-search','image-gen','telegram','schedule','kb'];
+const PLUGINS_BASE=['power-apps','power-automate','power-platform','teams-bot','mcp','research','web-search','image-gen','telegram','schedule','kb','vector-index'];
 function _pluginLabel(name){
  if(name==='power-apps')return 'Power Apps';
  if(name==='power-automate')return 'Power Automate';
