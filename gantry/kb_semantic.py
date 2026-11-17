@@ -201,7 +201,9 @@ class SemanticIndex:
         row = con.execute(
             f"SELECT COUNT(*) AS n, MAX(dim) AS dim FROM {self.table} WHERE model=?",
             (self.embedder.name,)).fetchone()
-        total = con.execute("SELECT COUNT(*) AS n FROM chunks").fetchone()["n"]
+        total = con.execute(
+            "SELECT COUNT(*) AS n FROM chunks "
+            "WHERE COALESCE(chunk_kind,'legacy') <> 'parent'").fetchone()["n"]
         return {"model": self.embedder.name,
                 "vectorised": int(row["n"] or 0), "dim": int(row["dim"] or 0),
                 "chunks": int(total), "complete": int(row["n"] or 0) >= int(total)}
@@ -215,7 +217,8 @@ class SemanticIndex:
     def _missing(self) -> list[dict[str, Any]]:
         con = self.kb.db()
         rows = con.execute(
-            "SELECT id, doc_title, heading, text FROM chunks").fetchall()
+            "SELECT id, doc_title, heading, text FROM chunks "
+            "WHERE COALESCE(chunk_kind,'legacy') <> 'parent'").fetchall()
         have = {r["chunk_id"] for r in self._model_rows()}
         return [{"id": r["id"], "text": "\n".join(
             x for x in (r["doc_title"], r["heading"], r["text"]) if x)}
@@ -300,15 +303,27 @@ class SemanticIndex:
         out = []
         for cos, cid in scored[:max(1, limit)]:
             row = con.execute(
-                "SELECT id, path, doc_title, heading, tags, text FROM chunks WHERE id=?",
+                "SELECT id, path, doc_title, heading, tags, text, parent_id, "
+                "chunk_kind, meta_json FROM chunks WHERE id=?",
                 (cid,)).fetchone()
             if not row:
                 continue
+            try:
+                meta = json.loads(row["meta_json"]) if row["meta_json"] else {}
+            except Exception:                    # noqa: BLE001
+                meta = {}
             out.append({"id": row["id"], "title": row["doc_title"],
                         "heading": row["heading"], "tags": row["tags"],
                         "path": row["path"], "text": row["text"],
+                        "parent_id": row["parent_id"],
+                        "chunk_kind": row["chunk_kind"] or "legacy",
+                        "meta": meta,
                         "score": round((cos + 1.0) / 2.0, 4), "cos": round(cos, 4),
                         "via": "vector"})
+        try:
+            self.kb._expand_parents(con, out)
+        except Exception:                        # noqa: BLE001
+            pass
         return out
 
     def hybrid(self, query: str, limit: int = 5, w_vec: float = 0.75,
@@ -342,6 +357,10 @@ class SemanticIndex:
                 "id": cid, "title": base.get("title"), "heading": base.get("heading"),
                 "tags": base.get("tags"), "path": base.get("path"),
                 "text": base.get("text"),
+                "parent_id": base.get("parent_id"),
+                "parent_text": base.get("parent_text"),
+                "chunk_kind": base.get("chunk_kind") or "legacy",
+                "meta": base.get("meta") or {},
                 "score": round(w_vec * vec + w_cov * coverage, 4),
                 "vec": round(vec, 4), "coverage": round(coverage, 4),
                 "via": "both" if (vh and fh) else ("vector" if vh else "fts"),

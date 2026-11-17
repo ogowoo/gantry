@@ -8,7 +8,7 @@
 
 > **Works without Copilot**: the browser starts on demand — service startup never touches the browser, and the WebUI plus provider models (DeepSeek/Kimi/OpenAI, etc.) are usable immediately; the browser is only launched when Copilot is actually needed, and a status with a "Retry browser" button is shown at the top of the UI. **Note**: in lazy mode, the first Copilot task after a restart must wait for the browser to launch and for SSO (can take several minutes on enterprise tenants); that waiting time does not count toward the task timeout. Provider models are unaffected.
 
-> **Version**: the `main` branch is currently **0.11.0-beta.9** (the multi-window parallel preview line has been merged in).
+> **Version**: the `main` branch is currently **0.11.0-beta.10** (the multi-window parallel preview line has been merged in).
 > The old stable line is archived at tag `v10.2.1-archive` / branch `archive/10.2.1-stable`.
 > For versioning rules, release process, and multi-machine collaboration conventions, see [docs/VERSIONING.md](docs/VERSIONING.md);
 > for changes in each release, see [CHANGELOG.md](CHANGELOG.md).
@@ -299,6 +299,8 @@ models, ~20 MB, `pip install rapidocr`); if it is not installed the import fails
 | `http` | **0** | 0 MB | external | depends | depends | zero local deps, but needs a running `--embeddings` server / Ollama / FLM |
 | `fastembed` (default) | 1 package + ~10 deps | **~190 MB** (sympy 66 · numpy 50 · onnxruntime 39 · pillow 15 · tokenizers 8 …) + **91 MB** model | `BAAI/bge-small-zh-v1.5` (512-d, Chinese) | good | fast (ONNX, prebuilt wheels) | one process, no compiler |
 | `local` (llama-cpp-python) | 1 native wheel (~25 MB) | **~25 MB** + one GGUF: bge-small 50-90 MB / Qwen3-Embedding-0.6B Q8 **610 MB** | any embedding GGUF | best (Qwen3 class, 1024-d) | medium (~40-100 ms/item) | free if `providers.local` already runs — only a model file |
+
+**Parent/child chunks + pluggable reranker**: KB now indexes 300–500-char child windows for retrieval and keeps a parent section for the final context; arbitrary front-matter keys become metadata (`law`, `article`, `source`, …). An optional external `/rerank` service can reorder the recalled Top-20 to Top-3 without adding PyTorch to Gantry. See [docs/KB_RAG.md](docs/KB_RAG.md).
 
 **Adding to the KB from a chat**: the `kb_add` tool lets the model save curated text/URLs/files
 mid-conversation; each message has a 📚 button to store it verbatim; `/kb <content>` inserts a

@@ -22,14 +22,22 @@ import time
 from pathlib import Path
 from typing import Any
 
-# 一个 chunk 的正文上限：太大了 FTS 命中后塞不进提示词，太小又丢上下文
+# 一个 parent 的正文上限：命中后要能塞进提示词
 MAX_CHUNK_CHARS = 1600
-
-_FRONT_KEYS = ("title", "tags", "category", "source", "updated")
+# 通用父子块：parent = 标题/小节（或其中的一段），child = 用于向量召回的 300~500 字窗口
+PARENT_MAX_CHARS = 1600
+CHILD_TARGET = 420
+CHILD_MAX = 600
+_SEARCHABLE = "COALESCE(chunk_kind,'legacy') <> 'parent'"
+_SEARCHABLE_C = "COALESCE(c.chunk_kind,'legacy') <> 'parent'"
 
 
 def _parse_front_matter(text: str) -> tuple[dict[str, Any], str]:
-    """解析极简 front-matter：文件头 `---` 之间的 `key: value`（不引入 yaml 依赖）。"""
+    """解析极简 front-matter：文件头 `---` 之间的 `key: value`（不引入 yaml 依赖）。
+
+    除保留的 title/tags/category/source/updated 外，其它键也进入通用元数据，
+    供法律条号、合同编号、页码等 profile 使用；不认识的键不丢弃。
+    """
     meta: dict[str, Any] = {}
     if not text.startswith("---"):
         return meta, text
@@ -44,8 +52,8 @@ def _parse_front_matter(text: str) -> tuple[dict[str, Any], str]:
         k, _, v = line.partition(":")
         k = k.strip().lower()
         v = v.strip().strip('"').strip("'")
-        if k in _FRONT_KEYS and v:
-            if k == "tags":
+        if k and v:
+            if k in ("tags", "aliases"):
                 meta[k] = [x.strip() for x in re.split(r"[,，;；]", v) if x.strip()]
             else:
                 meta[k] = v
@@ -79,31 +87,55 @@ def _split_sections(body: str) -> list[tuple[str, str]]:
     return out
 
 
-def _chunks_for_file(path: Path, root: Path) -> list[dict[str, Any]]:
-    raw = path.read_text(encoding="utf-8", errors="replace")
-    meta, body = _parse_front_matter(raw)
-    rel = str(path.relative_to(root)).replace("\\", "/")
-    doc_title = meta.get("title") or path.stem
-    tags = " ".join(meta.get("tags") or [])
-    chunks: list[dict[str, Any]] = []
-    for i, (heading, text) in enumerate(_split_sections(body)):
-        # 超长小节再按段落硬切，避免单块过大
-        for j, part in enumerate(_hard_split(text)):
-            cid = hashlib.sha1(f"{rel}#{i}#{j}".encode()).hexdigest()[:16]
-            chunks.append({
-                "id": cid,
-                "path": rel,
-                "doc_title": doc_title,
-                "heading": heading,
-                "tags": tags,
-                "text": part,
-                "chars": len(part),
-            })
-    if not chunks:                     # 空文件也登记，避免每次都重扫
-        chunks.append({"id": hashlib.sha1(rel.encode()).hexdigest()[:16], "path": rel,
-                       "doc_title": doc_title, "heading": "", "tags": tags,
-                       "text": "", "chars": 0})
-    return chunks
+def _sentence_units(text: str) -> list[str]:
+    """按句号/问号/分号/换行切；保留标点，给 child 窗口用。"""
+    parts = re.split(r"(?<=[。！？!?；;])\s*|\n+", text or "")
+    return [p.strip() for p in parts if p and p.strip()]
+
+
+def _split_children(text: str) -> list[str]:
+    """把 parent 小节切成 300~500 字左右的 child 窗口。
+
+    不按固定字符硬切：优先整句；单句超过 CHILD_MAX 时才按段落/字符兜底。
+    """
+    text = (text or "").strip()
+    if not text:
+        return []
+    if len(text) <= CHILD_MAX:
+        return [text]
+    units: list[str] = []
+    for unit in _sentence_units(text):
+        if len(unit) <= CHILD_MAX:
+            units.append(unit)
+            continue
+        # 超长句：按段落/长度硬切，避免 child 突破上限
+        for para in (unit.split("\n\n") if "\n\n" in unit else [unit]):
+            while len(para) > CHILD_MAX:
+                units.append(para[:CHILD_MAX])
+                para = para[CHILD_MAX:]
+            if para.strip():
+                units.append(para.strip())
+    out: list[str] = []
+    buf = ""
+    for unit in units:
+        if buf and len(buf) + len(unit) + 1 > CHILD_MAX:
+            out.append(buf.strip())
+            buf = ""
+        # 达到目标后遇到天然句界就收；避免所有 child 都贴着 600 上限
+        if buf and len(buf) >= CHILD_TARGET and len(buf) + len(unit) + 1 > CHILD_TARGET:
+            out.append(buf.strip())
+            buf = ""
+        buf = (buf + " " + unit).strip() if buf else unit
+    if buf.strip():
+        out.append(buf.strip())
+    # 极端情况下拆出过短的碎片：合并到前一块
+    merged: list[str] = []
+    for part in out:
+        if merged and len(part) < 80 and len(merged[-1]) + len(part) <= CHILD_MAX:
+            merged[-1] = (merged[-1] + "\n" + part).strip()
+        else:
+            merged.append(part)
+    return merged or [text]
 
 
 def _hard_split(text: str) -> list[str]:
@@ -119,6 +151,53 @@ def _hard_split(text: str) -> list[str]:
     if buf:
         parts.append("\n\n".join(buf))
     return parts
+
+
+def _chunks_for_file(path: Path, root: Path) -> list[dict[str, Any]]:
+    """生成通用 parent/child 块。
+
+    - parent：按 Markdown 标题切出的小节（超长再按段落切），不参与 FTS/向量召回；
+    - child：parent 内 300~500 字窗口，参与 FTS/向量召回，命中后按 parent_id 回查 parent。
+    - meta_json：front-matter + 标题路径 + 父子/分片位置，领域 profile 可继续加字段。
+    """
+    raw = path.read_text(encoding="utf-8", errors="replace")
+    meta, body = _parse_front_matter(raw)
+    rel = str(path.relative_to(root)).replace("\\", "/")
+    doc_title = meta.get("title") or path.stem
+    tags = " ".join(meta.get("tags") or [])
+    meta_json = json.dumps(meta, ensure_ascii=False, sort_keys=True)
+    chunks: list[dict[str, Any]] = []
+    for i, (heading, text) in enumerate(_split_sections(body)):
+        for j, parent_text in enumerate(_hard_split(text)):
+            pid = hashlib.sha1(f"{rel}#{i}#{j}#parent".encode()).hexdigest()[:16]
+            base_meta = {
+                "front": meta,
+                "heading_path": heading,
+                "section_index": i,
+                "part_index": j,
+            }
+            chunks.append({
+                "id": pid, "path": rel, "doc_title": doc_title,
+                "heading": heading, "tags": tags, "text": parent_text,
+                "chars": len(parent_text), "chunk_kind": "parent",
+                "parent_id": None, "meta_json": meta_json,
+            })
+            for k, child_text in enumerate(_split_children(parent_text)):
+                cid = hashlib.sha1(f"{rel}#{i}#{j}#child#{k}".encode()).hexdigest()[:16]
+                child_meta = dict(base_meta, child_index=k, parent_id=pid)
+                chunks.append({
+                    "id": cid, "path": rel, "doc_title": doc_title,
+                    "heading": heading, "tags": tags, "text": child_text,
+                    "chars": len(child_text), "chunk_kind": "child",
+                    "parent_id": pid,
+                    "meta_json": json.dumps(child_meta, ensure_ascii=False, sort_keys=True),
+                })
+    if not chunks:                     # 空文件也登记，避免每次都重扫
+        chunks.append({"id": hashlib.sha1(rel.encode()).hexdigest()[:16], "path": rel,
+                       "doc_title": doc_title, "heading": "", "tags": tags,
+                       "text": "", "chars": 0, "chunk_kind": "legacy",
+                       "parent_id": None, "meta_json": meta_json})
+    return chunks
 
 
 # 查询里不参与打分的虚词（中文为主，英文少量）。宁可少列，别把实词误杀
@@ -169,7 +248,14 @@ class KnowledgeBase:
         con.execute("""CREATE TABLE IF NOT EXISTS chunks(
             id TEXT PRIMARY KEY, path TEXT, doc_title TEXT, heading TEXT,
             tags TEXT, text TEXT, chars INTEGER)""")
+        # 通用父子块/元数据迁移：老库没有这些列；新库建表后也会走同一段补列。
+        cols = {r[1] for r in con.execute("PRAGMA table_info(chunks)")}
+        for name, decl in (("parent_id", "TEXT"), ("chunk_kind", "TEXT"),
+                           ("meta_json", "TEXT")):
+            if name not in cols:
+                con.execute(f"ALTER TABLE chunks ADD COLUMN {name} {decl}")
         con.execute("CREATE INDEX IF NOT EXISTS idx_chunks_path ON chunks(path)")
+        con.execute("CREATE INDEX IF NOT EXISTS idx_chunks_parent ON chunks(parent_id)")
         try:
             con.execute("""CREATE VIRTUAL TABLE IF NOT EXISTS chunks_fts USING fts5(
                 doc_title, heading, tags, text, tokenize='trigram')""")
@@ -195,6 +281,9 @@ class KnowledgeBase:
         con = self.db()
         self.dir.mkdir(parents=True, exist_ok=True)
         known = {r["path"]: (r["mtime"], r["size"]) for r in con.execute("SELECT * FROM files")}
+        # 老库升级：已有 chunks 但没有 parent 行 → 必须至少重建一次，否则新父子块永不生效。
+        needs_parent = not con.execute(
+            "SELECT 1 FROM chunks WHERE chunk_kind='parent' LIMIT 1").fetchone()
         seen: set[str] = set()
         added = updated = skipped = removed = 0
         for path in sorted(self.dir.rglob("*")):
@@ -204,7 +293,7 @@ class KnowledgeBase:
             seen.add(rel)
             st = path.stat()
             old = known.get(rel)
-            if not force and old and abs(old[0] - st.st_mtime) < 1e-6 and old[1] == st.st_size:
+            if not force and not needs_parent and old and abs(old[0] - st.st_mtime) < 1e-6 and old[1] == st.st_size:
                 skipped += 1
                 continue
             chunks = _chunks_for_file(path, self.dir)
@@ -218,11 +307,13 @@ class KnowledgeBase:
             con.execute("DELETE FROM chunks WHERE path=?", (rel,))
             for c in chunks:
                 cur = con.execute(
-                    "INSERT INTO chunks(id,path,doc_title,heading,tags,text,chars)"
-                    " VALUES(?,?,?,?,?,?,?)",
+                    "INSERT INTO chunks(id,path,doc_title,heading,tags,text,chars,"
+                    "parent_id,chunk_kind,meta_json) VALUES(?,?,?,?,?,?,?,?,?,?)",
                     (c["id"], c["path"], c["doc_title"], c["heading"], c["tags"],
-                     c["text"], c["chars"]))
-                if self.fts:
+                     c["text"], c["chars"], c.get("parent_id"),
+                     c.get("chunk_kind") or "legacy", c.get("meta_json") or "{}"))
+                # parent 只用于回查上下文，不参与 FTS/向量召回，避免同一段文本被命中两次。
+                if self.fts and (c.get("chunk_kind") or "legacy") != "parent":
                     con.execute(
                         "INSERT INTO chunks_fts(rowid,doc_title,heading,tags,text)"
                         " VALUES(?,?,?,?,?)",
@@ -243,10 +334,14 @@ class KnowledgeBase:
             con.execute("DELETE FROM files WHERE path=?", (rel,))
             removed += 1
         con.commit()
-        total_chunks = con.execute("SELECT COUNT(*) AS n FROM chunks").fetchone()["n"]
+        total_chunks = con.execute(
+            f"SELECT COUNT(*) AS n FROM chunks WHERE {_SEARCHABLE}").fetchone()["n"]
+        total_parents = con.execute(
+            "SELECT COUNT(*) AS n FROM chunks WHERE chunk_kind='parent'").fetchone()["n"]
         return {"root": str(self.dir), "added": added, "updated": updated,
                 "skipped": skipped, "removed": removed, "fts": self.fts,
                 "documents": len(seen), "chunks": total_chunks,
+                "parents": total_parents,
                 "at": time.strftime("%Y-%m-%d %H:%M:%S")}
 
     # ── 检索 ──
@@ -264,7 +359,25 @@ class KnowledgeBase:
         hits = [self._row_to_hit(r) for r in rows]
         self._score(q, hits)
         hits.sort(key=lambda h: -h["score"])
+        self._expand_parents(con, hits)
         return hits[:max(1, limit)]
+
+    @staticmethod
+    def _expand_parents(con: sqlite3.Connection, hits: list[dict[str, Any]]) -> None:
+        """命中 child 后批量取 parent；parent 正文给最终生成，不参与召回。"""
+        pids = [h.get("parent_id") for h in hits if h.get("parent_id")]
+        if not pids:
+            return
+        marks = ",".join("?" for _ in pids)
+        rows = con.execute(
+            f"SELECT id, text, heading, doc_title FROM chunks WHERE id IN ({marks})",
+            tuple(pids)).fetchall()
+        by_id = {r["id"]: r for r in rows}
+        for h in hits:
+            p = by_id.get(h.get("parent_id"))
+            if p:
+                h["parent_text"] = p["text"]
+                h["parent_heading"] = p["heading"]
 
     def _search_fts(self, con: sqlite3.Connection, q: str, limit: int) -> list[sqlite3.Row]:
         """trigram 需要 ≥3 字符的片段；把 query 拆成片段分别查，再按命中数打分。"""
@@ -276,7 +389,8 @@ class KnowledgeBase:
             return con.execute(
                 "SELECT c.*, bm25(chunks_fts) AS rank FROM chunks_fts"
                 " JOIN chunks c ON c.rowid = chunks_fts.rowid"
-                " WHERE chunks_fts MATCH ? ORDER BY rank LIMIT ?",
+                f" WHERE chunks_fts MATCH ? AND {_SEARCHABLE_C}"
+                " ORDER BY rank LIMIT ?",
                 (match, max(1, limit))).fetchall()
         except sqlite3.OperationalError:
             return []
@@ -291,8 +405,8 @@ class KnowledgeBase:
             for cand in {w, w[:2]} if len(w) > 2 else {w}:
                 conds.append("(text LIKE ? OR doc_title LIKE ? OR heading LIKE ?)")
                 params.extend([f"%{cand}%"] * 3)
-        sql = ("SELECT *, NULL AS rank FROM chunks WHERE " + " OR ".join(conds) +
-               " LIMIT ?")
+        sql = ("SELECT *, NULL AS rank FROM chunks WHERE " + _SEARCHABLE +
+               " AND (" + " OR ".join(conds) + ") LIMIT ?")
         try:
             rows = con.execute(sql, (*params, max(1, limit) * 3)).fetchall()
         except sqlite3.OperationalError:
@@ -308,8 +422,19 @@ class KnowledgeBase:
     @staticmethod
     def _row_to_hit(r: sqlite3.Row) -> dict[str, Any]:
         rank = r["rank"] if "rank" in r.keys() else None
+        try:
+            meta = json.loads(r["meta_json"]) if "meta_json" in r.keys() and r["meta_json"] else {}
+        except Exception:                        # noqa: BLE001
+            meta = {}
+        source = ""
+        if isinstance(meta, dict):
+            front = meta.get("front") if isinstance(meta.get("front"), dict) else meta
+            source = str(front.get("source") or front.get("category") or "")
         return {"id": r["id"], "title": r["doc_title"], "heading": r["heading"],
                 "tags": r["tags"], "path": r["path"], "text": r["text"],
+                "parent_id": r["parent_id"] if "parent_id" in r.keys() else None,
+                "chunk_kind": r["chunk_kind"] if "chunk_kind" in r.keys() else "legacy",
+                "meta": meta, "source": source,
                 "score": 0.0, "_rank": None if rank is None else float(rank)}
 
     @staticmethod
@@ -342,7 +467,17 @@ class KnowledgeBase:
         used = 0
         for h in hits:
             src = f"《{h['title']}》" + (f" › {h['heading']}" if h["heading"] else "")
-            block = f"### {src}\n{h['text'].strip()}"
+            meta = h.get("meta") if isinstance(h.get("meta"), dict) else {}
+            front = meta.get("front") if isinstance(meta.get("front"), dict) else meta
+            extras = []
+            for k in ("law", "article", "section", "page", "source", "category"):
+                v = front.get(k) if isinstance(front, dict) else None
+                if v not in (None, "", []):
+                    extras.append(f"{k}: {v}")
+            if extras:
+                src += " ｜ " + " ｜ ".join(extras[:4])
+            body = h.get("parent_text") or h["text"]
+            block = f"### {src}\n{str(body).strip()}"
             if used + len(block) > max_chars:
                 break
             parts.append(block)
@@ -352,10 +487,15 @@ class KnowledgeBase:
     def stats(self) -> dict[str, Any]:
         con = self.db()
         files = con.execute("SELECT COUNT(*) AS n FROM files").fetchone()["n"]
-        chunks = con.execute("SELECT COUNT(*) AS n FROM chunks").fetchone()["n"]
-        chars = con.execute("SELECT COALESCE(SUM(chars),0) AS n FROM chunks").fetchone()["n"]
+        chunks = con.execute(
+            f"SELECT COUNT(*) AS n FROM chunks WHERE {_SEARCHABLE}").fetchone()["n"]
+        parents = con.execute(
+            "SELECT COUNT(*) AS n FROM chunks WHERE chunk_kind='parent'").fetchone()["n"]
+        chars = con.execute(
+            f"SELECT COALESCE(SUM(chars),0) AS n FROM chunks WHERE {_SEARCHABLE}").fetchone()["n"]
         return {"dir": str(self.dir), "documents": files, "chunks": chunks,
-                "chars": chars, "fts": self.fts, "index": str(self.db_path)}
+                "parents": parents, "chars": chars, "fts": self.fts,
+                "index": str(self.db_path)}
 
 
 def kb_meta_json(meta: dict[str, Any]) -> str:

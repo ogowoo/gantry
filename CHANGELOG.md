@@ -14,6 +14,21 @@
 ### Fixed
 - 
 
+## [0.11.0-beta.10] - 2026-11-17
+
+### Added
+- 知识库通用父子块：`chunks` 增加 `parent_id/chunk_kind/meta_json`；child（约 300–500 字）
+  参与 FTS/向量召回，命中后按 parent_id 回查完整小节作为最终上下文。
+- 通用元数据：front-matter 任意键进入 `meta_json`（法律可写 law/article，合同可写
+  contract/party，医疗可写 guideline/evidence 等）；检索结果与 `context_for()` 带元数据。
+- 可插拔 reranker：`gantry/kb_rerank.py`，默认关闭；开启后召回 Top-20 →
+  外部 `/rerank` 精排 Top-K，失败自动保留原排序。`kb.rerank` 配置与文档
+  `docs/KB_RAG.md`。
+- 老库升级自动补建 parent（`reindex` 检测；首次检索也会触发）；`stats.parents` 可观测。
+
+### 测试
+- KB/父子块/reranker 目标测试 113 项 OK；不变量 25/0。
+
 ## [0.11.0-beta.9] - 2026-11-17
 
 ### Fixed

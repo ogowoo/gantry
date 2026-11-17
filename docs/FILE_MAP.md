@@ -89,6 +89,7 @@ skills/                         Agent 技能说明与模板
 | `kb.py` | 知识库索引/搜索（SQLite FTS）。 |  |
 | `kb_ingest.py` | 知识库文档导入：把 Word / PDF / Excel / PPT / HTML / 纯文本 / URL 变成 `data/kb/**/*.md`。 | IngestError, _decode, _html_to_text, _docx_text, _xlsx_text, _pptx_text |
 | `kb_ocr.py` | OCR 兜底：扫描版 PDF / 图片 → 文本，用 RapidOCR（ONNX，CPU，纯 Python，中文强）。 | configure, config, available, available_xiaomi, effective_engine, _engine |
+| `kb_rerank.py` | 知识库可插拔 reranker。 | RerankError, Reranker, NoopReranker, HttpReranker, build_reranker |
 | `kb_semantic.py` | 知识库的向量检索层：把分块 embedding 进 SQLite，做语义召回，再与 FTS 结果融合。 | Embedder, HttpEmbedder, FastEmbedEmbedder, HashEmbedder, SemanticIndex, _cosine |
 | `lifecycle.py` | 服务生命周期：让 HTTP 层能"优雅停机"（WebUI 的「终止服务/退出」按钮）。 | set_shutdown_hook, shutdown_pending, restart_requested, schedule, cancel_pending, set_force_exit |
 | `local_models.py` | 内嵌本地模型引擎：把 GGUF 直接跑在 Gantry 进程里，`python start.py` 就能用，不需要外部 server。 | llama_class, set_llama_class, split_think, strip_think, _tag_prefix, _split_tag_prefix |
@@ -122,6 +123,7 @@ skills/                         Agent 技能说明与模板
 | `snapshots.py` | 工作区快照：记录任务改动前的文件原像，支持整任务回滚（自我升级 failback）。 | SnapshotStore |
 | `spans.py` | 本地 span 记录：把回合/工具调用写成 OTel GenAI 语义约定字段的 JSONL。 | _hex, SpanRecorder, Span, set_recorder, span |
 | `subagents.py` | 子代理：新建 / 继续 / 分叉 / 列出（每个子代理是独立的会话与上下文）。 | subagent_depth, run_subagent, _drive_child, continue_subagent, fork_subagent, list_subagents |
+| `subproc.py` | 跨平台隐藏子进程控制台窗口。 | hidden_kwargs |
 | `teams.py` | Teams 自动化 facade：re-export DOM/发送/API/mentions 原语。 |  |
 | `teams_api.py` | Teams chatsvc 内部 API 探测与可选发送。 |  |
 | `teams_common.py` | Teams 公共常量、页面锁、配置、身份规范化。 |  |
@@ -199,7 +201,7 @@ skills/                         Agent 技能说明与模板
 | `image-gen/plugin.py` | image-gen 插件：文生图（Grok / ChatGPT 那类"画一张"能力）。 | _env, _pick_backend, _dashscope, _openai, generate, setup |
 | `kb/README.md` | kb（本地知识库） |  |
 | `kb/plugin.json` | 插件元数据：权限、配置、面板、贡献点。 |  |
-| `kb/plugin.py` | kb 插件：把"本地知识库"做成可插拔能力（原来是塞在 teams-bot 里的两个工具）。 | _root, _cfg, _kb, _emb_cfg, _ocr_settings, _sem |
+| `kb/plugin.py` | kb 插件：把"本地知识库"做成可插拔能力（原来是塞在 teams-bot 里的两个工具）。 | _root, _cfg, _kb, _emb_cfg, _rerank_cfg, _reranker |
 | `mcp/plugin.json` | 插件元数据：权限、配置、面板、贡献点。 |  |
 | `mcp/plugin.py` | MCP 客户端插件（stdio + streamable HTTP/SSE 两种传输，含 resources）。 | McpError, _safe, _schema_to_args, _content_text, _resource_text, McpStdioClient |
 | `power-apps/plugin.json` | 插件元数据：权限、配置、面板、贡献点。 |  |
@@ -349,10 +351,13 @@ Web 控制台；`index.html` + `css/` + `js/`（ES 模块）。
 | `test_invariants.py` | 不变量检查必须全通过；并验证它真的能抓到破坏（避免"永远绿"的假保险）。 | InvariantTests |
 | `test_kb.py` | 本地知识库测试：切块、front-matter、中文检索（trigram）、增量重建、降级路径。 | ChunkTests, SearchTests, ScoreTests, ForceReindexTests |
 | `test_kb_ingest.py` | kb_ingest 测试：各格式提取、URL 抓取（假网络）、落盘与 front-matter、插件导入/删除/收件箱。 | make_docx, make_xlsx, make_pptx, make_pdf, ExtractTests, SaveTests |
+| `test_kb_parent_child.py` | 通用父子块与元数据：child 可召回，parent 用于最终上下文。 | ParentChildTests |
 | `test_kb_plugin.py` | kb 插件的离线测试：清单、注册、检索/重建工具、HTTP 接口、引用格式。 | FakeCtx, _Req, KbPluginTests |
+| `test_kb_rerank.py` | 可插拔 reranker：配置、HTTP 协议解析与失败降级。 | FakeReranker, RerankConfigTests, HttpRerankTests |
 | `test_kb_semantic.py` | 向量检索层测试（全部离线：HashEmbedder，不依赖 18085 上的真模型）。 | HashEmbedderTests, EmbedderChoiceTests, SemanticIndexTests, PluginModeTests, VectorPathParityTests |
 | `test_license_reason.py` | Copilot 许可证提示识别：不能当限流重试，也不能当正常回答。 | LicenseReasonTests |
 | `test_line_editing.py` | 按行读 / 按行替换：把"模型被迫用 PowerShell 改文件"的推力去掉。 | LineReadTests, ReplaceLinesTests, NoShellForLinesRuleTests |
+| `test_live_refresh.py` | 实时流刷新：消息落库要发 SSE messages，前端完成态/回到前台要补刷。 | MessageEventTests, LiveRefreshStaticTests |
 | `test_local_models.py` | 进程内模型引擎测试（全部用假 Llama，不加载真实模型，离线、秒级）。 | FakeLlama, Base, ThinkTests, EngineTests, EmbedderTests, ProviderTests |
 | `test_locale_ja.py` | 界面语言（日文）下的锚点识别。 | JapaneseMarkersTests, JapaneseAnswerExtractionTests, JapanesePatternTests, ChatSurfaceTests |
 | `test_locale_tw.py` | 界面语言（繁体中文）下的锚点识别。 | TraditionalChineseMarkersTests, TraditionalChineseAnswerExtractionTests |
@@ -458,6 +463,7 @@ Web 控制台；`index.html` + `css/` + `js/`（ES 模块）。
 | `test_subagent_max_steps.py` | 子代理步数上限可配置（用户实测：默认 40 步在做完前就用尽）。 | SubagentMaxStepsTests |
 | `test_subagent_parallel.py` | 子代理并行扇出（仅 API 提供商通道）。 | _setup, ParallelFanoutTests, SubagentManyToolTests, DriveChildConcurrentTests, TaskContextIsolationTests |
 | `test_subagent_stats.py` | KPI 的步数/token 必须把子代理算进来。 | _mk_store, SubagentStatsTests, ApiExposureTests, FrontendKpiTests, StoreSourceTests |
+| `test_subproc_hidden.py` | Windows 子进程不应弹出前台控制台窗口。 | HiddenSubprocessTests |
 | `test_suggestion_tail.py` | 补充测试：剥掉 Copilot 的建议尾巴。 | StripSuggestionTests |
 | `test_sync_tools.py` | 同步工具经 execute() 调用的回归测试（skill_list 曾因无条件 await 永远失败）。 | SyncToolExecutionTests |
 | `test_teams_bot.py` | teams-bot 插件测试（离线）：读侧走 IndexedDB（假数据），写侧默认关闭。 | dm, conv, FakeCtx, FakeKB, FakeTeams, BotTestCase |
@@ -531,7 +537,7 @@ Web 控制台；`index.html` + `css/` + `js/`（ES 模块）。
 | `login.py` | 浏览器登录辅助：检查 Playwright/服务、重置 profile、执行登录。 |  |
 | `login_teams.py` | Teams 登录辅助：打开登录页并等待人工完成 ADFS/MFA。 |  |
 | `make_manual_shots.py` | 生成使用手册的截图（主界面 / 知识库管理页），放到 webui/img/。 |  |
-| `make_quickstart_card.py` | 生成一页版「快速使用卡片」图片：简体 / 繁體 / English 各一张。 | esc, html, main |
+| `make_quickstart_card.py` | 生成一页版「快速安装卡片」图片：简体 / 繁體 / English 各一张。 | esc, html, main |
 | `make_tray_icon.py` | 应用图标（favicon + 托盘）用**字母 G**，并输出一张预览图便于核对。 | _font, draw, main |
 | `outlook_selftest.py` | Outlook COM 自检：在跑服务的机器上、用服务同一个 Python 环境运行。 | ok, fail, explain, main |
 | `power_automate_gen.py` | Power Automate 工程生成 CLI（同租户、不调用真实 API）。 | main |
@@ -603,13 +609,14 @@ Web 控制台；`index.html` + `css/` + `js/`（ES 模块）。
 | `DELIVERY-SUMMARY.md` | 交付物登记与遗留问题汇总 |  |
 | `ESM-MIGRATION.md` | app.js → ES Modules 迁移（已完成） |  |
 | `FILE_MAP.md` | 项目文件功能地图 |  |
+| `KB_RAG.md` | 知识库：通用父子块与可插拔精排 |  |
 | `MULTI-WINDOW.md` | Copilot 通道多窗口并行（`agent.copilot_windows`） |  |
 | `POWER_APPS_SOURCE.md` | Power Apps Canvas App 源码生成与 pac |  |
 | `POWER_AUTOMATE_DEV.md` | Power Automate 开发指南 |  |
 | `POWER_AUTOMATE_VERIFIED.md` | Power Automate operationId 实测状态 |  |
 | `POWER_PLATFORM_COVERAGE.md` | Power Platform 工具覆盖矩阵 |  |
 | `PROVIDER-deepseek-web.md` | 用 DeepSeek 网页版当免费/备用模型的三种接法（调研 + 我们的插件） |  |
-| `QUICKSTART.md` | 快速使用手册（一页版） |  |
+| `QUICKSTART.md` | 快速安装手册 |  |
 | `REVIEW-2026-11-agent-session.md` | CopilotBridge Agent 代码审查报告（真实缺陷清单） |  |
 | `TEAMS-BOT.md` | Teams 网页版 IT 应答机器人（teams-bot） |  |
 | `TEAMS_AUTOMATION_OPTIONS.md` | Teams 自动回复：已试方案、结果与受限点 |  |

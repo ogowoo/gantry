@@ -50,6 +50,17 @@ _DEFAULTS: dict[str, Any] = {
         "w_vec": 0.75,
         "w_cov": 0.25,
     },
+    # 可插拔精排：默认关闭；开启后把召回 Top-K 交给外部 /rerank 服务。
+    "rerank": {
+        "enabled": False,
+        "backend": "http",
+        "base_url": "http://127.0.0.1:18087/v1",
+        "model": "BAAI/bge-reranker-v2-m3",
+        "api_key": "",
+        "top_k": 3,
+        "min_score": 0.0,
+        "timeout": 30,
+    },
 }
 
 
@@ -100,6 +111,36 @@ def _emb_cfg(ctx) -> dict[str, Any]:
     if cache and not Path(cache).is_absolute():
         base["cache_dir"] = str(_root() / cache)
     return base
+
+
+def _rerank_cfg(ctx) -> dict[str, Any]:
+    """rerank 配置：默认 < config.json 的 kb.rerank < 插件 config.rerank。"""
+    base = dict(_DEFAULTS["rerank"])
+    try:
+        from gantry.bridge import CFG as _CFG
+
+        glob = ((_CFG.get("kb") or {}).get("rerank") or {})
+        if isinstance(glob, dict):
+            base.update({k: v for k, v in glob.items() if v not in (None, "")})
+    except Exception:                            # noqa: BLE001
+        pass
+    raw = (ctx.config or {}).get("rerank")
+    if isinstance(raw, dict):
+        base.update({k: v for k, v in raw.items() if v not in (None, "")})
+    return base
+
+
+def _reranker(ctx):
+    """按配置构造/缓存 reranker；关闭或不可用时返回 None（检索继续走原路径）。"""
+    if getattr(ctx, "_reranker", "missing") == "missing":
+        try:
+            from gantry.kb_rerank import build_reranker
+
+            ctx._reranker = build_reranker(_rerank_cfg(ctx))
+        except Exception as exc:                 # noqa: BLE001
+            ctx.log(f"reranker 初始化失败（继续不精排）: {exc}")
+            ctx._reranker = None
+    return getattr(ctx, "_reranker", None)
 
 
 def _ocr_settings(ctx) -> dict[str, Any]:
@@ -180,7 +221,10 @@ def setup(ctx) -> None:
             return
         kb = _kb(ctx)
         try:
-            if int(kb.stats().get("documents") or 0) == 0:
+            st = kb.stats()
+            if int(st.get("documents") or 0) == 0 or (
+                    int(st.get("chunks") or 0) > 0
+                    and int(st.get("parents") or 0) == 0):
                 kb.reindex()
         except Exception as exc:                 # noqa: BLE001
             ctx.log(f"知识库首次建索引失败（继续）: {exc}")
@@ -198,6 +242,9 @@ def setup(ctx) -> None:
         threshold = float(_cfg(ctx, "min_score") or 0) if min_score is None else float(min_score)
         chosen = str(mode or "auto").lower()
         sem = _sem(ctx) if chosen in ("auto", "vector", "hybrid") else None
+        rr = _reranker(ctx)
+        rcfg = _rerank_cfg(ctx)
+        recall = max(n * 2, 20) if rr is not None else n * 2
         backend = "fts5-trigram"
         hits: list[dict] = []
         if sem is not None and chosen in ("auto", "hybrid"):
@@ -210,19 +257,31 @@ def setup(ctx) -> None:
                 except Exception as exc:         # noqa: BLE001
                     ctx.log(f"自动建向量失败（退回 FTS）: {exc}")
             if st["vectorised"] > 0:
-                hits = sem.hybrid(q, n * 2,
+                hits = sem.hybrid(q, recall,
                                   w_vec=float(e.get("w_vec") or 0.75),
                                   w_cov=float(e.get("w_cov") or 0.25))
                 backend = f"hybrid({sem.embedder.name})"
         elif sem is not None and chosen == "vector":
-            hits = sem.search(q, n * 2)
+            hits = sem.search(q, recall)
             backend = f"vector({sem.embedder.name})"
         # 向量没建好 / 混合检索 0 命中时退回 FTS；否则 hits 未赋值会 500
         if not hits and chosen != "vector":
-            hits = kb.search(q, max(1, min(n * 3, 30)))
+            hits = kb.search(q, max(1, min(recall or n * 3, 30)))
             backend = "fts5-trigram"
         if threshold > 0:
             hits = [h for h in hits if float(h.get("score") or 0) >= threshold]
+        # 精排：召回 Top-20（或更大），再取 Top-K；失败时保留原排序。
+        if rr is not None and hits:
+            try:
+                top_k = int(rcfg.get("top_k") or 3)
+                hits = rr.rerank(q, hits, top_k)
+                backend += f"+rerank({rr.name})"
+                min_r = float(rcfg.get("min_score") or 0)
+                if min_r > 0:
+                    hits = [h for h in hits
+                            if float(h.get("rerank_score") or 0) >= min_r]
+            except Exception as exc:             # noqa: BLE001
+                ctx.log(f"reranker 失败（保留原排序）: {exc}")
         hits = hits[:n]
         for h in hits:
             h["cite"] = _cite(h)

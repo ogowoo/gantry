@@ -139,6 +139,24 @@ class KbPluginTests(unittest.TestCase):
         res = self.run_coro(self.ctx.tools["kb_search"]("VPN 连不上", 3, 1.01, "fts"))
         self.assertEqual(res["count"], 0, "阈值应该能筛掉")
 
+    def test_pluggable_reranker_is_used(self):
+        class FakeRerank:
+            name = "fake"
+            top_k = 1
+
+            def rerank(self, query, hits, top_k=0):
+                out = list(reversed(hits))[:1]
+                for h in out:
+                    h["rerank_score"] = 0.9
+                return out
+
+        plugin.setup(self.ctx)
+        self.ctx._reranker = FakeRerank()
+        res = self.run_coro(self.ctx.tools["kb_search"]("VPN 连不上", 3, None, "fts"))
+        self.assertIn("+rerank(fake)", res["backend"])
+        self.assertEqual(res["count"], 1)
+        self.assertIn("rerank_score", res["hits"][0])
+
     def test_reindex_tool(self):
         plugin.setup(self.ctx)
         res = self.run_coro(self.ctx.tools["kb_reindex"](True))
