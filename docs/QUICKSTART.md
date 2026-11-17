@@ -59,4 +59,6 @@ python start.py
 
 ---
 
+一页图：[简体](quickstart-zh.png) · [繁體](quickstart-zh-TW.png) · [English](quickstart-en.png)
+
 更全的文档 → [README](../README.md)

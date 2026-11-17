@@ -1,8 +1,8 @@
-# -*- coding: utf-8 -*-
-"""生成一页版「快速使用卡片」图片：简体 / 繁體 / English 各一张。
+"""生成一页版「快速安装卡片」图片：简体 / 繁體 / English 各一张。
 
-设计：单张竖版卡片，左侧 5 步流程（安装 → 登录 → 启动 → 跑任务），
-右侧「界面速览 + 常用操作」，底部常见问题。用 Playwright 渲染 HTML 再截图（2x）。
+设计：极简版，和 docs/QUICKSTART.md 保持一致——
+左侧 5 步（准备 → 安装 → 登录 → 启动 → 第一个任务），
+右侧常用操作 + 常见问题；用 Playwright 渲染 HTML 再截图（2x）。
 用法：python scripts/make_quickstart_card.py
 输出：docs/quickstart-zh.png / quickstart-zh-TW.png / quickstart-en.png
 """
@@ -18,13 +18,13 @@ CSS = """
 body { margin: 0; font-family: "Microsoft YaHei", "Segoe UI", system-ui, sans-serif;
   background: #eef2f7; color: #1b2430; }
 .card { width: 1240px; padding: 34px 38px 30px; background: #eef2f7; }
-.head { display: flex; align-items: baseline; gap: 14px; margin-bottom: 6px; }
+.head { display: flex; align-items: center; gap: 14px; margin-bottom: 6px; }
 .logo { width: 44px; height: 44px; border-radius: 12px; background: #0b7a5a;
   display: flex; align-items: center; justify-content: center; color: #fff;
-  font-weight: 800; font-size: 19px; letter-spacing: -.5px; }
+  font-weight: 800; font-size: 22px; letter-spacing: -.5px; }
 h1 { font-size: 30px; margin: 0; letter-spacing: -.4px; }
 .sub { color: #5b6b7e; font-size: 15px; margin: 2px 0 22px; }
-.grid { display: grid; grid-template-columns: 1.06fr .94fr; gap: 22px; align-items: start; }
+.grid { display: grid; grid-template-columns: 1.02fr .98fr; gap: 22px; align-items: start; }
 .step { display: flex; gap: 12px; background: #fff; border: 1px solid #dfe6ef;
   border-radius: 14px; padding: 14px 16px; margin-bottom: 12px; }
 .num { flex: none; width: 26px; height: 26px; border-radius: 50%; background: #2563eb;
@@ -32,6 +32,7 @@ h1 { font-size: 30px; margin: 0; letter-spacing: -.4px; }
   justify-content: center; margin-top: 1px; }
 .step h3 { margin: 0 0 6px; font-size: 16.5px; }
 .step p { margin: 0 0 6px; font-size: 13.5px; color: #41505f; line-height: 1.55; }
+.step p:last-child { margin-bottom: 0; }
 code { font-family: "Cascadia Mono", Consolas, monospace; font-size: 12.8px;
   background: #f3f6fa; border: 1px solid #e2e9f1; border-radius: 6px;
   padding: 1px 6px; color: #16324f; }
@@ -39,184 +40,161 @@ pre { margin: 6px 0 0; background: #0f1621; color: #d7e3f4; border-radius: 10px;
   padding: 10px 12px; font-family: "Cascadia Mono", Consolas, monospace;
   font-size: 12.6px; line-height: 1.65; white-space: pre; overflow: hidden; }
 pre .c { color: #7c8ba1; }
-.panel { background: #fff; border: 1px solid #dfe6ef; border-radius: 14px;
+.panel, .faq { background: #fff; border: 1px solid #dfe6ef; border-radius: 14px;
   padding: 14px 16px; margin-bottom: 12px; }
-.panel h3 { margin: 0 0 10px; font-size: 16px; }
+.panel h3, .faq h3 { margin: 0 0 10px; font-size: 16px; }
+.faq { margin-top: 0; }
 table { width: 100%; border-collapse: collapse; font-size: 13.2px; }
 td { padding: 6px 0; border-top: 1px solid #eef2f7; vertical-align: top; line-height: 1.5;
   word-break: keep-all; overflow-wrap: anywhere; }
 tr:first-child td { border-top: 0; }
-td.k { color: #2563eb; font-weight: 600; width: 42%; padding-right: 12px; }
-.faq { margin-top: 4px; background: #fff; border: 1px solid #dfe6ef; border-radius: 14px;
-  padding: 14px 16px; }
-.faq h3 { margin: 0 0 8px; font-size: 16px; }
-.faq table td { font-size: 13px; }
+td.k { color: #2563eb; font-weight: 600; width: 38%; padding-right: 12px; }
 .faq td.k { color: #b45309; }
 .foot { margin-top: 14px; color: #7a8798; font-size: 12.5px; display: flex;
-  justify-content: space-between; }
-.tag { display: inline-block; background: #e8f0ff; color: #2563eb; border-radius: 6px;
-  padding: 1px 7px; font-size: 12px; font-weight: 600; margin-left: 6px; }
-.warn { color: #b45309; }
+  justify-content: space-between; gap: 16px; }
 """
 
-# ── 文案：三语 ────────────────────────────────────────────────
+# ── 文案：三语；结构对齐 docs/QUICKSTART.md ───────────────────
 TEXT = {
     "zh": {
-        "title": "Gantry · 快速使用",
-        "sub": "Windows + Edge + Python 3.11+ ｜ 从零到第一个任务约 5 分钟",
+        "title": "Gantry · 快速安装",
+        "sub": "Windows + Edge + Python 3.11+ ｜ 5 分钟从零跑到第一个任务",
         "steps": [
-            ("安装（4 条命令）", [
+            ("准备", [
+                ("p", "Windows 10/11、Microsoft Edge、Python 3.11+。"),
+            ]),
+            ("安装", [
                 ("", ["git clone https://github.com/ogowoo/gantry.git",
                       "cd gantry",
-                      "python install.py            # 装依赖 + Playwright 浏览器",
+                      "python install.py",
                       "copy config.example.json config.json"]),
+                ("p", "install.py 会安装依赖和 Playwright 浏览器。"),
             ]),
             ("登录 Copilot（只做一次）", [
                 ("", ["python scripts/login.py"]),
-                ("p", "弹出的 Edge 里登录 M365 账号 —— 必须是有订阅的账号；"
-                      "看到推荐账号就点「使用其他账户」。登录态存 EdgeProfile/，之后不用再登。"),
+                ("p", "在 Edge 里登录 M365 账号；看到 Copilot 聊天页后回命令行按回车。"
+                      "登录态存 EdgeProfile/，之后不用再登。"),
             ]),
             ("启动", [
                 ("", ["python start.py"]),
-                ("p", "打开 http://127.0.0.1:8765/ui ；顶部显示「Copilot 就绪」即可用。"),
+                ("p", "打开 http://127.0.0.1:8765/ui；顶部显示「Copilot 就绪」即可用。"),
             ]),
             ("跑第一个任务", [
-                ("p", "① 写任务：分析 workspace 里的项目并生成 TODO　② 选模型（copilot-auto 够用）"
-                      "　③ 选工作目录　④ 选权限（默认「工作区内修改」）　⑤ 点「Agent 执行」→「开始」"),
+                ("p", "① 输入任务　② 选模型（copilot-auto 够用）　③ 选工作目录　"
+                      "④ 选权限（默认「工作区内修改」）　⑤ 点「Agent 执行」→「开始」。"),
             ]),
         ],
-        "ui_title": "界面速览",
-        "ui": [("实时流", "对话 + 工具结果 + 状态行（completed · 步数 · Token）"),
-               ("步骤时间线", "每步的工具/参数/结果，可展开 JSON、筛选、导出"),
-               ("待办 / 子代理", "实时流下方两条，点横条展开；待办随进度自动勾选"),
-               ("左下角 ⚙", "设置：主题/语言、执行参数、权限档位、浏览器、危险区"),
-               ("⚙ → 📚 知识库", "拖 docx/pdf/图片、导入 URL、粘贴文本；自动 OCR（普通页 RapidOCR，"
-                                 "表格页转 Xiaomi-OCR-0）+ 向量检索，导入即建索引"),
-               ("对话里入库", "消息右上「📚」直接存原文；/kb 让模型先整理成条目再入库（kb_add）"),
-               ("本地模型（可选）", "config.json 的 providers.local → 模型列表出现 local/minicpm5-2b，"
-                                   "不用外部 llama-server；eager 可预热"),
-               ("Teams 机器人（可选）", "插件 teams-bot：只看未读私聊、知识库优先 + 混合检索；"
-                                       "默认 dry_run，确认后再开发送")],
         "ops_title": "常用操作",
-        "ops": [("暂停 / 继续", "任务条「暂停」→「恢复」从检查点续跑"),
-                ("边跑边改要求", "输入框直接发（Ctrl+J 立即生效，不必等这轮跑完）"),
-                ("换模型", "任务条右侧下拉；限流挂起时用挂起卡片里的「换模型继续」"),
-                ("看它改了什么", "步骤时间线 →「查看结果」；更多菜单可「回滚任务改动」"),
-                ("删任务 / 重启", "More → 删除任务；设置页 → 危险区 → 重启服务"),
-                ("把内容存进知识库", "消息右上「📚」，或 /kb 内容 让模型整理后入库；管理页可删除/重建/检索测试")],
+        "ops": [
+            ("暂停 / 继续", "任务条「暂停」→「恢复」从检查点续跑"),
+            ("换模型", "任务条右侧下拉；限流时用挂起卡片里的「换模型继续」"),
+            ("授权", "弹出横幅点「授权执行」（本会话内不再逐次询问）"),
+            ("重启服务", "设置 → 危险区 → 重启服务"),
+            ("回滚改动", "更多 ▾ → 回滚任务改动…"),
+        ],
         "faq_title": "常见问题",
-        "faq": [("Copilot 未就绪", "点「重试浏览器」；仍不行重跑 python scripts/login.py"),
-                ("卡在「等待服务」", "网页限流：自动挂起、到点继续；也可换提供商模型立刻继续"),
-                ("端口被占用", "改 config.json 的 server.port 再启动"),
-                ("想用 DeepSeek/Kimi", "$env:DEEPSEEK_API_KEY=\"sk-...\" 后选 deepseek/deepseek-chat")],
-        "foot_left": "详细说明：README.md ｜ docs/QUICKSTART.md ｜ docs/TECHNICAL.md",
+        "faq": [
+            ("Copilot 未就绪", "点「重试浏览器」；仍不行重跑 python scripts/login.py"),
+            ("端口被占用", "改 config.json 的 server.port 再启动"),
+            ("想用 DeepSeek/Kimi", "设置环境变量 DEEPSEEK_API_KEY，模型列表自动出现"),
+        ],
+        "foot_left": "详细说明：docs/QUICKSTART.md ｜ README.md",
         "foot_right": "权限三档：仅可查看 / 工作区内修改（默认） / 完全权限",
     },
     "zh-TW": {
-        "title": "Gantry · 快速上手",
-        "sub": "Windows + Edge + Python 3.11+ ｜ 從零到第一個任務約 5 分鐘",
+        "title": "Gantry · 快速安裝",
+        "sub": "Windows + Edge + Python 3.11+ ｜ 5 分鐘從零跑到第一個任務",
         "steps": [
-            ("安裝（4 條指令）", [
+            ("準備", [
+                ("p", "Windows 10/11、Microsoft Edge、Python 3.11+。"),
+            ]),
+            ("安裝", [
                 ("", ["git clone https://github.com/ogowoo/gantry.git",
                       "cd gantry",
-                      "python install.py            # 安裝相依套件 + Playwright 瀏覽器",
+                      "python install.py",
                       "copy config.example.json config.json"]),
+                ("p", "install.py 會安裝依賴與 Playwright 瀏覽器。"),
             ]),
-            ("登入 Copilot（只需一次）", [
+            ("登入 Copilot（只做一次）", [
                 ("", ["python scripts/login.py"]),
-                ("p", "在彈出的 Edge 中登入 M365 帳號 —— 必須是有訂閱的帳號；"
-                      "看到建議帳號就點「使用其他帳戶」。登入狀態存於 EdgeProfile/，之後不必再登。"),
+                ("p", "在 Edge 裡登入 M365 帳號；看到 Copilot 聊天頁後回命令列按 Enter。"
+                      "登入狀態存 EdgeProfile/，之後不用再登。"),
             ]),
             ("啟動", [
                 ("", ["python start.py"]),
-                ("p", "開啟 http://127.0.0.1:8765/ui ；頂端顯示「Copilot 就緒」即可使用。"),
+                ("p", "開啟 http://127.0.0.1:8765/ui；頂部顯示「Copilot 就緒」即可使用。"),
             ]),
             ("跑第一個任務", [
-                ("p", "① 寫任務：分析 workspace 裡的專案並產生 TODO　② 選模型（copilot-auto 夠用）"
-                      "　③ 選工作目錄　④ 選權限（預設「工作區內修改」）　⑤ 點「Agent 執行」→「開始」"),
+                ("p", "① 輸入任務　② 選模型（copilot-auto 夠用）　③ 選工作目錄　"
+                      "④ 選權限（預設「工作區內修改」）　⑤ 點「Agent 執行」→「開始」。"),
             ]),
         ],
-        "ui_title": "介面速覽",
-        "ui": [("即時流", "對話 + 工具結果 + 狀態列（completed · 步數 · Token）"),
-               ("步驟時間軸", "每步的工具/參數/結果，可展開 JSON、篩選、匯出"),
-               ("待辦 / 子代理", "即時流下方兩列，點橫條展開；待辦會隨進度自動勾選"),
-               ("左下角 ⚙", "設定：主題/語言、執行參數、權限級別、瀏覽器、危險區"),
-               ("⚙ → 📚 知識庫", "拖 docx/pdf/圖片、匯入 URL、貼上文字；自動 OCR（一般頁 RapidOCR，"
-                                 "表格頁轉 Xiaomi-OCR-0）+ 向量檢索，匯入即建索引"),
-               ("對話中入庫", "訊息右上「📚」直接存原文；/kb 讓模型先整理成條目再入庫（kb_add）"),
-               ("本機模型（選用）", "config.json 的 providers.local → 模型清單出現 local/minicpm5-2b，"
-                                   "不需外部 llama-server"),
-               ("Teams 機器人（選用）", "外掛 teams-bot：只看未讀私聊、知識庫優先 + 混合檢索；"
-                                       "預設 dry_run，確認後再開啟傳送")],
         "ops_title": "常用操作",
-        "ops": [("暫停 / 繼續", "任務列「暫停」→「恢復」從檢查點續跑"),
-                ("邊跑邊改需求", "輸入框直接送（Ctrl+J 立即生效，不必等這輪跑完）"),
-                ("換模型", "任務列右側下拉；限流掛起時用掛起卡片裡的「換模型繼續」"),
-                ("看它改了什麼", "步驟時間軸 →「查看結果」；更多選單可「回滾任務改動」"),
-                ("刪任務 / 重啟", "More → 刪除任務；設定頁 → 危險區 → 重啟服務"),
-                ("把內容存進知識庫", "訊息右上「📚」，或 /kb 內容 讓模型整理後入庫；管理頁可刪除/重建/檢索測試")],
+        "ops": [
+            ("暫停 / 繼續", "任務條「暫停」→「恢復」從檢查點續跑"),
+            ("換模型", "任務條右側下拉；限流時用掛起卡片裡的「換模型繼續」"),
+            ("授權", "彈出橫幅點「授權執行」（本工作階段內不再逐次詢問）"),
+            ("重啟服務", "設定 → 危險區 → 重啟服務"),
+            ("回滾改動", "更多 ▾ → 回滾任務改動…"),
+        ],
         "faq_title": "常見問題",
-        "faq": [("Copilot 未就緒", "點「重試瀏覽器」；仍不行請重跑 python scripts/login.py"),
-                ("卡在「等待服務」", "網頁限流：自動掛起、到點繼續；也可換提供商模型立刻繼續"),
-                ("連接埠被佔用", "改 config.json 的 server.port 再啟動"),
-                ("想用 DeepSeek/Kimi", "$env:DEEPSEEK_API_KEY=\"sk-...\" 後選 deepseek/deepseek-chat")],
-        "foot_left": "詳細說明：README.md ｜ docs/QUICKSTART.md ｜ docs/TECHNICAL.md",
-        "foot_right": "權限三級：僅可檢視 / 工作區內修改（預設） / 完全權限",
+        "faq": [
+            ("Copilot 未就緒", "點「重試瀏覽器」；仍不行重跑 python scripts/login.py"),
+            ("連接埠被占用", "改 config.json 的 server.port 再啟動"),
+            ("想用 DeepSeek/Kimi", "設定環境變數 DEEPSEEK_API_KEY，模型列表自動出現"),
+        ],
+        "foot_left": "詳細說明：docs/QUICKSTART.md ｜ README.md",
+        "foot_right": "權限三檔：僅可檢視 / 工作區內修改（預設） / 完整權限",
     },
     "en": {
-        "title": "Gantry · Quick start",
-        "sub": "Windows + Edge + Python 3.11+ ｜ zero to first task in about 5 minutes",
+        "title": "Gantry · Quick install",
+        "sub": "Windows + Edge + Python 3.11+ ｜ zero to your first task in 5 minutes",
         "steps": [
-            ("Install (4 commands)", [
+            ("Prerequisites", [
+                ("p", "Windows 10/11, Microsoft Edge and Python 3.11+."),
+            ]),
+            ("Install", [
                 ("", ["git clone https://github.com/ogowoo/gantry.git",
                       "cd gantry",
-                      "python install.py            # deps + Playwright browser",
+                      "python install.py",
                       "copy config.example.json config.json"]),
+                ("p", "install.py installs dependencies and the Playwright browser."),
             ]),
             ("Sign in to Copilot (once)", [
                 ("", ["python scripts/login.py"]),
-                ("p", "Sign in to your M365 account in the Edge window — it must be a subscribed "
-                      "account; if Windows suggests another one, pick \"Use another account\". "
-                      "The session is stored in EdgeProfile/ and reused afterwards."),
+                ("p", "Sign in to your M365 account in Edge; when the Copilot chat page "
+                      "appears, return to the terminal and press Enter. The session is kept "
+                      "in EdgeProfile/."),
             ]),
             ("Start", [
                 ("", ["python start.py"]),
-                ("p", "Open http://127.0.0.1:8765/ui ; when the top bar says \"Copilot ready\" you are good."),
+                ("p", "Open http://127.0.0.1:8765/ui; when the top bar says "
+                      "\"Copilot ready\" you are good to go."),
             ]),
             ("Run your first task", [
-                ("p", "1) Describe the task (e.g. analyse the project under workspace and produce a TODO)  "
-                      "2) pick a model (copilot-auto is fine)  3) pick the working directory  "
-                      "4) pick permissions (default \"Modify workspace\")  5) click Agent run → Start"),
+                ("p", "1) Describe the task  2) pick a model (copilot-auto is fine)  "
+                      "3) pick the working directory  4) pick permissions (default "
+                      "\"Modify workspace\")  5) click Agent run → Start."),
             ]),
         ],
-        "ui_title": "What you see",
-        "ui": [("Live stream", "chat + tool results + a status line (completed · steps · tokens)"),
-               ("Step timeline", "every step's tool/args/result; expandable JSON, filters, export"),
-               ("Todos / Subagents", "two rows under the stream; click a row to expand; todos tick themselves"),
-               ("Bottom-left ⚙", "settings: theme/language, execution, permission level, browser, danger zone"),
-               ("⚙ → 📚 Knowledge base", "drop docx/pdf/images, import a URL, paste text; automatic OCR "
-                                         "(RapidOCR for plain pages, Xiaomi-OCR-0 for tables) + vector search"),
-               ("Save from chat", "the 📚 button on a message stores it; /kb lets the model tidy it first"),
-               ("Local models (optional)", "providers.local in config.json → local/minicpm5-2b shows up, "
-                                           "no external llama-server needed"),
-               ("Teams bot (optional)", "teams-bot plugin: unread DMs only, KB-first answers + hybrid "
-                                        "retrieval; dry_run by default")],
         "ops_title": "Everyday actions",
-        "ops": [("Pause / resume", "task bar \"Pause\" → \"Resume\" continues from the checkpoint"),
-                ("Change your mind", "just type in the composer (Ctrl+J injects immediately)"),
-                ("Switch model", "model dropdown on the task bar; when rate-limited use \"Switch model & continue\""),
-                ("See what changed", "step timeline → \"View result\"; More menu → roll back task changes"),
-                ("Delete / restart", "More → Delete task; Settings → Danger zone → Restart service"),
-                ("Save to the KB", "📚 on a message, or /kb content; manage under ⚙ → 📚 "
-                                   "(delete / rebuild / test queries)")],
+        "ops": [
+            ("Pause / resume", "task bar \"Pause\" → \"Resume\" continues from the checkpoint"),
+            ("Switch model", "model dropdown on the task bar; when rate-limited use "
+                             "\"Switch model & continue\""),
+            ("Approve tools", "click \"Approve\" on the banner (no more prompts this session)"),
+            ("Restart service", "Settings → Danger zone → Restart service"),
+            ("Roll back changes", "More ▾ → Roll back task changes…"),
+        ],
         "faq_title": "Troubleshooting",
-        "faq": [("Copilot not ready", "click \"Retry browser\"; if it persists re-run python scripts/login.py"),
-                ("Stuck at \"waiting\"", "web rate limit: it suspends and resumes automatically, "
-                                        "or pick a provider model to continue now"),
-                ("Port already in use", "change server.port in config.json and restart"),
-                ("Use DeepSeek/Kimi", "set $env:DEEPSEEK_API_KEY=\"sk-...\" then pick deepseek/deepseek-chat")],
-        "foot_left": "Details: README.md ｜ docs/QUICKSTART.md ｜ docs/TECHNICAL.md",
-        "foot_right": "Permission levels: View only / Modify workspace (default) / Full access",
+        "faq": [
+            ("Copilot not ready", "click \"Retry browser\"; if it persists re-run "
+                                  "python scripts/login.py"),
+            ("Port already in use", "change server.port in config.json and restart"),
+            ("Use DeepSeek/Kimi", "set DEEPSEEK_API_KEY; the model list updates automatically"),
+        ],
+        "foot_left": "Details: docs/QUICKSTART.md ｜ README.md",
+        "foot_right": "Permissions: View only / Modify workspace (default) / Full access",
     },
 }
 
@@ -234,10 +212,6 @@ def html(lang: str) -> str:
             if kind == "p":
                 inner.append(f"<p>{esc(payload)}</p>")
             else:
-                cmds = "\n".join(
-                    f'<span class="c">{esc(c.split("  # ")[0])}</span>' if "  # " in c
-                    else esc(c) for c in payload)
-                # 注释用暗色：把 # 之后的部分单独着色
                 lines = []
                 for c in payload:
                     if "  # " in c:
@@ -250,22 +224,21 @@ def html(lang: str) -> str:
                      f'<h3>{esc(title)}</h3>{"".join(inner)}</div></div>')
 
     def table(rows, cls=""):
-        body = "".join(f'<tr><td class="k">{esc(k)}</td><td>{esc(v)}</td></tr>' for k, v in rows)
+        body = "".join(f'<tr><td class="k">{esc(k)}</td><td>{esc(v)}</td></tr>'
+                       for k, v in rows)
         return f'<table class="{cls}">{body}</table>'
 
     return f"""<!doctype html><html lang="{lang}"><head><meta charset="utf-8">
 <style>{CSS}</style></head><body><div class="card">
-<div class="head"><div class="logo">CB</div><h1>{esc(t['title'])}</h1></div>
+<div class="head"><div class="logo">G</div><h1>{esc(t['title'])}</h1></div>
 <div class="sub">{esc(t['sub'])}</div>
 <div class="grid">
-  <div>{''.join(steps)}
-    <div class="panel"><h3>⌨ {esc(t['ops_title'])}</h3>{table(t['ops'])}</div>
-  </div>
+  <div>{''.join(steps)}</div>
   <div>
-    <div class="panel"><h3>🗂 {esc(t['ui_title'])}</h3>{table(t['ui'])}</div>
+    <div class="panel"><h3>⌨ {esc(t['ops_title'])}</h3>{table(t['ops'])}</div>
+    <div class="faq"><h3>🩺 {esc(t['faq_title'])}</h3>{table(t['faq'], 'faqtable')}</div>
   </div>
 </div>
-<div class="faq"><h3>🩺 {esc(t['faq_title'])}</h3>{table(t['faq'], 'faqtable')}</div>
 <div class="foot"><span>{esc(t['foot_left'])}</span><span>{esc(t['foot_right'])}</span></div>
 </div></body></html>"""
 
@@ -277,7 +250,7 @@ def main() -> int:
     made = []
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True, channel="msedge")
-        page = browser.new_page(viewport={"width": 1240, "height": 900}, device_scale_factor=2)
+        page = browser.new_page(viewport={"width": 1240, "height": 1000}, device_scale_factor=2)
         for lang in ("zh", "zh-TW", "en"):
             src = html(lang)
             tmp = OUT / f".quickstart-{lang}.html"

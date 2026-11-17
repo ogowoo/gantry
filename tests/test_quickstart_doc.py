@@ -37,17 +37,14 @@ class QuickstartDocTests(unittest.TestCase):
         self.assertIn("playwright", src, "install.py 要装 Playwright 浏览器")
 
     def test_three_language_cards_exist(self):
-        """简体 / 繁體 / English 各一张一页图，且不是空文件。
-
-        QUICKSTART 已改成极简文字版，不再强制正文引用图片；图片仍保留给
-        单独发送/打印使用。
-        """
+        """简体 / 繁體 / English 各一张一页图，且不是空文件。"""
         for name in ("quickstart-zh.png", "quickstart-zh-TW.png", "quickstart-en.png"):
             f = ROOT / "docs" / name
             self.assertTrue(f.exists(), f"缺少 {name}")
             self.assertGreater(f.stat().st_size, 50_000, f"{name} 太小，可能没渲染成功")
             data = f.read_bytes()[:8]
             self.assertEqual(data[:4], b"\x89PNG", f"{name} 不是 PNG")
+            self.assertIn(name, self.doc, f"手册里要引用 {name}")
 
     def test_card_generator_exists(self):
         gen = ROOT / "scripts" / "make_quickstart_card.py"
