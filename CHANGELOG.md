@@ -14,6 +14,20 @@
 ### Fixed
 - 
 
+## [0.11.0-beta.8] - 2026-11-17
+
+### Fixed
+- Copilot 多域名兼容：Microsoft 2026-11 把 Copilot 域名从 m365.cloud.microsoft
+  迁移到 copilot.cloud.microsoft，旧硬编码导致 `wait_copilot_ready` 永远超时
+  （browser_state 卡在 browser_up、copilot_ready=False）、模型列表刷新静默失败。
+  现在 `wait_copilot_ready` 匹配所有已知 Copilot 域名 + 配置域名；
+  `COPILOT_URL_MARK` 延迟构建避免循环导入；
+  会话删除的相对链接用实际页面 host 补全，不再硬编码旧域名。
+
+### 测试
+- URL 匹配 8 项定向测试全过；回归 82 项 OK；不变量 25/0。
+- 实测：`copilot_ready=True`、`browser_state=ready`、模型刷新 7.4s 成功。
+
 ## [0.11.0-beta.7] - 2026-11-16
 
 ### Fixed
