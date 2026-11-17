@@ -49,6 +49,24 @@ class ApprovalScopeTests(unittest.TestCase):
         self.assertFalse(self.st.take_approval("s2", "pwsh", "h1"),
                          "会话级授权不能跨会话")
 
+    def test_copy_session_approvals_to_child(self):
+        """子代理继承父会话的会话级授权（run_subagent → copy_session_approvals）。"""
+        self.st.create("child", "t", str(self.tmp), "m")
+        self.st.grant_session_approval("s1", "pwsh")
+        n = self.st.copy_session_approvals("s1", "child")
+        self.assertEqual(n, 1)
+        self.assertTrue(self.st.take_approval("child", "pwsh", "h1"),
+                        "子代理应继承父会话的会话级授权")
+
+    def test_copy_session_approvals_skips_consumed(self):
+        """只复制 args_hash='*' 的会话级授权；一次性授权不单独继承。"""
+        self.st.create("child2", "t", str(self.tmp), "m")
+        self.st.grant_approval("s1", "pwsh", "h_once")
+        n = self.st.copy_session_approvals("s1", "child2")
+        self.assertEqual(n, 0, "一次性授权不应被继承")
+        # child2 没有任何授权 → fail closed
+        self.assertFalse(self.st.take_approval("child2", "pwsh", "h2"))
+
 
 if __name__ == "__main__":
     unittest.main()

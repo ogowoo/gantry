@@ -205,6 +205,14 @@ async def fanout(tasks: list | None = None, model: str = "", workspace: str = ""
                                  "扇出任务：\n" + "\n".join(
                                      f"{i}. {it['task']}" for i, it in enumerate(items, 1)),
                                  0)
+    # 把调用者（真实会话）的会话级授权复制给 fanout 临时父会话，
+    # 这样子代理 run_subagent → copy_session_approvals 才能继承到（否则 fan-xxx 是空授权）。
+    caller_sid = b.current_session()
+    if caller_sid and caller_sid != parent_sid:
+        try:
+            b.AGENT_SESSIONS.copy_session_approvals(caller_sid, parent_sid)
+        except Exception as exc:
+            b.log(f"扇出继承调用者授权失败（不影响运行）：{exc}")
 
     serial = bool(serial)
     waves = _waves(items)
