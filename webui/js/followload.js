@@ -97,6 +97,7 @@ async function load(id){
 /* 轮询在飞保护 + 会话切换竞态防护：
    延迟>1s 时不再堆叠请求；await 返回时若已切到别的会话，丢弃迟到数据 */
 let runtimeInflight=false;
+let lastPhase='';
 async function runtime(){
  if(serviceStopped||!window.current||runtimeInflight)return;
  runtimeInflight=true;
@@ -207,6 +208,17 @@ async function applyRuntime(r){
   const _inFlight=['api_sending','api_streaming','waiting','sending'].includes(_livePhase)
                   && ['running','waiting','paused'].includes(_liveState);
   updateLiveBubble(_inFlight?(r.answer_preview||''):'',_inFlight);
+  // 兜底：完成态即使 SSE messages 事件丢了/页面刚从后台回来，也主动拉一次对话。
+  // 正常路径由后端 add_message 的 messages 事件刷新；这里防"结论要切会话才出现"。
+  const _terminal=['completed','followup_completed','manual_completed','api_completed',
+                   'failed','cancelled'];
+  if(_terminal.includes(_livePhase)&&lastPhase!==_livePhase){
+   setTimeout(()=>{
+    if(window.current!==myId)return;
+    try{window.refreshChat?window.refreshChat():null}catch(e){}
+   },80);
+  }
+  lastPhase=_livePhase;
   document.getElementById('prompt').textContent=r.prompt_preview||'';
   setPill(r.session_state);setKpis(r);
   // 任务刚跑完：拉一次"改了哪些文件"卡片（运行中不拉，数字会一直跳）

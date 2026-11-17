@@ -14,6 +14,19 @@
 ### Fixed
 - 
 
+## [0.11.0-beta.9] - 2026-11-17
+
+### Fixed
+- **实时流不自动显示最新消息/最终结论**：`SessionStore.add_message` 落库后现在统一
+  发 SSE `messages` 事件。以前只有 queue 跟进消息会发，Agent 主循环/文件直读完成
+  只更新 runtime，前端必须切走再切回（重新 load）才能看到最终回答。
+- 前端兜底：runtime 进入 completed/followup_completed/manual_completed/api_completed/
+  failed/cancelled 时主动刷新一次对话；页面从后台回到前台也补一次 runtime + 对话刷新
+  （后台标签页 `renderStream` 会跳过 DOM）。
+
+### 测试
+- 实时流/ESM/更新器目标测试 25 项 OK；不变量 25/0。
+
 ## [0.11.0-beta.8] - 2026-11-17
 
 ### Fixed

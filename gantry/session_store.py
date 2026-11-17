@@ -478,7 +478,15 @@ CREATE TABLE IF NOT EXISTS conv_stats (
                               {"role": role, "chars": len(content or ""),
                                "conversation_index": int(conversation_index),
                                "message_id": cur.lastrowid}, con=con)
-            return cur.lastrowid
+        # SSE：消息一落库就通知前端刷新实时流。以前只有 queue.py 的跟进路径发
+        # messages 事件；Agent 主循环/文件直读完成时只更新 runtime，前端要等
+        # 切换会话重新 load 才看到最终结论（用户实测）。
+        try:
+            from . import bridge as _bridge
+            _bridge.publish_event(sid, "messages")
+        except Exception:                        # noqa: BLE001
+            pass
+        return cur.lastrowid
 
     def search_messages(self, keyword: str, limit: int = 30) -> list[dict]:
         """跨会话搜索对话正文；返回命中消息 + 其会话标题/状态（供点开跳转）。

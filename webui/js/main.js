@@ -354,6 +354,13 @@ try{applyTheme(themeChoice(),false);watchSystemTheme()}catch(e){}
     document.addEventListener('visibilitychange',autoGrowFollowup);
     // @ 文件弹层：状态与绑定都在 js/main.js + js/atmenu.js（模块 deferred 后才可用）
   })();
+  /* 页面从后台回到前台：补一次 runtime + 对话刷新。renderStream 在 document.hidden
+     时会跳过 DOM；不补的话，后台期间完成的消息要等切会话才出现。 */
+  document.addEventListener('visibilitychange',()=>{
+    if(document.hidden||!window.current)return;
+    try{window.runtime?window.runtime():null}catch(e){}
+    try{window.refreshChat?window.refreshChat():null}catch(e){}
+  });
   /* 旧实现保留在下方（不删）：原 bindFollowupAutoGrow 只绑了 input/visibilitychange */
   function bindFollowupAutoGrowLegacy(){
     const el=document.getElementById('followup');
