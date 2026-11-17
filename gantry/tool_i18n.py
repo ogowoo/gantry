@@ -90,6 +90,11 @@ DESC_EN: dict[str, str] = {
                         "using pac canvas pack (requires a Studio-validated baseline)"),
     "power_apps_validate": ("Validate a Power Apps canvas app source directory: manifest, "
                             "App.pa.yaml and screen files"),
+    "vector_index_status": "BGE-M3 vector index status (model/dim/backend/indexed chunks)",
+    "vector_index_reindex": ("Rebuild or incrementally update the BGE-M3 vector index "
+                             "(force=true for a full rebuild)"),
+    "vector_index_search": "Search the local knowledge base with BGE-M3 vectors",
+    "vector_index_reset": "Clear the vector index (knowledge base originals are kept)",
     "validate_python": ("Check Python syntax of a file or directory; run it only after all files "
                         "are complete (a half-written file always fails — that is not a defect)"),
     "run_unittest": "Run unittest discovery; run it only after all files are complete",
@@ -214,6 +219,9 @@ ARG_EN: dict[str, str] = {
     "power_apps_pack.msapp": "Output .msapp path (optional)",
     "power_apps_pack.pac": "Path to pac executable (optional)",
     "power_apps_validate.source_dir": "Source directory",
+    "vector_index_reindex.force": "false=incremental, true=full rebuild",
+    "vector_index_search.q": "User question",
+    "vector_index_search.top_k": "Number of hits, defaults to config",
     "validate_python.path": "Relative path, defaults to .",
     "run_unittest.path": "Test directory, defaults to tests",
     "run_unittest.pattern": "Defaults to test_*.py",
