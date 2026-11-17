@@ -12,7 +12,14 @@ from pathlib import Path
 
 from fastapi import HTTPException
 
-from . import bridge as b
+# 延迟导入 bridge：bridge.py 末尾会 import 本模块，顶层直接 import 会造成循环导入。
+# 这里用模块级 __getattr__ 延迟解析 b；函数体内的 b.xxx 在运行时才触发，那时 bridge 已加载完。
+class _LazyBridge:
+    def __getattr__(self, name):
+        from . import bridge as _bb
+        return getattr(_bb, name)
+
+b = _LazyBridge()
 
 
 async def diagnostics(tag):
@@ -524,7 +531,23 @@ async def dump_menu_diagnostics() -> str:
     return ""
 
 
-COPILOT_URL_MARK = re.compile(r"m365\.cloud\.microsoft|/chat|copilot\.microsoft\.com", re.I)
+# 已知 Copilot 域名（Microsoft 2026-11 域名迁移：m365.cloud.microsoft → copilot.cloud.microsoft）
+# 这里内联列表而不是引用 b.COPILOT_KNOWN_HOSTS：bridge.py 末尾 import 本模块，
+# 顶层引用 bridge 属性会造成循环导入。
+_COPILOT_KNOWN_HOSTS = frozenset({
+    "copilot.cloud.microsoft",
+    "m365.cloud.microsoft",
+    "copilot.microsoft.com",
+    "www.microsoft365.com",
+    "microsoft365.com",
+})
+_COPILOT_URL_MARK_CACHE = None
+def _copilot_url_mark():
+    global _COPILOT_URL_MARK_CACHE
+    if _COPILOT_URL_MARK_CACHE is None:
+        _hosts = "|".join(re.escape(h) for h in _COPILOT_KNOWN_HOSTS)
+        _COPILOT_URL_MARK_CACHE = re.compile(rf"{_hosts}|/chat", re.I)
+    return _COPILOT_URL_MARK_CACHE
 
 
 async def ensure_copilot_page() -> str:
@@ -540,9 +563,9 @@ async def ensure_copilot_page() -> str:
         current = b.page.url or ""
     except Exception:
         current = ""
-    if b.COPILOT_URL_MARK.search(current):
+    if _copilot_url_mark().search(current):
         return current
-    base = str(b.CFG.get("copilot_url") or "https://m365.cloud.microsoft/chat/")
+    base = str(b.CFG.get("copilot_url") or "https://copilot.cloud.microsoft/chat/")
     await b.page.goto(base, wait_until="domcontentloaded", timeout=120000)
     await b.wait_copilot_ready(90)
     await asyncio.sleep(1.0)
@@ -897,12 +920,23 @@ async def wait_copilot_ready(timeout: float = 120) -> bool:
     必须等它就绪，否则会在登录页上误操作。
     """
     from urllib.parse import urlparse
-    host = urlparse(b.URL).netloc
+    # 兼容新旧域名：配置的 host + 已知 Copilot 域名集合
+    _configured_host = urlparse(b.URL).netloc
+    _all_hosts = set(_COPILOT_KNOWN_HOSTS)
+    if _configured_host:
+        _all_hosts.add(_configured_host)
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         try:
             url = b.page.url or ""
-            if host and host in url:
+            parsed = urlparse(url)
+            page_host = parsed.netloc
+            # 匹配：页面 host 是已知 Copilot 域名，或任一已知域名是页面 host 的子域/父域
+            _matched = any(
+                page_host == h or page_host.endswith("." + h) or h.endswith("." + page_host)
+                for h in _all_hosts
+            )
+            if _matched:
                 box = await b.visible([
                     'textarea[placeholder]', 'textarea',
                     '[contenteditable="true"][role="textbox"]',

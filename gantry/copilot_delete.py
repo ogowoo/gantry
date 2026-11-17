@@ -15,6 +15,9 @@ from .brand import marker_prefixes, marker_prefix_regex
 from .bridge import (visible, visible_locator, diagnostics, log, CONVERSATION_URL_RE,
                      _agent_chat_marker, wait_copilot_ready, body_text, CFG)
 
+# 默认 Copilot 入口（Microsoft 2026-11 域名迁移后的新地址）
+_COPILOT_BASE = "https://copilot.cloud.microsoft/chat/"
+
 
 def __getattr__(name):
     if name == "page":
@@ -176,7 +179,7 @@ async def _ensure_page_for_delete() -> None:
         # 页面停在 /chat/all、Notebooks 等没有输入框的页面时，wait_copilot_ready
         # 会误判为“未登录”。先回到基础聊天页再判定，避免把“不在对话页”当成登录失效。
         try:
-            await _b.page.goto(str(CFG.get("copilot_url") or "https://m365.cloud.microsoft/chat/"),
+            await _b.page.goto(str(CFG.get("copilot_url") or _COPILOT_BASE),
                                wait_until="domcontentloaded", timeout=120000)
             await asyncio.sleep(1.5)
         except Exception:
@@ -617,7 +620,10 @@ async def finalize_session_remote_deletion(sid: str, remote_results: list) -> li
                 if not href:
                     continue
                 if href.startswith("/"):
-                    href = "https://m365.cloud.microsoft" + href
+                    # 用当前页面的 host 补全相对链接，兼容域名迁移
+                    from urllib.parse import urlparse as _up
+                    _page_host = _up(_b.page.url or "").netloc
+                    href = f"https://{_page_host or 'copilot.cloud.microsoft'}" + href
                 m = re.search(r"\[C(\d+)\]", text)
                 if href not in found:
                     found[href] = int(m.group(1)) if m else None
@@ -637,7 +643,7 @@ async def finalize_session_remote_deletion(sid: str, remote_results: list) -> li
             pass
 
     try:
-        base = str(CFG.get("copilot_url") or "https://m365.cloud.microsoft/chat/")
+        base = str(CFG.get("copilot_url") or _COPILOT_BASE)
         await page.goto(base, wait_until="domcontentloaded", timeout=120000)
         await wait_copilot_ready(90)
         await _open_chat_sidebar()

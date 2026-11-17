@@ -902,7 +902,10 @@ async def cleanup_marked_copilot(payload: dict):
             for row in rows:
                 href = row.get("href") or ""
                 if href.startswith("/"):
-                    href = "https://m365.cloud.microsoft" + href
+                    # 用当前页面的 host 补全相对链接，兼容域名迁移
+                    from urllib.parse import urlparse as _up
+                    _page_host = _up(a.cd.page.url or "").netloc
+                    href = f"https://{_page_host or 'copilot.cloud.microsoft'}" + href
                 m = re.search(r"\[(?:GANTRY|CBP)-AGENT\]\[[^\]]+\]\[C\d+\]",
                               row.get("text") or "")
                 if not href or not m:

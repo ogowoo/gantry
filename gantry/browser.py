@@ -62,7 +62,7 @@ async def _start_browser(headless: bool) -> bool:
                 cur = b._PAGE_RAW.url if b._PAGE_RAW is not None else ""
             except Exception:
                 cur = ""
-            if b._PAGE_RAW is None or not b.COPILOT_URL_MARK.search(cur or ""):
+            if b._PAGE_RAW is None or not b._copilot_url_mark().search(cur or ""):
                 try:
                     if b._PAGE_RAW is None and b.ctx.pages:
                         b.set_shared_page(b.ctx.pages[0])

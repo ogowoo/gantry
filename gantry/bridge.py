@@ -40,6 +40,16 @@ if _plain_secrets:
         ", ".join(_plain_secrets))
 validate_token_budget(CFG.get("agent", {}))
 PROFILE = BASE / "EdgeProfile"
+# Microsoft 2026-11 把 Copilot 域名从 m365.cloud.microsoft 迁移到 copilot.cloud.microsoft。
+# 入口 URL 仍以 config.json 为准；以下是已知 Copilot 域名（用于 host 匹配、相对链接补全）。
+COPILOT_BASE_URL = "https://copilot.cloud.microsoft/chat/"
+COPILOT_KNOWN_HOSTS = frozenset({
+    "copilot.cloud.microsoft",
+    "m365.cloud.microsoft",
+    "copilot.microsoft.com",
+    "www.microsoft365.com",
+    "microsoft365.com",
+})
 URL = CFG["copilot_url"]
 TIMEOUT = float(CFG.get("reply_timeout_seconds", 180))
 STABLE = float(CFG.get("stable_seconds", 3))
@@ -1273,7 +1283,7 @@ from .page import (  # noqa: F401
     label_matches, _menu_target_locators, MENU_ITEM_ROLES, MENU_CONTAINER_SEL,
     _visible_menu_items, _submenu_hinted, _menu_label_set, _expand_submenu,
     _menu_signature, _wait_growth, _probe_submenu, dump_menu_diagnostics,
-    COPILOT_URL_MARK, ensure_copilot_page, discover_models, select_model,
+    _copilot_url_mark, ensure_copilot_page, discover_models, select_model,
     attach_file_to_copilot, MAX_IMAGE_ATTACHMENTS, MAX_IMAGE_BYTES,
     save_image_attachments, input_box, _focus_box, wait_copilot_ready, MD_JS, body_text,
     body_text_raw, _wait_dom_stable, answer_markdown, current_answer,
