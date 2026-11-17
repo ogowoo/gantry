@@ -129,6 +129,31 @@ class UpdaterZipTests(unittest.TestCase):
         rel.assert_not_called()
         dl.assert_not_called()
 
+    def test_git_apply_ignores_untracked_files(self):
+        """git clone 后启动服务产生的 data/ workspace/ __pycache__/ 等未跟踪文件
+        不应触发 '工作区有未提交改动' 的误判（回归：--porcelain 输出 ?? 导致拒绝更新）。"""
+        up = u.Updater(config={"method": "git", "channel": "beta"},
+                       current="0.10.0")
+        calls = []
+        def fake_git(args, timeout=None):
+            calls.append(args)
+            if args[:2] == ["status", "--porcelain"]:
+                return ""          # 干净（即使磁盘上有未跟踪文件）
+            if args[0] == "rev-parse":
+                return "abc123" if "HEAD" in args else "def456"
+            if args[0] == "merge":
+                return ""
+            return ""
+        with mock.patch.object(up, "_git", side_effect=fake_git), \
+                mock.patch.object(Path, "is_dir", return_value=True), \
+                mock.patch.object(up, "_new_backup", return_value=(Path("/tmp/b"), {})), \
+                mock.patch.object(up, "_save_backup"):
+            up._apply_git("0.11.0-beta.1", force=False)
+        # 关键断言：status 调用必须带 --untracked-files=no
+        status_calls = [c for c in calls if c[:2] == ["status", "--porcelain"]]
+        self.assertTrue(any("--untracked-files=no" in c for c in status_calls),
+                        f"status 调用缺少 --untracked-files=no: {status_calls}")
+
 
 if __name__ == "__main__":
     unittest.main()

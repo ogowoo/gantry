@@ -345,7 +345,10 @@ class Updater:
     def _apply_git(self, target: str, *, force: bool = False) -> dict[str, Any]:
         if not (self.root / ".git").is_dir():
             raise UpdateError("不是 git 仓库，不能用 git 更新")
-        dirty = self._git(["status", "--porcelain"], timeout=20)
+        # --untracked-files=no：只看已跟踪文件的改动。git clone 下来的仓库里
+        # data/ workspace/ __pycache__/ 等未跟踪目录会让 --porcelain 输出 ??，
+        # 误判为"工作区有未提交改动"而拒绝更新（实测：全新 clone 后启动服务再检查更新就报这个错）。
+        dirty = self._git(["status", "--porcelain", "--untracked-files=no"], timeout=20)
         if dirty and not (force or self.config.get("allow_dirty")):
             raise UpdateError("工作区有未提交改动；先 commit/stash，或显式 force")
         self._git(["fetch", "--tags", "--prune", "origin"], timeout=90)
