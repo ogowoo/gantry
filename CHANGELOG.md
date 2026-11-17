@@ -14,6 +14,17 @@
 ### Fixed
 - 
 
+## [0.11.0-beta.11] - 2026-11-17
+
+### Fixed
+- 设置 → 插件面板 →「本地知识库」显示为空：面板注册为 `view=table`，
+  但 `api/stats` 返回的是统计对象而不是数组，前端 table 渲染器拿到 `[]`
+  就显示「（空）」。改为 `view=kv`，现在显示 documents/chunks/parents/chars/fts。
+- 面板 hint 更新为 FTS5 + 向量、父子块。
+
+### 测试
+- KB 插件目标测试 15 项 OK；不变量 25/0。
+
 ## [0.11.0-beta.10] - 2026-11-17
 
 ### Added

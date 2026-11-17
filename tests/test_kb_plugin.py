@@ -114,6 +114,8 @@ class KbPluginTests(unittest.TestCase):
                           self.ctx.apis)
         self.assertTrue(self.ctx.panels, "应注册一个状态面板")
         self.assertEqual(self.ctx.panels[0]["id"], "kb-status")
+        self.assertEqual(self.ctx.panels[0]["view"], "kv",
+                         "stats 是对象，面板不能按 table（数组）渲染，否则显示空")
         plugin.teardown(self.ctx)
 
     # ── 工具行为 ──

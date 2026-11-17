@@ -611,9 +611,9 @@ def setup(ctx) -> None:
 
     ctx.register_api("GET", "api/local-models", _api_local_models)
 
-    ctx.register_panel({"id": "kb-status", "title": "本地知识库", "view": "table",
+    ctx.register_panel({"id": "kb-status", "title": "本地知识库", "view": "kv",
                         "api": {"method": "GET", "path": "api/stats"},
-                        "hint": "data/kb/*.md → FTS5 索引；放文档后 kb_reindex"})
+                        "hint": "data/kb/**/*.md → FTS5 + 向量；父子块；放文档后 kb_reindex"})
 
     # 启动时顺手建一次索引（有文档才建，空目录只是空转）
     try:
