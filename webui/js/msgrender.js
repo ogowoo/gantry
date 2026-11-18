@@ -77,8 +77,28 @@ function msgEl(role,content,ts,opts){
    软换行、复制/下载/「…」菜单、超长折叠。抽出来是为了两处**行为一致**。 */
 function codeBlockHtml(rawCode,lang,opts){
  opts=opts||{};
- const lang2=String(lang||'code');
+ let lang2=String(lang||'code');
  const text=String(rawCode==null?'':rawCode);
+ // 无语言标签时按内容特征猜测（模型常省略 ``` 后的语言名）
+ if(!lang2||lang2==='code'){
+  if(/items\('[^']+'\)\?\[|utcNow\(\)|formatDateTime\(|lessOrEquals\(|greaterOrEquals\(/.test(text))lang2='wdl';
+  else if(/^\s*(def |class |import |from )/m.test(text))lang2='python';
+  else if(/^\s*(function |const |let |var )/m.test(text))lang2='js';
+  else if(/^\s*#\!\/\//.test(text)||/^\s*(FROM|RUN|CMD|ENTRYPOINT|COPY|ADD)\s/m.test(text))lang2='dockerfile';
+  else if(/^\s*(SELECT|INSERT|UPDATE|DELETE|CREATE|DROP)\s/mi.test(text))lang2='sql';
+  else if(/^\s*(package|func|import)\s/m.test(text)&&/\bfunc\s+\w+\s*\(/.test(text))lang2='go';
+  else if(/^\s*(fn |let |impl |pub )/m.test(text))lang2='rust';
+  else if(/^\s*(public |private |protected |class |interface )/m.test(text))lang2='java';
+  else if(/^\s*(resource|variable|output|provider)\s+"/m.test(text))lang2='hcl';
+  else if(/^\s*(type|interface|query|mutation)\s+\w+/m.test(text))lang2='graphql';
+  else if(/^\s*(message|enum|service)\s+\w+/m.test(text)&&/=\s*\d+/.test(text))lang2='protobuf';
+  else if(/^\s*(defmodule|defp?|defstruct)\s/m.test(text))lang2='elixir';
+  else if(/^\s*(defn|def|let|ns)\s/m.test(text))lang2='clojure';
+  else if(/^\s*(module|defstruct|def|do|fn)\s/m.test(text))lang2='elixir';
+  else if(/^\s*(sub|my|our|use|package)\s/m.test(text))lang2='perl';
+  else if(/^\s*(function|local|if|then|fi|for|do|done)\s/m.test(text))lang2='bash';
+  else if(/^\s*(function|return|if|else|for|while)\s/m.test(text)&&/[{};]/.test(text))lang2='js';
+ }
  // ```json 直接用 JSON 视图（键值着色 + 可滚），比纯文本好读
  if(/^(json|jsonc)$/i.test(lang2)&&opts.jsonView!==false){
   const parsed=tryParseJson(text);
