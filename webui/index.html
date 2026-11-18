@@ -1,0 +1,523 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="icon" type="image/x-icon" href="favicon.ico"><title>Gantry</title><script src="boot.js"></script><!-- 样式按块拆分：加载顺序 = 层叠顺序，别用 @import --><link rel="stylesheet" href="css/tokens.css?v=20261118e"><link rel="stylesheet" href="css/shell.css?v=20261118e"><link rel="stylesheet" href="css/chat.css?v=20261118e"><link rel="stylesheet" href="css/dialogs.css?v=20261118e"><link rel="stylesheet" href="css/themes.css?v=20261118e"><link rel="stylesheet" href="css/overlays.css?v=20261118e"><link rel="stylesheet" href="css/composer.css?v=20261118e"><link rel="stylesheet" href="css/layout.css?v=20261118e"><link rel="stylesheet" href="css/settings.css?v=20261118e"><link rel="stylesheet" href="css/alerts.css?v=20261118e"><link rel="stylesheet" href="css/rows.css?v=20261118e"><link rel="stylesheet" href="css/changes.css?v=20261118e"></head><body>
+<div class="app">
+  <aside class="rail">
+    <button type="button" id="railBtn" title="收起/展开侧栏" data-act="toggleRail">‹</button>
+    <div class="railtop"><button type="button" class="btn accent block" data-act="openTask">＋ 新任务</button></div>
+    <div class="listhead"><span>SESSIONS</span><input id="sessFilter" aria-label="筛选会话" placeholder="筛选…" data-act-input="drawSessions"><span class="listacts" id="listActs"><button type="button" class="iconbtn" title="新建工作区" data-act="newWorkspace">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor"
+                 stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M3 7.5A1.5 1.5 0 0 1 4.5 6h4l1.6 2h9.4A1.5 1.5 0 0 1 21 9.5v8A1.5 1.5 0 0 1 19.5 19h-15A1.5 1.5 0 0 1 3 17.5z"/>
+              <path d="M12 10.5v5M9.5 13h5"/>
+            </svg></button>
+            <button type="button" class="iconbtn" title="全部展开/折叠子代理会话" data-act="toggleSubagents">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor"
+                 stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <circle cx="7" cy="7" r="2.4"/><circle cx="17" cy="17" r="2.4"/>
+              <path d="M9.2 8.4 14.8 15.6M9 7h4.5M14 17h-4"/>
+            </svg></button>
+            <button type="button" class="iconbtn" title="新会话" data-act="openTask"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></button><button type="button" class="iconbtn" title="使用手册" data-act="openManual"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H19v15H6.5A2.5 2.5 0 0 0 4 20.5z"/><path d="M4 20.5A2.5 2.5 0 0 1 6.5 18H19v3H6.5A2.5 2.5 0 0 1 4 20.5z"/></svg></button><button type="button" id="browserBtn" class="iconbtn" title="切换自动化浏览器窗口的显示/隐藏" data-act="toggleBrowser"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4.5" width="18" height="15" rx="2.5"/><path d="M3 9h18"/><circle cx="6.2" cy="6.8" r=".6" fill="currentColor" stroke="none"/><circle cx="8.4" cy="6.8" r=".6" fill="currentColor" stroke="none"/></svg></button><button type="button" id="themeBtn" class="iconbtn" title="主题：跟随系统（点击切换）" data-act="toggleTheme"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="M12 3.5a8.5 8.5 0 0 1 0 17z" fill="currentColor" stroke="none"/></svg></button><button type="button" id="gsBtn" class="iconbtn" title="跨会话搜索对话内容" data-act="toggleGlobalSearch"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="M15.5 15.5 21 21"/></svg></button><button type="button" data-i18n-skip="1" id="langBtn" class="iconbtn" title="语言 / 語言 / Language（点击切换）" data-act="cycleLang">简</button></span></div>
+    <div id="sessions" class="sesslist"></div>
+    <div id="gSearch" class="gsearch" style="display:none">
+      <input id="gsInput" aria-label="跨会话搜索" placeholder="跨会话搜索对话内容…（Esc 关闭）" data-act-input="gsInput" data-act-key="gsKey">
+      <div id="gsResults" class="gsresults"></div>
+    </div>
+  <!-- 侧栏底部：设置 + 版本号（固定行，不在滚动区里，像 DSH 那样） -->
+  <footer class="railfoot">
+    <div class="railfoot-main">
+    <button type="button" id="settingsBtn" class="railgear" data-act="openSettings"
+            title="设置" data-i18n-title="设置" aria-label="设置"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3.2"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.7 1.7 0 0 0-1.87-.34 1.7 1.7 0 0 0-1 1.55V21a2 2 0 1 1-4 0v-.09a1.7 1.7 0 0 0-1.11-1.55 1.7 1.7 0 0 0-1.87.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.7 1.7 0 0 0 3.6 15a1.7 1.7 0 0 0-1.55-1H2a2 2 0 1 1 0-4h.09A1.7 1.7 0 0 0 3.6 8.9a1.7 1.7 0 0 0-.34-1.87l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.7 1.7 0 0 0 8 4.6a1.7 1.7 0 0 0 1-1.55V3a2 2 0 1 1 4 0v.09a1.7 1.7 0 0 0 1 1.55 1.7 1.7 0 0 0 1.87-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.7 1.7 0 0 0 19.4 9c.16.5.6.9 1.15 1H21a2 2 0 1 1 0 4h-.09c-.55.1-.99.5-1.15 1z"/></svg><span class="raillabel" data-i18n="设置">设置</span></button>
+    <span id="appVersion" class="btmver" data-i18n-skip="1" role="button" tabindex="0"
+          data-act="openUpdateSettings" hidden></span>
+    </div>
+    <div id="sysStatusBar" class="railstats" aria-label="运行状态">
+      <span class="statbar" id="statService" data-state="off" title=""></span>
+      <span class="statbar" id="statLocal" data-state="off" title=""></span>
+      <span class="statbar" id="statTeams" data-state="off" title=""></span>
+    </div>
+  </footer>
+  </aside>
+  <div id="railScrim" class="railscrim" data-act="closeRail" title="关闭会话列表"></div>
+    <main class="main">
+      <!-- 窄屏的会话列表开关：内联在内容区左上角（不再用浮在左侧中部的把手，那个会压住消息区） -->
+      <button type="button" id="railBtnMini" class="btn ghost railmini" data-act="toggleRail" title="会话列表（展开/收起）">☰</button>
+    <div id="emptyState" class="empty newchat">
+      <div class="gantry-brand">
+        <div class="gantry-logo" aria-hidden="true"><span>[</span>G<span>]</span></div>
+        <h1 class="gantry-title">Gantry</h1>
+        <p class="gantry-slogan">The Copilot Bridge &amp; Pure-Python Agent Harness</p>
+      </div>
+      <div class="gantry-quick-cards">
+        <button type="button" class="gantry-card" data-quick="bridge">
+          <span class="gantry-card-ico" aria-hidden="true"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M9 7V4M15 7V4"/><path d="M6 7h12v5a6 6 0 0 1-12 0z"/><path d="M12 18v3"/></svg></span>
+          <h3>Provider Bridge</h3>
+          <p data-i18n="多端 API 桥接切换与连通性基准测试">多端 API 桥接切换与连通性基准测试</p>
+        </button>
+        <button type="button" class="gantry-card" data-quick="agent">
+          <span class="gantry-card-ico" aria-hidden="true"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7 9l3 3-3 3M12.5 15H17"/></svg></span>
+          <h3>Agent Harness</h3>
+          <p data-i18n="纯 Python 脚本加载与自动化 Tool 链条编排">纯 Python 脚本加载与自动化 Tool 链条编排</p>
+        </button>
+        <button type="button" class="gantry-card" data-quick="eval">
+          <span class="gantry-card-ico" aria-hidden="true"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg></span>
+          <h3>Evaluation</h3>
+          <p data-i18n="并发黑盒压力测试与知识库 RAG 命中率评估">并发黑盒压力测试与知识库 RAG 命中率评估</p>
+        </button>
+      </div>
+      <div class="nc-box">
+        <textarea id="task" aria-label="任务内容" rows="4"
+                  data-act-key="taskKey" data-act-input="taskInput"
+                  placeholder="发消息或创建任务，例如：分析 workspace 里的项目并生成 TODO；可直接粘贴截图"></textarea>
+        <div id="taskThumbs" class="thumbs"></div>
+        <div id="slashMenu" class="slashmenu" hidden></div>
+        <div class="nc-bar">
+          <div class="nc-left">
+            <select id="model" class="nc-model" aria-label="新任务使用的模型"><option value="copilot-auto">Auto</option><option value="copilot-think-deeper">Think deeper</option></select>
+            <button type="button" id="refreshModelsBtn" class="iconbtn" title="重新读取 Copilot 模型菜单" data-act="refreshModels">↻</button>
+            <input id="workspace" class="nc-ws" aria-label="工作目录" placeholder="工作目录（默认 workspace）">
+            <button type="button" class="iconbtn" title="选择工作目录" data-act="pickWorkspace">
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor"
+                   stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M3 7.5A1.5 1.5 0 0 1 4.5 6h4l1.6 2h9.4A1.5 1.5 0 0 1 21 9.5v8A1.5 1.5 0 0 1 19.5 19h-15A1.5 1.5 0 0 1 3 17.5z"/>
+              </svg></button>
+          </div>
+          <!-- 权限档位（仿 DSH）：点 chip 开菜单，三档一目了然 -->
+          <div class="menu sandboxpick">
+            <button type="button" class="btn seg sandboxchip" data-sandbox-chip="new"
+                    data-act="toggleMore" title="权限档位：工具能改什么（点开选择）"
+                    aria-haspopup="true" aria-expanded="false">
+              <span class="sb-ico" data-sandbox-ico="new">🛡</span><span data-sandbox-label="new">工作区内修改</span>
+            </button>
+            <div class="menuList sandboxmenu" data-sandbox-menu="new">
+              <button type="button" class="sbopt" data-act="pickSandbox" data-arg="read-only"
+                      title="只读：所有写操作与命令执行会被拒绝"><span class="sb-ico">👁</span>
+                <span class="sb-txt"><b data-i18n="仅可查看">仅可查看</b>
+                  <small data-i18n="只读：能读文件和搜索，不能改任何东西">只读：能读文件和搜索，不能改任何东西</small></span>
+                <span class="sb-check"></span></button>
+              <button type="button" class="sbopt" data-act="pickSandbox" data-arg="workspace-write"
+                      title="工作区内修改：只能改工作区文件；命令在受限沙箱里跑"><span class="sb-ico">🛠</span>
+                <span class="sb-txt"><b data-i18n="工作区内修改">工作区内修改</b>
+                  <small data-i18n="只能改工作区里的文件；命令在沙箱里执行">只能改工作区里的文件；命令在沙箱里执行</small></span>
+                <span class="sb-check"></span></button>
+              <button type="button" class="sbopt" data-act="pickSandbox" data-arg="danger-full-access"
+                      title="完全权限：可读写工作区之外，命令不受沙箱限制"><span class="sb-ico">⚠</span>
+                <span class="sb-txt"><b data-i18n="完全权限">完全权限</b>
+                  <small data-i18n="可读写工作区之外，命令不受沙箱限制（谨慎）">可读写工作区之外，命令不受沙箱限制（谨慎）</small></span>
+                <span class="sb-check"></span></button>
+            </div>
+          </div>
+          <div class="nc-right">
+            <div class="nc-mode">
+              <button type="button" id="ntAgent" class="btn seg on" data-act="setTaskMode" data-arg="agent">Agent 执行</button>
+              <button type="button" id="ntChat" class="btn seg" data-act="setTaskMode" data-arg="chat">普通对话</button>
+            </div>
+            <button type="button" class="btn accent nc-send" data-act="runTask">开始</button>
+          </div>
+        </div>
+      </div>
+      <div class="nc-hint"><span data-i18n="Enter 发送，Shift+Enter 换行">Enter 发送，Shift+Enter 换行</span>
+        · <span data-i18n="输入 / 查看命令">输入 / 查看命令</span></div>
+    </div>
+    <div id="sessionView" style="display:none">
+      <header class="topbar">
+        <div class="trow"><h1 id="title" data-act="topbarCollapse" title="点一下收起/展开任务条（也可以点右边的箭头）">—</h1><code id="sidChip" class="sidbig" title="点击复制会话 ID"></code><span id="statepill" class="pill">—</span><button type="button" id="retryChip" class="retrychip" style="display:none" data-act="reopenRetry" title="限流中：点击查看详情">⏳ --:--</button><select id="sessModel" aria-label="本会话使用的模型" class="sessmodel" title="当前会话使用的模型（下一回合生效，服务重启后仍沿用）"></select><button type="button" id="btnRefreshSess" class="iconbtn" title="刷新模型列表（重新扫描 Copilot 菜单）">↻</button></div>
+        <div id="status" class="sub">—</div>
+        <div class="actions">
+          <!-- 主操作只留两个高频项（对齐 DSH 的"一行工具栏"）：恢复 / 取消任务；
+               暂停、压缩上下文、继续执行、切换页面、打开会话、深研都收进「更多 ▾」,
+               免得顶栏排两行、把对话区挤掉。 -->
+          <div class="grp">
+            <button type="button" class="btn" data-act="control" data-arg="resume">恢复</button>
+          </div>
+          <div class="grp">
+            <button type="button" class="btn danger" data-act="control" data-arg="cancel">取消任务</button>
+            <div class="menu"><button type="button" class="btn ghost" id="moreBtn" data-act="toggleMore">更多 ▾</button><div class="menuList" id="moreMenu">
+              <button type="button" data-act="control" data-arg="pause">暂停</button>
+              <button type="button" data-act="control" data-arg="compact">压缩上下文</button>
+              <button type="button" data-act="continueAgent">继续执行</button>
+              <div id="webGrp" class="menugrp">
+                <button type="button" id="btnActivate" data-act="activate">切换到页面</button>
+                <button type="button" id="btnOpenChat" data-act="openCopilot">打开会话 ↗</button>
+              </div>
+              <div id="researchGrp" class="menugrp">
+                <button type="button" id="btnDeepResearch" data-act="deepResearch"
+                        title="多角度搜索 + 抓正文，生成带来源的调研报告（新会话）">深研</button>
+              </div>
+              <div class="mensep"></div>
+              <button type="button" data-act="control" data-arg="archive">归档</button>
+              <button type="button" data-act="rollbackSession">回滚任务改动…</button>
+              <button type="button" class="danger" data-act="rollbackSelfUpgrade">回滚服务自升级…</button>
+              <button type="button" class="danger" data-act="removeSession" data-arg="auto"
+                      data-i18n="删除任务（自动含 Copilot 记录）">删除任务（自动含 Copilot 记录）</button>
+            </div></div>
+          </div>
+          <!-- KPI 并进「任务」这一行右侧（原来独立一行网格，占掉约 105px 高度）：
+               状态 / 总步骤 / 当前会话步骤 / 会话 / TOKEN 估算 都在这里，
+               只占按钮行的剩余宽度，宽屏一行放下、窄屏自动换行到按钮下方。 -->
+          <section class="kpis kpis-inline">
+            <div class="kpi kpi-state" id="kpiStateCard" data-state="ready" data-kpi="state" title="状态"><span data-i18n="状态">状态</span><b id="kpiState">—</b></div>
+            <div class="kpi" data-kpi="steps" title="总步骤（含子代理）" data-i18n-title="总步骤（含子代理）"><span data-i18n="总步骤">总步骤<i class="kpisub" id="kpiSubNote"></i></span><b id="kpiSteps">0</b></div>
+            <div class="kpi" data-kpi="conv" title="当前会话步骤"><span data-i18n="当前会话步骤">当前会话步骤</span><b id="kpiConv">0</b></div>
+            <div class="kpi" data-kpi="roll" title="第几个 Copilot 对话（与侧栏一致）" data-i18n-title="第几个 Copilot 对话（与侧栏一致）"><span data-i18n="会话">会话</span><b id="kpiRoll">1</b></div>
+            <div class="kpi" data-kpi="token" title="TOKEN 估算"><span data-i18n="TOKEN 估算">TOKEN 估算</span><b id="kpiToken">0</b><small id="kpiBudget" style="color:var(--faint);font-size:10.5px"> / —</small><div class="meter"><span id="tokenbar"></span></div></div>
+          </section>
+        </div>
+        <button type="button" class="cardchev topbarchev" id="topbarChev" data-act="topbarCollapse" aria-expanded="true" title="收起/展开任务条（点标题也行）"><svg viewBox="0 0 12 12" aria-hidden="true"><path d="M2.5 4.5 L6 8 L9.5 4.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+      </header>
+      <!-- 待办与子代理合并成一张卡：两块本来都是"这个任务正在做什么"的信息，
+           拆成两张小卡既占高度又显得零碎（用户：合并吧 / 学 DSH 那样放）。 -->
+      <section class="card teamcard" id="teamCard" hidden>
+        <div id="goalBar" class="goalbar urow" hidden></div>
+        <section class="subagents" id="subagentBar" style="display:none">
+          <div id="subagentList" class="subagentlist"></div>
+          <div class="chead urow"><span class="urow-ic" id="subagentDot" data-dot="on" title="子代理状态"><svg viewBox="0 0 24 24" width="10" height="10" fill="currentColor" aria-hidden="true"><circle cx="12" cy="12" r="7"/></svg></span>
+            <b class="urow-label" data-i18n="子代理">子代理</b>
+            <span id="subagentCount" class="subcount urow-count"></span>
+            <span class="urow-right">
+              <button type="button" class="cardchev" data-act="cardCollapse" data-arg="subagents"
+                      title="收起/展开子代理（点标题也行）"><svg viewBox="0 0 12 12" aria-hidden="true"><path d="M2.5 4.5 L6 8 L9.5 4.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+            </span>
+          </div>
+        </section>
+          <!-- 工具调用记录：默认只显示**最新一条**（与状态条同款一行），点它浮动展开 -->
+        <section class="toollog" id="toolLog" hidden>
+          <div class="toollogbody" id="toolLogBody" hidden></div>
+          <div class="toolloglatest urow" id="toolLogLatest" data-act="toggleToolLog"
+                 title="点一下展开/收起调用记录" data-i18n-title="点一下展开/收起调用记录">
+            <span class="ss-ic" id="toolLogIc">•</span>
+            <b class="urow-label" data-i18n="调用记录">调用记录</b>
+            <span class="toollogcount urow-count" id="toolLogCount"></span>
+            <span class="toollogrow urow-text" id="toolLogOne" data-i18n-skip="1"></span>
+            <span class="toollogclock" id="toolLogClock"></span>
+            <span class="urow-right"><span class="urow-chev" id="toolLogChev">▸</span></span>
+          </div>
+        </section>
+        <div id="activity" class="kvpane streamdetail" hidden></div>
+        <div class="streamstatus urow" id="streamStatus" data-act="toggleStreamDetail" title="点一下展开/收起完整状态">—</div>
+        <canvas class="teamscope" id="teamScope" aria-hidden="true"></canvas>
+      </section>
+      <section class="card">
+        <div class="chead"><span id="pulse" class="dot-off"></span>
+          <!-- 标签顺序按"看 → 用"排：先看它在干什么（状态/时间线），再看模型说了什么
+               （回答/发送内容），最后才是交互（继续对话）。原来时间线排最后、
+               对话夹在内容中间，观察和操作两条线是交叉的。 -->
+          <!-- 合并：原来 5 个标签（状态/回答/发送内容/对话/时间线）各自一页，
+               看一个任务要在标签间来回跳。现在两个页面：
+               「实时流」= 状态条 + 对话（含最后一条回答）+ 输入框，
+               「步骤时间线」= 每步明细（筛选/导出在这里）。
+               最近发送内容移到头部按钮，与「初始提示词」并列。 -->
+          <button type="button" class="cardchev" data-act="cardCollapse" data-arg="live"
+                  title="收起/展开这块面板（点标题也行）"><svg viewBox="0 0 12 12" aria-hidden="true"><path d="M2.5 4.5 L6 8 L9.5 4.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+          <div class="tabs">
+            <button type="button" class="tab on" id="tabChat" data-act="liveTab" data-arg="chat">实时流</button>
+            <button type="button" class="tab" id="tabTimeline" data-act="liveTab" data-arg="timeline">步骤时间线</button>
+          </div>
+          <!-- 模式切换 + 对话区菜单：整组靠右；「面板附加操作」并进了同一个 ⋯（少一个点） -->
+          <div class="chatbar" id="chatBar" title=""><span class="meta" id="chatBarMeta" style="display:none"></span><span style="display:flex;gap:6px;align-items:center">
+            <button type="button" id="modeAgent" class="btn seg on" data-act="setFollowupMode" data-arg="agent">Agent 继续执行</button>
+            <button type="button" id="modeChat" class="btn seg" data-act="setFollowupMode" data-arg="chat">普通对话</button>
+            <!-- 权限档位（仿 DSH）：点 chip 开菜单，三档一目了然 -->
+            <div class="menu sandboxpick">
+              <button type="button" class="btn seg sandboxchip" id="sandboxChip"
+                      data-act="toggleMore" data-arg="sandboxMenu" title="权限档位：工具能改什么（点开选择）"
+                      aria-haspopup="true" aria-expanded="false">
+                <span class="sb-ico" id="sandboxIco">🛡</span><span id="sandboxLabel">工作区内修改</span>
+              </button>
+              <div class="menuList sandboxmenu" id="sandboxMenu">
+                <button type="button" class="sbopt" data-act="pickSandbox" data-arg="read-only"
+                        title="只读：所有写操作与命令执行会被拒绝"><span class="sb-ico">👁</span>
+                  <span class="sb-txt"><b data-i18n="仅可查看">仅可查看</b>
+                    <small data-i18n="只读：能读文件和搜索，不能改任何东西">只读：能读文件和搜索，不能改任何东西</small></span>
+                  <span class="sb-check"></span></button>
+                <button type="button" class="sbopt" data-act="pickSandbox" data-arg="workspace-write"
+                        title="工作区内修改：只能改工作区文件；命令在受限沙箱里跑"><span class="sb-ico">🛠</span>
+                  <span class="sb-txt"><b data-i18n="工作区内修改">工作区内修改</b>
+                    <small data-i18n="只能改工作区里的文件；命令在沙箱里执行">只能改工作区里的文件；命令在沙箱里执行</small></span>
+                  <span class="sb-check"></span></button>
+                <button type="button" class="sbopt" data-act="pickSandbox" data-arg="danger-full-access"
+                        title="完全权限：可读写工作区之外，命令不受沙箱限制"><span class="sb-ico">⚠</span>
+                  <span class="sb-txt"><b data-i18n="完全权限">完全权限</b>
+                    <small data-i18n="可读写工作区之外，命令不受沙箱限制（谨慎）">可读写工作区之外，命令不受沙箱限制（谨慎）</small></span>
+                  <span class="sb-check"></span></button>
+              </div>
+            </div>
+            <div class="menu"><button type="button" class="btn seg padcompact" id="chatActBtn" data-act="toggleMore" data-arg="chatActMenu" title="对话区更多操作（导出 / 搜索 / 强行插入 / 初始提示词 / 最近发送 / 放大）">⋯</button><div class="menuList" id="chatActMenu">
+              <button type="button" title="把当前对话（含附件引用与时间）导出为 Markdown 文件" data-act="exportChatMarkdown">⬇ 导出 MD</button>
+              <button type="button" id="chatFindToggle" title="在对话里搜索（高亮命中，Enter 跳转下一条）" data-act="toggleChatFind">🔍 搜索</button>
+              <button type="button" id="injectBtn" title="运行中插入指令：Agent 下一回合读取并优先执行，不必等这轮跑完（快捷键 Ctrl+J）" data-act="injectMessage">⚡ 强行插入</button>
+              <div class="mensep"></div>
+              <button type="button" title="查看该会话首回合发给模型的完整提示词（含系统提示词、工具清单、项目约定）" data-act="showPromptView">📄 初始提示词</button>
+              <button type="button" title="查看最近一次实际发送给 Copilot 的完整内容" data-act="showLastPrompt" data-i18n="📨 最近发送">📨 最近发送</button>
+              <div class="mensep"></div>
+              <button type="button" title="放大查看当前面板" data-act="expandLive">⤢ 放大</button>
+            </div></div>
+          </span></div>
+        </div>
+        <div id="timeline" class="livepane timelinepane" style="display:none"></div>
+        <pre id="answer" class="term livepane" style="display:none" hidden>等待回答…</pre>
+        <pre id="prompt" class="term livepane" style="display:none" hidden>—</pre>
+        <div id="chat" class="livepane chatwrap" style="display:flex;flex-direction:column">
+          <div id="chatFindBar" class="findbar" style="display:none">
+            <input id="chatFind" aria-label="在对话中查找" placeholder="搜索对话内容…（Enter 下一条，Shift+Enter 上一条）" data-act-input="chatFindInput" data-act-key="findStepKey">
+            <span id="findCount" class="findcount"></span>
+            <button type="button" class="btn ghost" data-act="findStep" data-arg="-1" title="上一条">↑</button>
+            <button type="button" class="btn ghost" data-act="findStep" data-arg="1" title="下一条">↓</button>
+            <button type="button" class="btn ghost" data-act="toggleChatFind" title="关闭搜索">✕</button>
+          </div>
+          
+          <div id="chatlog" class="chatlog"><div class="meta">选择 Session 后，可以在这里继续对话。</div></div>
+          <div id="followThumbs" class="thumbs"></div>
+          <div id="queueBox" class="queuebox"></div>
+          <!-- 状态条挪到输入框正上方（原来在面板最顶上）：跟 DSH 的「深度求索中…」一个位置，
+               随时能看到当前在干什么，又不用抬头找。点一下仍旧展开/收起完整状态。 -->
+        </div>
+      </section>
+      <div class="content">
+        <section class="card"><div class="chead"><span data-i18n="步骤时间线">步骤时间线</span><span class="hint"><span id="stepCount" style="margin-right:8px"></span><select id="stepTool" class="stepfilter" title="只看某个工具的步骤" data-act-input="stepFilter" data-arg="tool"><option value="">全部工具</option></select><select id="stepStatus" class="stepfilter" title="按状态筛选" data-act-input="stepFilter" data-arg="status"><option value="">全部状态</option><option value="ok">仅成功</option><option value="bad">仅失败/被拦</option><option value="event">仅事件</option></select><button type="button" class="btn ghost" style="padding:2px 10px;font-size:12px" title="导出完整时间线 JSON（含每步参数、结果与错误现场），便于调试" data-act="exportTimeline">⬇ 导出</button></span></div><div id="steps" class="steps"></div></section>
+      </div>
+    </div>
+          <div class="composer">
+            <div id="slashMenuFollow" class="atmenu slashmenu" hidden></div>
+            <div id="atMenu" class="atmenu slashmenu" hidden></div>
+            <textarea id="followup" aria-label="跟进消息" rows="2" data-act-input="slashFollowInput" data-act-key="slashFollowKey" placeholder="输入消息，Enter 发送，Shift+Enter 换行；可直接粘贴截图。Ctrl+J = 运行中强行插入指令"></textarea>            <button type="button" id="sendFollowup" class="btn accent sendRound" data-act="sendFollowup" title="发送" aria-label="发送"><svg id="sendIcon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 19V5M5.5 11.5 12 5l6.5 6.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+          </div>
+  </main>
+</div>
+<div class="mask" role="dialog" aria-modal="true" aria-labelledby="dlgTitle" id="dlgMask" data-act="mask" data-arg="dlg">
+  <div class="dlg">
+    <div class="dhead"><span id="dlgTitle">删除结果</span><span class="hint" id="dlgHint"></span></div>
+    <div class="dbody"><div class="dmsg" id="dlgMsg"></div><div id="dlgList" style="display:flex;flex-direction:column;gap:10px"></div></div>
+    <div class="dfoot">
+      <button type="button" class="btn ghost" id="dlgCopy">复制结果 JSON</button>
+      <button type="button" class="btn danger" id="dlgForce">重试远程并强制清理本地记录</button>
+      <button type="button" class="btn accent" data-act="closeDlg">关闭</button>
+    </div>
+  </div>
+</div>
+<div id="demoBadge" class="demo" style="display:none">演示模式 · API 未连接</div>
+<!-- 限流/不可用：**全页面遮罩**（不再用右下角浮卡）──────────────────
+   以前是个 fixed 浮卡，还会让 .main 预留一条 --retry-h 底部带 ——
+   结果 live stream 与输入框之间凭空多出一大块空白（用户截图）。
+   现在改成居中遮罩：不占布局、不撑间距，提供商模型直接列成按钮点一下就走。 -->
+<div id="retryMask" class="mask retrymask" style="display:none">
+  <div class="dlg retrydlg" role="dialog" aria-modal="true" aria-labelledby="retryTitle">
+    <div id="retryCountdown" class="retry-fab">
+      <div class="rc-title" id="retryTitle">⏳ 服务限流/不可用，预计恢复</div>
+      <div class="rc-count">--:--</div>
+      <div class="rc-sub">第 1 次 · 自动重试中，可点「暂停」稍后继续</div>
+      <!-- 挂起态：已配置的提供商模型直接列成按钮，点一下即切换并继续 -->
+      <div class="rc-swap" id="retrySwap" style="display:none"></div>
+      <div class="rc-actions">
+        <button type="button" class="btn ghost" id="retryMin" data-act="dismissRetry">稍后再看（后台继续等待）</button>
+      </div>
+    </div>
+  </div>
+</div>
+<!-- 限流小标：内联在顶栏状态行里，点一下重新打开遮罩（不再用右下角浮层） -->
+<!-- 使用手册 -->
+<div class="mask" role="dialog" aria-modal="true" aria-label="使用手册" id="manualMask" data-act="mask" data-arg="manual">
+  <div class="dlg" style="width:min(760px,94vw)">
+    <div class="dhead"><span>📖 使用手册</span><span class="hint">Esc 关闭</span></div>
+    <div class="dbody manual" id="manualBody"></div>
+    <div class="dfoot"><button type="button" class="btn accent" data-act="closeManual">关闭</button></div>
+  </div>
+</div>
+
+<!-- 设置：外观 / 执行 / 浏览器 / 数据 / 入口 / 危险区（低频入口从「More」搬到这里） -->
+<div class="mask" role="dialog" aria-modal="true" aria-label="设置" id="settingsMask" data-act="mask" data-arg="settings">
+  <div class="dlg settingsdlg" style="width:min(1120px,96vw)">
+    <div class="dhead"><span>⚙ <span data-i18n="设置">设置</span></span><span class="hint" data-i18n="Esc 关闭">Esc 关闭</span></div>
+    <div class="dbody settingsbody">
+      <nav class="setnav" id="settingsNav" role="tablist" aria-label="设置分组" data-i18n-aria-label="设置分组"></nav>
+      <div class="setpane" id="settingsBody" role="tabpanel"></div>
+    </div>
+    <div class="dfoot">
+      <span id="settingsHint" class="hint" style="margin-right:auto" data-i18n="💡 提示：外观修改即时生效；Embedding/OCR 修改需重建索引或重启后生效">💡 提示：外观修改即时生效；Embedding/OCR 修改需重建索引或重启后生效</span>
+      <button type="button" class="btn ghost" data-act="closeSettings" data-i18n="关闭">关闭</button>
+      <button type="button" class="btn accent" id="settingsSave" data-act="saveSettings" data-i18n="保存">保存</button>
+    </div>
+  </div>
+</div>
+
+<!-- 设置入口：整个页面左下角浮动（不占侧栏工具行，任何页面状态都在） -->
+<div class="toasts" id="toasts" role="status" aria-live="polite"></div>
+<!-- 通用模态层：通知确认 / 危险确认 / 文本输入 -->
+<div class="mask" role="dialog" aria-modal="true" aria-labelledby="gmTitle" id="gmMask" data-act="maskGm">
+  <div class="dlg" style="width:min(480px,94vw)">
+    <div class="dhead"><span id="gmTitle">提示</span></div>
+    <div class="dbody"><div class="dmsg" id="gmMsg"></div>
+      <div id="gmModes" class="gmodes" style="display:none" role="radiogroup" aria-label="插入方式">
+        <label class="gmopt"><input type="radio" name="gmMode" value="step" checked>
+          <span><b>立即遵守</b><small>马上生效：追加到当前执行中，并抢占批量里剩余的动作</small></span></label>
+        <label class="gmopt"><input type="radio" name="gmMode" value="turn">
+          <span><b>整轮重排</b><small>当前回合作废，按新指令重新规划这一轮</small></span></label>
+      </div>
+      <input id="gmInput" aria-label="输入" style="display:none"></div>
+    <div class="dfoot">
+      <button type="button" class="btn ghost" id="gmCancel">取消</button>
+      <button type="button" class="btn accent" id="gmOk">确定</button>
+    </div>
+  </div>
+</div>
+<!-- 实时面板放大查看弹窗 -->
+<div class="mask" role="dialog" aria-modal="true" aria-labelledby="liveTitle" id="liveMask" data-act="mask" data-arg="live">
+  <div class="dlg" style="width:min(1100px,94vw)">
+    <div class="dhead"><span id="liveTitle">查看</span><span class="hint">Esc 关闭</span></div>
+    <div class="dbody"><pre id="liveBody" class="term" style="max-height:72vh;border-radius:9px;font-size:13px;line-height:1.75"></pre></div>
+    <div class="dfoot">
+      <button type="button" class="btn ghost" id="liveCopy">复制内容</button>
+      <button type="button" class="btn accent" data-act="closeLive">关闭</button>
+    </div>
+  </div>
+</div>
+<!-- 插件面板：插件只提供数据，前端按 view 渲染（不接受插件注入 HTML） -->
+<div class="mask" role="dialog" aria-modal="true" aria-label="插件面板" id="panelMask" data-act="mask" data-arg="panel">
+  <div class="dlg" style="width:min(760px,94vw)">
+    <div class="dhead"><span data-i18n="插件面板">插件面板</span><span class="hint">Esc</span></div>
+    <div class="dbody">
+      <div class="panelwrap">
+        <div id="panelList" class="panellist" data-i18n-skip="1"></div>
+        <div id="panelBody" class="panelbody" data-i18n-skip="1"><div class="meta" data-i18n="（没有面板）">（没有面板）</div></div>
+      </div>
+    </div>
+    <div class="dfoot">
+      <button type="button" class="btn ghost" data-act="closePanels" data-i18n="关闭">关闭</button>
+      <button type="button" class="btn" data-act="refreshPanels">刷新</button>
+    </div>
+  </div>
+</div>
+<!-- 工作目录选择：系统对话框优先，失败回退到应用内浏览（对应 DSH 的 auto） -->
+<div class="mask" role="dialog" aria-modal="true" aria-label="选择工作目录" id="wsMask" data-act="mask" data-arg="ws">
+  <div class="dlg" style="width:min(640px,94vw)">
+    <div class="dhead"><span data-i18n="选择工作目录">选择工作目录</span><span class="hint">Esc</span></div>
+    <div class="dbody">
+      <div class="wsbar">
+        <button type="button" class="btn ghost" data-act="wsUp" title="上一级">↑</button>
+        <code id="wsPath" class="wspath">—</code>
+        <button type="button" class="btn ghost" data-act="wsDefault" title="回到默认工作区">默认</button>
+        <button type="button" class="btn ghost" data-act="wsMkdir" title="在此新建目录">新建目录</button>
+      </div>
+      <div id="wsList" class="wslist"></div>
+    </div>
+    <div class="dfoot">
+      <button type="button" class="btn ghost" data-act="closeWs">取消</button>
+      <button type="button" class="btn accent" data-act="wsChoose">选择此目录</button>
+    </div>
+  </div>
+</div>
+<!-- 插件管理弹窗：列出 plugins/*/plugin.json 的插件，可启用/禁用/重载 -->
+<div class="mask" role="dialog" aria-modal="true" aria-label="插件管理" id="pluginsMask" data-act="mask" data-arg="plugins">
+  <div class="dlg" style="width:min(720px,94vw)">
+    <div class="dhead"><span data-i18n="插件管理">插件管理</span><span class="hint">Esc 关闭</span></div>
+    <div class="dbody">
+      <div id="pluginsBody" style="max-height:62vh;overflow:auto"></div>
+    </div>
+    <div class="dfoot">
+      <button type="button" class="btn ghost" data-act="openPlugins">刷新</button>
+      <button type="button" class="btn" data-act="openPanels">插件面板</button>
+      <button type="button" class="btn accent" data-act="closePlugins">关闭</button>
+    </div>
+  </div>
+</div>
+<!-- 本地模型管理：查看 / 删除 / 下载 GGUF -->
+<div class="mask" role="dialog" aria-modal="true" aria-label="本地模型" id="modelsMask" data-act="mask" data-arg="models">
+  <div class="dlg" style="width:min(720px,94vw)">
+    <div class="dhead"><span>🧠 <span data-i18n="本地模型">本地模型</span></span><span class="hint">Esc 关闭</span></div>
+    <div class="dbody" style="max-height:62vh;overflow:auto">
+      <div id="modelsBody" style="margin-bottom:10px">—</div>
+      <details style="margin-top:22px;border-top:1px solid var(--line);padding-top:16px">
+        <summary class="hint model-download-summary" data-i18n="下载新模型">下载新模型</summary>
+        <div class="model-presets">
+          <span class="hint" data-i18n="推荐：">推荐：</span>
+          <button type="button" class="btn ghost" data-act="modelPreset"
+                  data-url="https://hf-mirror.com/Qwen/Qwen3-Embedding-0.6B-GGUF/resolve/main/Qwen3-Embedding-0.6B-Q8_0.gguf"
+                  data-name="Qwen3-Embedding-0.6B-Q8_0.gguf">
+            Qwen3-Embedding-0.6B <span class="hint">向量 · 610 MB</span></button>
+          <button type="button" class="btn ghost" data-act="modelPreset"
+                  data-url="https://hf-mirror.com/unsloth/Qwen3-4B-Instruct-2507-GGUF/resolve/main/Qwen3-4B-Instruct-2507-Q4_K_M.gguf"
+                  data-name="Qwen3-4B-Instruct-2507-Q4_K_M.gguf">
+            Qwen3-4B-Instruct-2507 <span class="hint">对话 · 2.4 GB</span></button>
+        </div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+          <input id="modelDownloadUrl" class="kbinput" placeholder="https://hf-mirror.com/.../xxx.gguf" style="flex:2 1 320px;min-width:200px">
+          <input id="modelDownloadName" class="kbinput" placeholder="保存文件名（可选）" style="flex:1 1 160px;min-width:120px;max-width:220px">
+          <button type="button" class="btn accent" id="modelDownloadBtn" data-act="modelDownload">下载</button>
+        </div>
+        <div id="modelDownloadHint" class="meta" style="margin-top:6px"></div>
+      </details>
+    </div>
+    <div class="dfoot">
+      <button type="button" class="btn ghost" data-act="openModels">刷新</button>
+      <button type="button" class="btn accent" data-act="closeModels">关闭</button>
+    </div>
+  </div>
+</div>
+<!-- 知识库管理：导入 Word/PDF/Excel/PPT/HTML/文本/URL，管理已收录文档 -->
+<div class="mask" role="dialog" aria-modal="true" aria-label="知识库" id="kbMask" data-act="mask" data-arg="kb">
+  <div class="dlg" style="width:min(860px,96vw)">
+    <div class="dhead"><span>📚 <span data-i18n="知识库">知识库</span></span><span class="hint">Esc 关闭</span></div>
+    <div class="dbody" style="max-height:70vh;overflow:auto">
+      <div id="kbStats" class="kb-path-chip">—</div>
+
+      <div class="kb-section">
+        <div class="kb-section-title" data-i18n="数据导入">数据导入</div>
+        <div id="kbDrop" class="kbdrop">
+          <div class="kb-drop-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" width="30" height="30" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M7 18a4 4 0 0 1-.6-7.95A5.5 5.5 0 0 1 17 9.5a3.5 3.5 0 0 1 .5 6.95"/>
+              <path d="M12 12v7M9 15l3-3 3 3"/>
+            </svg>
+          </div>
+          <div class="kb-drop-title" data-i18n="把文件拖到这里，或">把文件拖到这里，或</div>
+          <div class="kb-drop-actions">
+            <input type="file" id="kbFile" multiple accept=".md,.txt,.csv,.html,.htm,.mht,.mhtml,.docx,.xlsx,.xlsm,.pptx,.pdf" style="display:none">
+            <button type="button" class="btn accent" data-act="kbPick">选择文件</button>
+            <span class="hint">docx / pdf / xlsx / pptx / md / txt / html / mht</span>
+          </div>
+        </div>
+
+        <div class="kb-url-row">
+          <input id="kbUrl" class="kbinput" type="url" placeholder="https://… 抓取网页正文">
+          <button type="button" class="btn kb-fixed-btn" data-act="kbUrl">导入 URL</button>
+          <button type="button" class="btn ghost kb-fixed-btn" data-act="kbInbox" title="扫描 data/kb/inbox/">收件箱</button>
+        </div>
+
+        <details class="kb-paste">
+          <summary class="hint" style="cursor:pointer" data-i18n="粘贴文本入库">粘贴文本入库</summary>
+          <div style="display:flex;gap:6px;margin-top:6px">
+            <input id="kbTitle" class="kbinput" placeholder="标题" style="flex:1">
+            <button type="button" class="btn" data-act="kbText">导入这段文本</button>
+          </div>
+          <textarea id="kbTextBody" rows="4" placeholder="把 FAQ / 公告 / 会议纪要粘进来" style="width:100%;margin-top:6px"></textarea>
+        </details>
+      </div>
+
+      <div class="kb-section">
+        <div class="kb-toolbar">
+          <div class="kb-toolbar-title"><b data-i18n="已收录">已收录</b> <span class="hint" id="kbDocCount"></span></div>
+          <div class="kb-toolbar-actions">
+            <button type="button" class="btn ghost kb-fixed-btn" data-act="kbReindex">重建索引</button>
+            <button type="button" class="btn ghost kb-fixed-btn" data-act="kbRefresh">刷新</button>
+          </div>
+        </div>
+        <div id="kbDocs"></div>
+      </div>
+
+      <div class="kb-section">
+        <div class="kb-section-title" data-i18n="检索测试">检索测试</div>
+        <div class="kb-search-row">
+          <input id="kbQ" class="kbinput" placeholder="检索测试：输入问题看命中与分数">
+          <button type="button" class="btn kb-fixed-btn" data-act="kbSearch">检索</button>
+          <button type="button" class="btn ghost kb-fixed-btn" id="kbClear">清除</button>
+        </div>
+        <div id="kbHits"></div>
+      </div>
+    </div>
+    <div class="dfoot">
+      <span class="hint" style="margin-right:auto">导入后自动重建索引（FTS + 向量）</span>
+      <button type="button" class="btn accent" data-act="closeKb" data-i18n="关闭">关闭</button>
+    </div>
+  </div>
+</div>
+<script src="js/globals.js"></script><script src="i18n.js"></script>
+<script type="module" src="js/main.js"></script>
+</body></html>

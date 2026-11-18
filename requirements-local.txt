@@ -1,0 +1,7 @@
+# 可选：进程内 GGUF 本地聊天模型（例如 Qwen3-4B-Instruct-2507）
+#
+# Windows / Python 3.14 建议直接用预编译 wheel，避免本地编译：
+#   pip install https://github.com/abetlen/llama-cpp-python/releases/download/v0.3.36/llama_cpp_python-0.3.36-py3-none-win_amd64.whl
+#
+# 其他平台可用源码/轮子：
+llama-cpp-python>=0.3.36,<0.4

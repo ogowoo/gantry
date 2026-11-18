@@ -1,0 +1,213 @@
+{
+  "copilot_url": "https://copilot.cloud.microsoft/chat/",
+  "browser_channel": "msedge",
+  "browser_locale": "",
+  "headless": false,
+  "browser_startup": "lazy",
+  "reply_timeout_seconds": 180,
+  "reply_hard_timeout_seconds": 1200,
+  "stable_seconds": 3,
+  "poll_interval_seconds": 0.35,
+  "diagnostics": true,
+  "diagnostic_html": false,
+  "default_model": "copilot-auto",
+  "copilot_tool_shim": false,
+  "api_token": "${GANTRY_TOKEN}",
+  "allow_plugin_install": false,
+  "csrf_protect": true,
+  "csrf_allowed_origins": [],
+  "ui": {
+    "language": "zh"
+  },
+  "teams_url": "https://teams.cloud.microsoft/v2",
+  "server": {
+    "host": "127.0.0.1",
+    "port": 8765
+  },
+  "agent": {
+    "enabled": true,
+    "workspace": "workspace",
+    "workspace_roots": [],
+    "session_store": "data/agent.db",
+    "max_total_steps": 1000,
+    "max_steps_per_conversation": 80,
+    "max_conversation_rollovers": 25,
+    "context_token_budget": 80000,
+    "compact_at_tokens": 35000,
+    "rollover_at_tokens": 55000,
+    "keep_recent_steps": 8,
+    "max_summary_tokens": 5000,
+    "max_context_chars": 240000,
+    "auto_rollover": true,
+    "min_steps_before_rollover": 20,
+    "auto_compact": true,
+    "auto_resume": true,
+    "session_timeout_seconds": 86400,
+    "completed_session_retention_days": 30,
+    "max_sessions": 100,
+    "max_parse_failures": 5,
+    "max_actions_per_turn": 4,
+    "stream_provider_agent": true,
+    "tool_visibility": "auto",
+    "require_unittest": true,
+    "require_unittest_without_tests": false,
+    "spans_enabled": true,
+    "spans_max_lines": 20000,
+    "spill_threshold_chars": 20000,
+    "spill_max_bytes": 2000000,
+    "outlook_timeout_seconds": 60,
+    "allow_copilot_file": true,
+    "max_service_unavailable": 30,
+    "service_retry_base_seconds": 30,
+    "service_retry_max_seconds": 600,
+    "service_retry_window_seconds": 3660,
+    "max_read_chars": 120000,
+    "max_write_chars": 200000,
+    "allow_delete": false,
+    "approval_policy": "ask",
+    "approval_required_tools": [
+      "delete_path",
+      "outlook_send",
+      "run_python"
+    ],
+    "allow_python": false,
+    "allow_run_code": false,
+    "run_code_timeout_seconds": 30,
+    "run_code_max_calls": 50,
+    "run_code_max_output_chars": 20000,
+    "allow_office": true,
+    "allow_outlook": false,
+    "allow_outlook_send": false,
+    "allow_skill_write": true,
+    "allow_memory_write": true,
+    "outlook_url": "https://outlook.office.com/mail/",
+    "python_timeout_seconds": 20,
+    "snapshot_retention": 50,
+    "agent_md_max_chars": 8000,
+    "agent_md_total_max_chars": 16000,
+    "allow_self_upgrade": false,
+    "self_upgrade_paths": [
+      "gantry/",
+      "webui/",
+      "scripts/",
+      "docs/",
+      "tests/",
+      "app.py",
+      "start.py",
+      "install.py",
+      "requirements.txt",
+      "AGENT.md",
+      "README.md",
+      "config.example.json"
+    ],
+    "allow_shell": true,
+    "shell_timeout_seconds": 120,
+    "allow_web": true,
+    "allow_private_web": false,
+    "question_timeout_seconds": 600,
+    "tools_extra": {
+      "search": true,
+      "web": true,
+      "shell": true,
+      "plan": true,
+      "vision": true,
+      "ask": true
+    },
+    "approval_scope": "once",
+    "subagent_parallel": 4,
+    "subagent_max_steps": 80,
+    "copilot_windows": 1
+  },
+  "models": {},
+  "providers": {
+    "deepseek": {
+      "json_mode": "json_object"
+    },
+    "kimi": {},
+    "myapi": {
+      "base_url": "https://example.com/v1",
+      "api_key_env": "MYAPI_KEY",
+      "models": [
+        "my-model"
+      ],
+      "description": "自建 OpenAI 兼容网关"
+    },
+    "openai": {
+      "base_url": "https://api.openai.com/v1",
+      "api_key_env": "OPENAI_API_KEY",
+      "models": [
+        "gpt-4o-mini"
+      ],
+      "json_mode": "json_schema",
+      "description": "OpenAI 官方（支持 json_schema 约束输出）"
+    },
+    "ollama": {
+      "base_url": "http://127.0.0.1:11434/v1",
+      "api_key": "ollama",
+      "models": [
+        "qwen3:8b"
+      ],
+      "description": "本地 Ollama（OpenAI 兼容层；思考型模型请把 max_tokens 调大）",
+      "json_mode": "json_object",
+      "max_tokens": 4096,
+      "timeout_seconds": 600
+    },
+    "fflm": {
+      "base_url": "http://127.0.0.1:52625/v1",
+      "api_key": "flm",
+      "models": [
+        "deepseek-r1-0528:8b",
+        "deepseek-r1:8b"
+      ],
+      "description": "FastFlowLM（NPU 本地推理，DeepSeek-R1 8B）",
+      "json_mode": "json_object",
+      "max_tokens": 4096,
+      "timeout_seconds": 600
+    }
+  },
+  "markers": {
+    "assistant_turn": [
+      "Copilot said:"
+    ],
+    "user_turn": [
+      "You said:"
+    ]
+  },
+  "_secrets_note": "密钥放 .env（不入库），这里用 ${VAR} 引用；系统环境变量优先于 .env。",
+  "update": {
+    "enabled": true,
+    "repo": "ogowoo/gantry",
+    "channel": "beta",
+    "method": "auto",
+    "token_env": "GITHUB_TOKEN",
+    "max_download_mb": 200,
+    "line": "0"
+  },
+  "kb": {
+    "rerank": {
+      "enabled": false,
+      "backend": "http",
+      "base_url": "http://127.0.0.1:18087/v1",
+      "model": "BAAI/bge-reranker-v2-m3",
+      "api_key": "",
+      "top_k": 3,
+      "min_score": 0.0,
+      "timeout": 30
+    },
+    "embedding": {
+      "backend": "fastembed",
+      "model": "BAAI/bge-small-zh-v1.5",
+      "cache_dir": "data/models/fastembed",
+      "dim": 512,
+      "local_files_only": false,
+      "threads": 0,
+      "w_vec": 0.75,
+      "w_cov": 0.25
+    },
+    "ocr": {
+      "engine": "auto",
+      "eager": true,
+      "xiaomi_model": "SeerRay-Lab/Xiaomi-OCR-0"
+    }
+  }
+}

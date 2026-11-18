@@ -1,0 +1,39 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "gantry"
+version = "0.11.0-beta.16"
+description = "把 M365 Copilot 网页端桥接成本地 OpenAI 兼容 API + Agent 运行时（含 WebUI、插件、MCP、子代理）"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+  "fastapi>=0.115,<1",
+  "uvicorn>=0.30,<1",
+  "playwright>=1.48,<2",
+  "pydantic>=2.9,<3",
+  "httpx>=0.27,<1",
+  "openpyxl>=3.1,<4",
+  "python-docx>=1.1,<2",
+  "python-pptx>=1.0,<2",
+  "pypdf>=4.0,<6",
+]
+
+[project.optional-dependencies]
+windows = ["pywin32>=306; sys_platform == 'win32'"]
+dev = ["pillow>=10"]
+
+[project.urls]
+Homepage = "https://github.com/ogowoo/gantry"
+Repository = "https://github.com/ogowoo/gantry"
+Changelog = "https://github.com/ogowoo/gantry/blob/main/CHANGELOG.md"
+
+[project.scripts]
+gantry = "gantry.cli:main"
+
+[tool.setuptools]
+packages = ["gantry"]
+
+[tool.setuptools.package-data]
+gantry = ["*.py"]

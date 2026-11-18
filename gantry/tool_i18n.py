@@ -1,0 +1,394 @@
+# -*- coding: utf-8 -*-
+"""工具清单的多语言层：描述与参数提示按提示词语言输出。
+
+工具清单是整段提示词里最后一块中文（英文模式下约占 13% 中的一半以上）。
+它虽然属于结构化内容，但模型是**读这些描述**来决定用哪个工具的，语言不一致会
+增加误用概率，所以一起翻。
+
+- `DESC_EN`: 25 个工具的英文描述（与 `gantry/tools.py`、`gantry/tools_extra.py` 的中文
+  原文逐条对应；工具名、参数名、文件后缀一律保持原样）;
+- `ARG_EN`: 参数提示，键为 `工具名.参数名`;
+- `localize_items(items, lang)`: `zh` 原样返回；`en` 换译本；`tw` 按字转换
+  （与界面同一张简繁表）。缺失译文时**保留中文原文**——宁可见中文，也不要丢信息。
+"""
+from __future__ import annotations
+
+from typing import Any
+
+from .prompt_lang import LANGS, normalize, to_tw
+
+DESC_EN: dict[str, str] = {
+    'batch_analyze': 'Analyze files',
+    'command_capabilities': 'Probe commands',
+    'workspace_inspect': 'Inspect files',
+    "list_directory": "List entries of a workspace directory",
+    "list_directory_tree": ("Recursively list a directory tree (subdirectories and files) for a full "
+                            "project review; use find_files for precise lookups (there is no "
+                            "self_list_tree tool)"),
+    "find_files": "Find files by glob pattern",
+    "read_text": ("Read UTF-8 text; reads the whole file by default (up to max_read_chars). "
+                  "For huge files page by characters with offset/limit, or read by line with "
+                  "line_start/line_count (returns line numbers, handy for editing a few lines)"),
+    "write_text": ("Write a UTF-8 plain-text file. **New files only**: existing files are rejected "
+                   "unless overwrite=true; read_text first and edit with apply_patch/replace_text/"
+                   "replace_lines. Documents (.md/.txt/.log) may be written whole; code files only "
+                   "up to 1500 characters (use b64 chunks for more)"),
+    "append_text": ("Append UTF-8 plain text. Use it to continue documents in chunks; code files "
+                    "only up to 1500 characters (use append_text_b64 for more)"),
+    "write_text_b64": ("Base64-decode and write as UTF-8. **New files only**: existing files are "
+                       "rejected unless overwrite=true; read_text first and edit with apply_patch/"
+                       "replace_text/replace_lines"),
+    "append_text_b64": ("Base64-decode and append as UTF-8; required for code, JSON, HTML and "
+                        "Markdown"),
+    "replace_text": ("Replace a short exact snippet in an existing file; prefer this when editing "
+                     "code"),
+    "apply_patch": ("Apply several edits in one call (atomic: nothing is written if any hunk "
+                    "fails). Accepts a patch or an edits list; use it for four or more small "
+                    "edits to save turns"),
+    "convert_indentation": ("Convert **leading** indentation between tabs and spaces in one shot "
+                            "(only line prefixes; strings and inner text untouched). Stop fixing "
+                            "indentation chunk by chunk with replace_text"),
+    "indent_lines": ("Add or remove **leading spaces** on a line range (positive delta = indent, "
+                     "negative = outdent). Use this for indentation instead of stuffing spaces "
+                     "into replace_text"),
+    "replace_lines": ("Replace a whole line range by line number (1-based, inclusive) keeping the "
+                      "file's newline style. More robust than replace_text for re-indentation or "
+                      "whole-section rewrites; no shell needed"),
+    "python_symbols": ("List functions/classes in a .py file with AST line ranges (qualified names "
+                       "such as Class.method); use it before rewriting a whole function/class"),
+    "replace_python_symbol": ("Replace one Python function/class by AST symbol name; more robust "
+                              "than text matching for whole-implementation rewrites"),
+    "make_directory": "Create a directory",
+    "copy_path": "Copy a file or directory",
+    "move_path": "Move a file or directory",
+    "delete_path": "Delete a path",
+    "session_search": ("Search prior sessions (chat messages and agent steps) for a literal keyword; "
+                       "use it when the task refers to what was done before"),
+    "session_read": ("Read a session's messages and steps (defaults to the current session) to review "
+                     "what happened and what was concluded"),
+    "session_changes": ("List files changed by file tools in this (or another) session with the last "
+                        "result; useful for a final review"),
+    "subagent_interrupt": ("Stop a running subagent (cooperative cancel; terminal sessions are left "
+                           "untouched)"),
+    "list_subagent_models": ("List model routes available to subagents (providers and built-in models); "
+                             "check before passing an explicit model"),
+    "notebook_read": ("Read Jupyter notebook (.ipynb) cells: type, source, execution count and output "
+                      "counts; use it to locate cells before editing"),
+    "notebook_edit": ("Edit Jupyter notebook cells by index: replace / insert / delete; read the file "
+                      "first with read_text or notebook_read"),
+    "todo_read": ("Read the current task list written by todo_write; check remaining items before "
+                  "continuing a long task"),
+    "power_automate_catalog": ("List built-in Power Automate connectors/operations and control "
+                               "actions available in the same tenant; check it before generating"),
+    "power_automate_generate": ("Generate a Power Automate project under flows/<name>/ and package it "
+                                "as a legacy import package and/or solution zip; never calls real APIs"),
+    "power_automate_validate": ("Validate a generated Power Automate project: JSON parses and the "
+                                "definition has required keys"),
+    "power_apps_generate": ("Generate Power Apps canvas app YAML source (CanvasManifest.json + "
+                            "Src/*.pa.yaml); optionally pack it into .msapp with pac"),
+    "power_apps_pack": ("Pack an existing Power Apps canvas app source directory into .msapp "
+                        "using pac canvas pack (requires a Studio-validated baseline)"),
+    "power_apps_validate": ("Validate a Power Apps canvas app source directory: manifest, "
+                            "App.pa.yaml and screen files"),
+    "vector_index_status": "BGE-M3 vector index status (model/dim/backend/indexed chunks)",
+    "vector_index_reindex": ("Rebuild or incrementally update the BGE-M3 vector index "
+                             "(force=true for a full rebuild)"),
+    "vector_index_search": "Search the local knowledge base with BGE-M3 vectors",
+    "vector_index_reset": "Clear the vector index (knowledge base originals are kept)",
+    "validate_python": ("Check Python syntax of a file or directory; run it only after all files "
+                        "are complete (a half-written file always fails — that is not a defect)"),
+    "run_unittest": "Run unittest discovery; run it only after all files are complete",
+    "exit_plan_mode": ("Leave plan mode: submit the plan and lift read-only mode (call it after "
+                       "read-only exploration in the planning phase)"),
+    "read_excel": "Read the contents of Excel worksheets",
+    "write_excel": "Write 2-D row data into Excel (creates the file if missing)",
+    "read_docx": "Extract paragraphs and table text from a Word document",
+    "write_docx": "Create or append paragraphs in a Word document",
+    "read_pptx": "Extract slide text and speaker notes from a presentation",
+    "read_pdf": "Extract per-page text from a PDF",
+    "tool_list": ("List every available tool and its group (the prompt only lists tools relevant "
+                  "to the current task; others can still be called directly)"),
+    "self_read_text": "Read the service's own code (install-dir relative path, within whitelist)",
+    "self_write_text_b64": "Overwrite a service file; code must be Base64-chunked (<=3000 chars per chunk); run self_validate + self_unittest afterwards",
+    "self_append_text_b64": "Append to a service file (chunked continuation)",
+    "self_replace_text": "Precise replacement for the service's own code (preferred for edits)",
+    "self_find_files": "List files under the service install dir (locate first when investigating the service itself)",
+    "self_search_text": "Search text/regex in the service install dir (locate before editing; workspace tools cannot see service code)",
+    "self_validate": "Syntax-check the whole install dir; must pass for self-upgrade",
+    "self_unittest": "Run the service's own unit tests; must pass for self-upgrade",
+    "self_rollback": "Roll back this task's changes to the service's own code",
+}
+
+# 参数提示：键为 "工具.参数"
+ARG_EN: dict[str, str] = {
+    'batch_analyze.paths': 'File paths',
+    'batch_analyze.max_bytes': 'Sample limit',
+    'command_capabilities.type': 'Schema type',
+    'command_capabilities.properties': 'Schema properties',
+    'workspace_inspect.path': 'Relative path',
+    'workspace_inspect.max_entries': 'Entry limit',
+    "list_directory.path": "Relative path, defaults to .",
+    "list_directory.since_mtime": "Only return entries modified after this timestamp (optional)",
+    "list_directory_tree.path": "Relative path, defaults to .",
+    "list_directory_tree.max_depth": "Maximum recursion depth, default 3 (0-8)",
+    "list_directory_tree.include_hidden": "Include hidden files/directories, default false",
+    "list_directory_tree.max_entries": "Maximum entries returned, default 1000",
+    "find_files.pattern": "e.g. **/*.log",
+    "read_text.path": "Relative path",
+    "read_text.offset": "Character offset, default 0",
+    "read_text.limit": "Max characters returned this time, default 120000",
+    "read_text.line_start": "Read by line: first line, 1-based (ignores offset when set)",
+    "read_text.line_count": "Read by line: how many lines, defaults to end of file",
+    "read_text.reveal_whitespace": "Show spaces as · and tabs as → (essential for checking indentation)",
+    "write_text.path": "Relative path",
+    "write_text.content": "Text",
+    "write_text.overwrite": "true only for an intentional whole-file rewrite of an existing file",
+    "append_text.path": "Relative path",
+    "append_text.content": "Text",
+    "write_text_b64.path": "Relative path",
+    "write_text_b64.content_b64": "Base64 of the UTF-8 content",
+    "write_text_b64.overwrite": "true only for an intentional whole-file rewrite of an existing file",
+    "append_text_b64.path": "Relative path",
+    "append_text_b64.content_b64": "Base64 of the UTF-8 content",
+    "replace_text.path": "Relative path",
+    "replace_text.old": "Original text",
+    "replace_text.new": "New text",
+    "replace_text.count": "Number of replacements, default 1",
+    "apply_patch.path": "Relative path",
+    "apply_patch.patch": ("Patch text: *** Begin Patch / *** Update File: x / @@ hunks; leading "
+                          "' '=context '-'=old '+'=new"),
+    "apply_patch.edits": "Or an array [{old,new,count?}] (mutually exclusive with patch)",
+    "apply_patch.count": "Replacements per edit, default 1 (0 = all)",
+    "convert_indentation.path": "Relative path",
+    "convert_indentation.mode": "tabs2spaces (default) or spaces2tabs",
+    "convert_indentation.width": "Tab width, default 4",
+    "convert_indentation.line_start": "Only this range: first line, 1-based (optional)",
+    "convert_indentation.line_count": "How many lines (optional)",
+    "indent_lines.path": "Relative path",
+    "indent_lines.line_start": "First line, 1-based",
+    "indent_lines.line_count": "How many lines, default 1",
+    "indent_lines.delta": "Spaces to add or remove (positive = indent, negative = outdent)",
+    "replace_lines.path": "Relative path",
+    "replace_lines.start": "First line number, 1-based",
+    "replace_lines.count": "How many lines to replace, default 1",
+    "replace_lines.content": ("New content (may span lines; an empty string deletes these lines)"),
+    "python_symbols.path": "Relative path to a .py file",
+    "replace_python_symbol.path": "Relative path to a .py file",
+    "replace_python_symbol.name": "Symbol name, e.g. Class.method or func",
+    "replace_python_symbol.content": "Complete new symbol source (including def/class line and indentation)",
+    "make_directory.path": "Relative path",
+    "copy_path.source": "Relative path",
+    "copy_path.destination": "Relative path",
+    "move_path.source": "Relative path",
+    "move_path.destination": "Relative path",
+    "delete_path.path": "Relative path",
+    "session_search.query": "Literal keyword",
+    "session_search.limit": "Max results per category, default 10 (max 50)",
+    "session_read.session_id": "Session id (defaults to the current session)",
+    "session_read.limit": "Max messages/steps returned, default 50",
+    "session_read.include_steps": "Return steps too, default true",
+    "session_changes.session_id": "Session id (defaults to the current session)",
+    "subagent_interrupt.agent_id": "Subagent session id",
+    "subagent_interrupt.reason": "Reason for the interrupt (optional)",
+    "list_subagent_models.provider": "Provider id (optional; omit to list all)",
+    "list_subagent_models.model": "Exact model id (optional, for availability check)",
+    "notebook_read.path": "Relative path (.ipynb)",
+    "notebook_read.max_chars": "Max characters per cell, default 2000",
+    "notebook_edit.path": "Relative path (.ipynb)",
+    "notebook_edit.cell_index": "Cell index (0-based)",
+    "notebook_edit.action": "replace / insert / delete, default replace",
+    "notebook_edit.cell_type": "code / markdown / raw, default code",
+    "notebook_edit.source": "New cell source (required for replace/insert)",
+    "power_automate_catalog.connector": "Connector key (optional; omit to list all)",
+    "power_automate_generate.name": "Project name (lowercase kebab-case)",
+    "power_automate_generate.spec": "Object or JSON string: trigger + actions",
+    "power_automate_generate.target": "project / legacy / solution / all, default all",
+    "power_automate_generate.output_dir": "Output directory, default flows",
+    "power_automate_generate.publisher": "Solution publisher (default GantryPublisher)",
+    "power_automate_generate.prefix": "Solution prefix (default new)",
+    "power_automate_generate.version": "Solution version (default 1.0.0.0)",
+    "power_automate_validate.name": "Project name",
+    "power_automate_validate.output_dir": "Project directory, default flows",
+    "power_apps_generate.name": "App name (lowercase kebab-case)",
+    "power_apps_generate.spec": "Object or JSON: display_name / screen_name / controls",
+    "power_apps_generate.output_dir": "Output directory, default apps",
+    "power_apps_generate.pack": "Call pac canvas pack after generating",
+    "power_apps_generate.pac": "Path to pac executable (optional)",
+    "power_apps_generate.msapp": "Output .msapp path (optional)",
+    "power_apps_pack.source_dir": "Source directory",
+    "power_apps_pack.msapp": "Output .msapp path (optional)",
+    "power_apps_pack.pac": "Path to pac executable (optional)",
+    "power_apps_validate.source_dir": "Source directory",
+    "vector_index_reindex.force": "false=incremental, true=full rebuild",
+    "vector_index_search.q": "User question",
+    "vector_index_search.top_k": "Number of hits, defaults to config",
+    "validate_python.path": "Relative path, defaults to .",
+    "run_unittest.path": "Test directory, defaults to tests",
+    "run_unittest.pattern": "Defaults to test_*.py",
+    "exit_plan_mode.plan": "Plan to execute (Markdown)",
+    "exit_plan_mode.notes": "Extra notes (optional)",
+    "read_excel.path": "Relative path",
+    "read_excel.sheet": "Sheet name, defaults to all",
+    "read_excel.max_rows": "Max rows per sheet, default 200",
+    "write_excel.path": "Relative path",
+    "write_excel.sheet": "Sheet name, defaults to the active sheet",
+    "write_excel.rows": "2-D array",
+    "write_excel.start_cell": "Start cell, default A1",
+    "read_docx.path": "Relative path",
+    "write_docx.path": "Relative path",
+    "write_docx.paragraphs": "Array of strings",
+    "write_docx.mode": "append or overwrite, default append",
+    "read_pptx.path": "Relative path",
+    "read_pdf.path": "Relative path",
+    "self_read_text.path": "e.g. gantry/agent.py",
+    "self_read_text.line_start": "1-based first line (recommended)",
+    "self_read_text.line_count": "how many lines to read",
+    "self_read_text.offset": "char offset (legacy; use line_start instead)",
+    "self_read_text.limit": "char cap, default whole file",
+    "self_write_text_b64.path": "install-dir relative path",
+    "self_write_text_b64.content_b64": "Base64",
+    "self_append_text_b64.path": "install-dir relative path",
+    "self_append_text_b64.content_b64": "Base64",
+    "self_replace_text.path": "install-dir relative path",
+    "self_replace_text.old": "exact original text (verbatim, incl. indentation/newlines)",
+    "self_replace_text.new": "replacement text",
+    "self_replace_text.count": "default 1",
+    "self_find_files.pattern": "glob, e.g. gantry/*.py, default **/*.py",
+    "self_search_text.query": "text or regex",
+    "self_search_text.path": "directory, default .",
+    "self_search_text.max_results": "default 50",
+    "self_unittest.pattern": "default test_*.py",
+}
+
+
+def localize_items(items: list[dict[str, Any]], lang: str | None = None) -> list[dict[str, Any]]:
+    """按语言改写工具清单的 description / arguments 提示（不动 name 与参数名）。"""
+    target = normalize(lang)
+    if target not in LANGS or target == "zh":
+        return items
+    out: list[dict[str, Any]] = []
+    for item in items:
+        name = str(item.get("name") or "")
+        desc = str(item.get("description") or "")
+        args = dict(item.get("arguments") or {})
+        if target == "en":
+            new_desc = DESC_EN.get(name, desc)
+            new_args = {k: ARG_EN.get(f"{name}.{k}", v) for k, v in args.items()}
+        else:                                    # tw
+            new_desc = to_tw(desc)
+            new_args = {k: to_tw(str(v)) for k, v in args.items()}
+        row = dict(item)
+        row["description"] = new_desc
+        row["arguments"] = new_args
+        out.append(row)
+    return out
+
+# ── 其余工具（memory / skill / subagent / web / job / 视觉等）的英文描述与参数 ──
+DESC_EN.update({
+    'outlook_unread': 'List unread messages in the Outlook inbox',
+    'outlook_read': 'Read a message body by entry_id',
+    'outlook_search': 'Search a folder by subject keyword and date (inbox / sent / outbox / deleted / drafts)',
+    'skill_list': 'List available skills (global + project level; same-name project skills override global)',
+    'skill_read': 'Read the full SKILL.md of a skill (global skills live outside the workspace; only this tool can read them)',
+    'memory_write': 'Record one long-term memory useful across sessions (fact / preference / decision / pitfall). Write only when it really helps later tasks; duplicates are merged on write. scope=global is visible to every task, project (default) only to this workspace',
+    'memory_search': 'Search long-term memory by keyword; returns the most relevant entries',
+    'memory_forget': 'Delete one outdated or wrong long-term memory entry',
+    'skill_create': 'Turn a method that proved itself in this task into a skill (SKILL.md). scope=project writes the workspace skills/ (default); scope=global writes the service install dir',
+    'ask_user_question': 'Ask the user mid-task and wait for the answer (use it when a decision or extra information is needed instead of guessing)',
+    'create_goal': 'Create a multi-round goal: while incomplete, returning final auto-continues (up to max_rounds); finish with update_goal',
+    'get_goal': 'Read the current goal and its progress',
+    'grep': 'Regex-search workspace file contents (find_files matches names only); returns file:line:content',
+    'job_kill': 'Stop a background job',
+    'job_list': 'List background jobs',
+    'job_output': 'Read background job output (wait=true blocks until it finishes or times out)',
+    'present': 'Declare deliverables (at most 4 files). It only registers them for the UI: the files are already in the local workspace and are not copied or uploaded. Say "generated at <workspace-relative path>", never "downloadable"',
+    'pwsh': 'Run a PowerShell command (one-off approval required by default); with run_in_background=true it returns a job_id',
+    'ralph': 'Goal iteration: each round advances the goal with a fresh sub-agent until one declares GOAL_COMPLETE or the rounds run out',
+    'read_image': 'Read image metadata (format / size / dimensions); with analyze=true Copilot vision describes it',
+    'subagent': 'Hand one self-contained task to a sub-agent (separate session and context) to isolate context or parallelise research/analysis/local refactors; returns its final result and step count, not intermediate steps',
+    'subagent_fork': 'Fork a sub-agent from this session: it inherits the completed conversation, which suits trying a second route or another implementation. State only the new requirements in the task',
+    'subagent_list': 'List sub-agent sessions (optionally filtered by parent) with state and step count',
+    'subagent_many': 'Dispatch several independent sub-tasks in one call (API provider models run in parallel up to agent.subagent_parallel; the web Copilot channel runs in parallel up to agent.copilot_windows, one tab per sub-agent; everything returns together)',
+    'subagent_send': 'Add one more round to an existing sub-agent session: it remembers the earlier context, so state only the new requirements',
+    'todo_write': 'Write the task checklist (full replace, up to 50 items); use it to track long tasks',
+    'update_goal': 'Update goal state: complete / blocked / pause / resume / edit',
+    'web_fetch': 'Fetch an HTTP(S) URL as plain text (HTML tags stripped; private addresses refused by default)',
+    'workflow': 'Orchestrate several sub-agents in phases (sequential within a phase; API provider models can run in parallel)',
+    'copilot_attach': 'Upload a file to Copilot web for analysis and return the answer (for images and complex documents local tools cannot parse)',
+    'copilot_file': 'Let Copilot generate a file and download it into the workspace (content does not go through chat messages, so output length limits do not apply: one large file per turn; suits code and Office documents)',
+})
+
+ARG_EN.update({
+    'outlook_unread.max_count': 'Max messages, default 10',
+    'outlook_read.entry_id': 'Message entry_id',
+    'outlook_search.keyword': 'Subject keyword',
+    'outlook_search.folder': 'inbox / sent / outbox / deleted / drafts',
+    'outlook_search.since': 'Only messages after this date (YYYY-MM-DD)',
+    'outlook_search.max_count': 'Max messages, default 20',
+    'skill_read.name': 'Skill name',
+    'memory_write.text': 'The statement itself (self-contained, no diary)',
+    'memory_write.kind': 'fact / preference / decision / pitfall',
+    'memory_write.tags': 'Tag array',
+    'memory_write.pinned': 'true = always visible to every turn',
+    'memory_write.scope': 'project (default) or global',
+    'memory_search.query': 'Keywords',
+    'memory_search.limit': 'Max entries, default 10',
+    'memory_search.scope': 'project / global / all',
+    'memory_forget.id': 'Memory id',
+    'skill_create.name': 'Skill name',
+    'skill_create.content': 'Full SKILL.md text',
+    'skill_create.description': 'One-line description',
+    'skill_create.scope': 'project (default) or global',
+    'skill_create.overwrite': 'true = overwrite an existing skill of the same name',
+    'ask_user_question.question': 'The question',
+    'ask_user_question.options': 'Optional candidate answers',
+    'create_goal.objective': 'Goal',
+    'create_goal.max_rounds': 'Max continuation rounds',
+    'grep.pattern': 'Regex',
+    'grep.path': 'Directory to search, defaults to .',
+    'grep.include': 'Filename filter, e.g. *.py',
+    'grep.max_results': 'Max matches, default 200',
+    'job_kill.job_id': 'Job id',
+    'job_output.job_id': 'Job id',
+    'job_output.wait': 'true = wait for completion',
+    'job_output.timeout_seconds': 'Wait timeout in seconds',
+    'present.files': 'Array of {path, description}',
+    'pwsh.command': 'Command line',
+    'pwsh.workdir': 'Working directory (optional)',
+    'pwsh.timeout_seconds': 'Timeout in seconds',
+    'pwsh.run_in_background': 'true = return a job_id immediately',
+    'ralph.objective': 'Goal',
+    'ralph.max_rounds': 'Max rounds, default 5',
+    'ralph.model': 'Model id (optional)',
+    'read_image.path': 'Relative path',
+    'read_image.question': 'What to ask about the image (with analyze=true)',
+    'read_image.analyze': 'true = let Copilot vision describe it',
+    'subagent.task': 'Self-contained task text',
+    'subagent.description': 'Short label for the session list',
+    'subagent.model': 'Model id (optional)',
+    'subagent.max_steps': 'Step cap (optional)',
+    'subagent_fork.session_id': 'Parent session id (optional)',
+    'subagent_fork.description': 'Short label',
+    'subagent_fork.keep_messages': 'How many recent messages to inherit',
+    'subagent_list.parent_id': 'Filter by parent session id',
+    'subagent_list.limit': 'Max entries',
+    'subagent_many.tasks': 'Array of self-contained tasks',
+    'subagent_many.model': 'Model id (optional)',
+    'subagent_many.max_steps': 'Step cap per sub-agent',
+    'subagent_many.stop_on_error': 'true = stop the rest on first failure',
+    'subagent_send.session_id': 'Sub-agent session id',
+    'subagent_send.message': 'New requirements',
+    'subagent_send.model': 'Model id (optional)',
+    'subagent_send.max_steps': 'Step cap',
+    'todo_write.todos': 'Array of {content, status} where status is pending / in_progress / completed',
+    'update_goal.action': 'complete / blocked / pause / resume / edit',
+    'update_goal.objective': 'New goal (only with action=edit)',
+    'web_fetch.url': 'HTTP(S) URL',
+    'web_fetch.max_chars': 'Max characters returned',
+    'workflow.spec': 'Workflow specification (stages and sub-tasks)',
+    'workflow.model': 'Model id for sub-agents (optional)',
+    'copilot_attach.path': 'Relative path',
+    'copilot_attach.question': 'What to ask Copilot about the file',
+    'copilot_file.path': 'Target path in the workspace',
+    'copilot_file.instruction': 'What Copilot should generate',
+})

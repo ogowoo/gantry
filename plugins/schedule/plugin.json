@@ -1,0 +1,47 @@
+{
+  "name": "schedule",
+  "version": "0.1.0",
+  "description": "定时任务：按间隔/每天定时/一次性时间点跑 Agent 任务（结果写进新会话，可在会话列表查看；可指定工作区）",
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "gantry": {
+    "entry": "plugin.py",
+    "permissions": [
+      "tools",
+      "api",
+      "storage",
+      "events",
+      "ui"
+    ],
+    "contributes": {
+      "tools": [
+        "schedule_add",
+        "schedule_list",
+        "schedule_remove",
+        "schedule_run"
+      ],
+      "api": [
+        "GET api/list",
+        "POST api/run",
+        "POST api/add",
+        "POST api/remove"
+      ],
+      "panels": [
+        "schedules"
+      ]
+    },
+    "config": {
+      "tick_seconds": 20,
+      "default_model": ""
+    },
+    "i18n": {
+      "en": {
+        "定时任务": "Scheduled tasks",
+        "按间隔/每天/一次性时间点执行的任务": "Tasks that run on an interval, daily, or once at a set time"
+      }
+    }
+  }
+}

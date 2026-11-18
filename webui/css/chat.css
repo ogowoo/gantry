@@ -1,0 +1,269 @@
+/* chat.css — 对话区：Markdown 消息体、时间线步骤、工具结果双视图、diff/JSON 卡片、语法高亮。
+ *
+ * 样式已按块拆分（原 style.css 2341 行 → 11 个文件）。
+ * ⚠ 加载顺序 = 层叠顺序：3/11，由 index.html 里的 <link> 顺序决定，
+ * 不要用 CSS 的 import 指令（会串行阻塞首屏）。新增规则请放进语义对应的文件。
+ */
+/* ── 消息体（Markdown）──────────────────────────────────────────── */
+.md-body{word-break:break-word;overflow-wrap:anywhere}
+.md-body.plain{white-space:pre-wrap}
+.md-p{margin:1px 0}
+.md-gap{height:6px}
+.md-h{font-weight:600;margin:8px 0 3px;line-height:1.35}
+.md-h1{font-size:16px}.md-h2{font-size:15px}.md-h3{font-size:14px}
+.md-h4,.md-h5,.md-h6{font-size:13.5px;color:var(--muted)}
+.md-hr{border:0;border-top:1px solid var(--line2);margin:9px 0}
+.md-a{color:var(--accent2);text-decoration:none;border-bottom:1px solid var(--line2)}
+.md-a:hover{border-bottom-color:var(--accent2)}
+/* 内联命令/路径：等宽底框，从正文里一眼跳出来（python start.py 这类不再与文本混排） */
+.md-ic{font-family:var(--mono);font-size:12.5px;background:var(--term-bg);border:1px solid var(--jv-border);border-radius:5px;padding:1px 6px;color:var(--term-text);white-space:nowrap}
+.md-list{margin:3px 0 3px 4px;padding-left:20px}
+.md-list li{margin:1px 0}
+.md-quote{border-left:3px solid var(--line2);padding:2px 0 2px 10px;margin:4px 0;color:var(--muted)}
+.md-codewrap{margin:7px 0;border:1px solid var(--jv-border);border-radius:9px;overflow:hidden;background:var(--jv-bg)}
+/* 对齐 DSH 的极简风：头部窄、语言名淡、按钮轻。左边语言名、右边按钮组。 */
+.md-codebar{display:flex;align-items:center;justify-content:space-between;gap:6px;
+  padding:5px 14px;background:var(--panel2);border-bottom:1px solid var(--jv-border)}
+.md-ico{font-family:var(--mono);font-size:11px;color:var(--faint);
+  border:1px solid var(--line2);border-radius:5px;padding:0 4px;line-height:15px}
+.md-lang{font-size:11px;color:var(--faint);font-weight:400}
+.md-icon{border:0;background:transparent;color:var(--faint);font-size:12px;cursor:pointer;padding:1px 4px;border-radius:4px;opacity:.7}
+.md-icon:hover{opacity:1;color:var(--text);background:var(--menu-hover)}.md-icon-old:hover{color:var(--text);background:var(--menu-hover)}
+.md-copy{margin-left:auto;border:0;background:transparent;color:var(--muted);font-size:11px;cursor:pointer;padding:1px 7px;border-radius:5px}
+.md-copy:hover{color:var(--text);background:var(--menu-hover)}
+/* 代码行号（.cl 每行一个块；行号 sticky 在左侧，横向滚动时不会跑掉） */
+.md-code .cl{display:block;white-space:pre}
+.md-code .ln{position:sticky;left:0;display:inline-block;width:2.6em;margin-right:10px;
+  text-align:right;color:var(--faint);background:var(--jv-bg);user-select:none;
+  -webkit-user-select:none;font-variant-numeric:tabular-nums}
+.md-codewrap.no-lines .ln{display:none}
+/* 行号点击选中整行（可多行同时选中，便于对照） */
+.md-code .ln{cursor:pointer}
+.md-code .ln:hover{color:var(--accent2)}
+.md-code .cl.sel{background:rgba(88,166,255,.14)}
+.md-code .cl.sel .ln{color:var(--accent2);font-weight:600}
+/* Markdown 图片与消息附件缩略图 */
+.md-img{max-width:min(520px,100%);border-radius:8px;border:1px solid var(--line2);
+  margin:6px 0;cursor:zoom-in;display:block}
+.msg-atts{display:flex;gap:8px;flex-wrap:wrap;margin-top:7px}
+.msg-att{max-width:180px;max-height:120px;border-radius:8px;border:1px solid var(--line2);
+  cursor:zoom-in;object-fit:cover}
+.imgzoom{display:none;position:fixed;inset:0;z-index:99;background:var(--mask-bg);
+  align-items:center;justify-content:center;cursor:zoom-out;padding:4vh 4vw}
+.imgzoom img{max-width:100%;max-height:100%;border-radius:10px;
+  box-shadow:0 12px 40px var(--dlg-shadow)}
+/* 行号选中后的"复制选中 N 行"按钮 */
+.md-copsel{border:0;background:transparent;color:var(--accent2);font-size:11px;
+  cursor:pointer;padding:1px 7px;border-radius:5px;white-space:nowrap}
+.md-copsel:hover{background:var(--menu-hover)}
+/* 会话列表附件角标 */
+.attchip{align-self:center;font-size:11px;color:var(--muted);background:var(--panel2);
+  border:1px solid var(--line2);border-radius:999px;padding:1px 7px;white-space:nowrap;flex:none}
+/* 图片加载失败的占位 */
+.img-broken{display:inline-block;font-size:11.5px;color:var(--faint);
+  border:1px dashed var(--line2);border-radius:7px;padding:6px 10px;margin:4px 0}
+/* 终止服务：图标按钮的危险态（悬停才显红，平时保持安静） */
+.iconbtn.danger:hover{color:var(--danger-text);background:var(--danger-bg);
+  border-color:var(--danger-border)}
+/* 服务已终止横幅（置于 body 顶部，静态占位不遮挡内容） */
+.stoppedbanner{display:none;flex-wrap:wrap;align-items:center;gap:10px;padding:10px 16px;
+  background:var(--danger-bg);border-bottom:1px solid var(--danger-border);
+  color:var(--danger-text);font-size:13px}
+.stoppedbanner .meta{color:var(--muted);font-size:12px}
+.stoppedbanner code{font-family:var(--mono);font-size:12px;
+  background:var(--panel2);border:1px solid var(--line2);border-radius:5px;padding:0 5px;color:var(--text)}
+/* ── 会话标签分组 + 时间线筛选 + 流式临时气泡 ─────────────────────── */
+.taghead{margin:8px 0 3px;padding:0 10px;font-size:11px;color:var(--muted);
+  letter-spacing:.4px;text-transform:none;display:flex;align-items:center;gap:6px}
+.taghead::after{content:"";flex:1;height:1px;background:var(--line)}
+.sess-more{flex:none;border:0;background:transparent;color:var(--faint);cursor:pointer;
+  font-size:13px;line-height:1;padding:1px 5px;border-radius:6px;opacity:0;transition:opacity .12s}
+.sess:hover .sess-more{opacity:1}
+.sess-more:hover{color:var(--text);background:var(--menu-hover)}
+/* 会话行菜单：复用 .codemenu 的定位于浮层，但规格对齐顶部/对话条 .menuList；
+   宽度按内容自适应。选择器带 .codemenu 提高优先级，避免被后面的
+   `.codemenu{min-width:170px}` / `.codemenu .cmitem` 覆盖。 */
+.codemenu.sessmenu{width:max-content;min-width:0;max-width:calc(100vw - 16px);
+  background:var(--panel2);border-radius:10px;padding:6px;gap:4px;
+  box-shadow:0 14px 40px var(--menu-shadow)}
+.codemenu.sessmenu .cmitem{padding:8px 10px;border-radius:7px;font-size:13px}
+.codemenu.sessmenu .cmitem.danger{color:var(--danger-text)}
+.stepfilter{font-size:11.5px;padding:1px 4px;margin-right:6px;max-width:150px}
+/* 时间线虚拟窗口底部的「显示更早的步骤」 */
+.stepmore{display:flex;justify-content:center;padding:8px 0 4px}
+.stepmore .btn{font-size:12px;color:var(--muted)}
+.stepmore .btn:hover{color:var(--accent2);border-color:var(--accent)}
+/* 对话区的"正在生成"气泡：虚线 + 弱化，明确是临时内容 */
+.msg.live .msg-main{border-style:dashed;background:transparent}
+.msg.live .msg-av{opacity:.6}
+.msg.live .msg-role{color:var(--accent2)}
+/* ── 消息编辑/删除图标 + 跨会话搜索跳转高亮 ───────────────────────── */
+.msg-icon{margin-left:2px;border:0;background:transparent;color:var(--faint);font-size:11.5px;
+  cursor:pointer;padding:1px 5px;border-radius:5px;opacity:0;transition:opacity .12s}
+.msg:hover .msg-icon{opacity:1}
+.msg-icon:hover{color:var(--text);background:var(--menu-hover)}
+.msg-icon.del:hover{color:var(--danger-text);background:var(--danger-bg)}
+.msg.flash{animation:gantry-flash 2.2s ease-out}
+@keyframes gantry-flash{0%,30%{background:rgba(88,166,255,.20)}100%{background:transparent}}
+/* 跨会话搜索结果面板（侧栏内，占位不遮挡会话列表上方） */
+.gsearch{display:flex;flex-direction:column;gap:6px;padding:8px 10px;border-top:1px solid var(--line);
+  border-bottom:1px solid var(--line);background:var(--panel2);max-height:46vh;overflow:auto}
+.gsresults{display:flex;flex-direction:column;gap:4px}
+.gsrow{padding:6px 8px;border-radius:8px;border:1px solid var(--line2);background:var(--panel);
+  cursor:pointer}
+.gsrow:hover{border-color:var(--accent);background:var(--sess-hover)}
+.gstop{display:flex;align-items:baseline;gap:8px;font-size:12.5px;min-width:0}
+.gstop b{color:var(--text);font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.gsmeta{color:var(--faint);font-size:11px;flex:none;margin-left:auto}
+.gssnip{font-size:12px;color:var(--muted);line-height:1.5;margin-top:3px;
+  overflow-wrap:anywhere;white-space:pre-wrap;max-height:60px;overflow:hidden}
+/* ── 时间线工具结果的双视图（渲染 / JSON）────────────────────────── */
+.stepviewbar{display:flex;gap:6px;margin:6px 0 4px}
+.stepviewbar .btn.seg{padding:1px 10px;font-size:11.5px}
+.kvlist{display:flex;flex-direction:column;gap:1px;margin:2px 0 6px;
+  border:1px solid var(--jv-border);border-radius:8px;padding:5px 8px;background:var(--jv-bg)}
+.kvline{display:flex;gap:10px;font-size:12.5px;line-height:1.7}
+.kvk{color:var(--ky);font-family:var(--mono);flex:none;min-width:110px}
+.kvv{color:var(--jv-text);word-break:break-word;min-width:0}
+.sectlabel{font-size:11.5px;color:var(--muted);margin:6px 0 -2px;
+  font-family:var(--mono)}
+/* ── diff / patch 代码块着色（+绿 -红 @@蓝）───────────────────────── */.dl-add{color:var(--st);background:rgba(63,185,80,.10);display:block}
+.dl-del{color:var(--red);background:rgba(248,81,73,.10);display:block}
+.dl-hunk{color:var(--blue);display:block}
+.dl-meta{color:var(--faint);font-weight:600;display:block}
+.dl-ctx{color:var(--jv-text);display:block}
+/* 软换行（对齐 Copilot：长行折行，而不是横向滚动） */
+.md-codewrap:not(.no-wrap) .md-code{white-space:pre-wrap;overflow-wrap:anywhere;overflow-x:hidden}
+.md-codewrap:not(.no-wrap) .md-code .cl{white-space:pre-wrap}
+.md-codewrap:not(.no-wrap) .ln{position:static}
+/* 代码块"…"菜单（挂 body、固定定位，不被滚动容器裁掉） */
+.codemenu{position:fixed;z-index:90;min-width:170px;background:var(--panel);border:1px solid var(--line2);
+  border-radius:9px;box-shadow:0 8px 26px var(--menu-shadow);padding:5px;display:flex;flex-direction:column}
+.codemenu .cmitem{border:0;background:transparent;color:var(--text);text-align:left;font-size:12.5px;
+  padding:6px 9px;border-radius:6px;cursor:pointer;white-space:nowrap}
+.codemenu .cmitem:hover{background:var(--menu-hover)}
+.codemenu .cmitem.off{color:var(--muted)}
+.md-code{margin:0;padding:9px 11px;overflow:auto;max-height:420px;background:var(--jv-bg);color:var(--jv-text);font-family:var(--mono);font-size:var(--code-size);line-height:var(--code-lh);white-space:pre}
+/* 浏览器 UA 样式表里有 `code{font-family:monospace}`：它**直接作用于 <code> 元素**，
+   优先级高于从 <pre> 继承来的字体，导致代码块内部实际渲染成系统默认等宽字体
+   （实测中文 Windows 上是 NSimSun 新宋体，而不是 --mono 指定的字体）。
+   这里显式让 pre 内的 code 继承 pre 的字体。 */
+pre code{font-family:inherit}
+.md-code code{font-family:var(--mono)}
+.md-tablewrap{overflow:auto;margin:7px 0}
+/* 汇总表格：轻量化表线 + 斑马纹；左列名称弱化，右列数据等宽加粗右对齐 */
+.md-table{border-collapse:collapse;font-size:12.5px;min-width:60%;max-width:100%;
+  border:1px solid var(--line2);border-radius:8px}
+.md-table th,.md-table td{border:0;border-bottom:1px solid var(--line2);
+  padding:6px 12px;text-align:left}
+.md-table tr:last-child td{border-bottom:0}
+.md-table th{background:var(--panel2);font-weight:600;color:var(--muted);
+  font-size:11.5px;letter-spacing:.5px}
+.md-table tbody tr:nth-child(even){background:color-mix(in srgb,var(--panel2) 55%,transparent)}
+.md-table td:last-child,.md-table th:last-child{text-align:right;
+  font-variant-numeric:tabular-nums}
+.md-table td:last-child{font-family:var(--mono);
+  font-weight:600}
+.md-table td:first-child{color:var(--muted)}
+/* ── JSON 动作 / 徽标（对话里可视化 Agent 的 JSON 回复）───────────── */
+.act-badge{display:inline-block;font-size:10.5px;font-weight:600;letter-spacing:.3px;
+  padding:1px 8px;border-radius:999px;margin:2px 0 5px;background:var(--btn-bg);
+  color:var(--muted);border:1px solid var(--line2)}
+.act-badge.ok{color:var(--green);border-color:var(--green)}
+.act-badge.warn{color:var(--amber);border-color:var(--amber)}
+.act-card{border:1px solid var(--line2);border-radius:10px;margin:5px 0;overflow:hidden;background:var(--panel)}
+.act-head{display:flex;align-items:center;gap:7px;padding:5px 9px;background:var(--panel2);
+  border-bottom:1px solid var(--line2);flex-wrap:wrap}
+.act-ico{font-size:12px}
+.act-tool{font-family:var(--mono);font-size:12px;font-weight:600;color:var(--accent2)}
+.act-why{font-size:11.5px;color:var(--muted);min-width:0;overflow-wrap:anywhere}
+.act-card .jsonview{border:0;border-radius:0;max-height:300px}
+/* ── 对话框内的"插入方式"单选（强行插入用）───────────────────────── */
+.gmodes{display:flex;flex-direction:column;gap:6px;margin:10px 0 2px}
+.gmopt{display:flex;gap:8px;align-items:flex-start;padding:7px 9px;border:1px solid var(--line2);
+  border-radius:9px;background:var(--panel2);cursor:pointer;font-size:12.5px}
+.gmopt:hover{border-color:var(--accent2)}
+.gmopt input{margin-top:2px;flex:none}
+.gmopt span{display:flex;flex-direction:column;gap:2px;min-width:0}
+.gmopt small{color:var(--muted);font-size:11.5px;line-height:1.45}
+.gmopt:has(input:checked){border-color:var(--accent);background:var(--sess-sel)}
+/* ── 语法高亮（零依赖手写着色）──────────────────────────────────── */
+.hl-c{color:var(--faint);font-style:italic}
+.hl-s{color:var(--st)}
+.hl-k{color:var(--ky);font-weight:600}
+.hl-n{color:var(--nm)}
+.hl-t{color:var(--bl)}
+.hl-p{color:var(--nl)}
+/* 长代码块 / 长消息折叠 */
+.md-codewrap.foldable.collapsed .md-code{max-height:260px;overflow:hidden;position:relative}
+.md-codewrap.foldable.collapsed .md-code::after{content:"";position:absolute;left:0;right:0;bottom:0;height:56px;background:linear-gradient(transparent,var(--jv-bg))}
+.md-fold{border:0;background:transparent;color:var(--accent2);font-size:11px;cursor:pointer;padding:1px 7px;border-radius:5px}
+.md-fold:hover{background:var(--menu-hover)}
+.md-lines{font-size:11px;color:var(--faint)}
+.msg-main{position:relative}
+.msg-main.foldable.collapsed .md-body{max-height:340px;overflow:hidden}
+.msg-main.foldable.collapsed::after{content:"";position:absolute;left:1px;right:1px;bottom:24px;height:52px;background:linear-gradient(transparent,var(--panel2));pointer-events:none}
+.msg.user .msg-main.foldable.collapsed::after{background:linear-gradient(transparent,var(--msg-user-bg))}
+.msg-fold{margin-top:4px;border:0;background:transparent;color:var(--accent2);font-size:11.5px;cursor:pointer;padding:2px 6px;border-radius:5px}
+.msg-fold:hover{background:var(--menu-hover)}
+/* 对话搜索 */
+.findbar{display:flex;align-items:center;gap:6px;padding:6px 12px 0}
+.findbar input{flex:1;min-width:0}
+.findcount{font-size:11.5px;color:var(--faint);font-variant-numeric:tabular-nums;white-space:nowrap}
+mark.gantry-hit{background:var(--amber);color:#1a1206;border-radius:3px;padding:0 1px}
+mark.gantry-hit.cur{background:var(--accent);color:#fff;box-shadow:0 0 0 2px var(--accent2)}
+/* 新到达消息的渐显（流式观感） */
+@keyframes gantry-reveal{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+.msg.reveal{animation:gantry-reveal .28s ease-out}
+@media (prefers-reduced-motion:reduce){.msg.reveal{animation:none}}
+.composer{display:flex;gap:9px;padding:12px 15px;border-top:1px solid var(--line);align-items:flex-end}
+.composer textarea{flex:1;min-height:44px;max-height:160px}
+/* 发送按钮：药丸形（两端全圆），高度不刻意加高（保持 44px），贴底与输入框对齐。
+   别为了"跟输入框一样高"把它拉到 56px —— 药丸本来就不该是方块。 */
+.composer .btn{flex:none;height:44px;padding:0 20px;border-radius:999px}
+.btn.seg{padding:3px 12px;font-size:12px;height:28px;border-radius:20px}
+.btn.seg.on{background:var(--accent);border-color:var(--accent);color:var(--accent-fg,#fff);font-weight:600}
+
+.demo{position:fixed;left:16px;bottom:14px;z-index:99;background:#3d2b10;border:1px solid #9e6a03;color:#e8b339;font-size:12px;padding:6px 13px;border-radius:20px}
+/* 限流倒计时：居中卡片（可收起为右下角小标——原先贴右上角会挡住模型选择器） */
+/* 收起后的小标（右下角，不挡顶部控件） */
+
+/* ── 并入（原 refinements.css 的 25 条规则，保持原相对顺序）── */
+/* MD-READABLE: 让"报告类"回答好读。
+   之前只有 .md-h/.md-hr 几条，段落之间几乎没间距、列表贴边、正文宽度吃满整屏，
+   一屏 100+ 字的行宽读起来很累（用户："markdown 相当于没有，一点都不易读"）。 */
+.md-body{line-height:1.78;font-size:13.5px}
+.md-body > *:first-child{margin-top:0}
+.md-body > *:last-child{margin-bottom:0}
+.md-body p{margin:.6em 0}
+.md-body p + p{margin-top:.75em}
+/* 正文限宽：超宽屏上不要一行 200 字（表格/代码块不受限，自己滚） */
+.md-body > p, .md-body > ul, .md-body > ol, .md-body > blockquote,
+.md-body > .md-h, .md-body > .md-hr{max-width:76ch}
+.md-body ul, .md-body ol{margin:.5em 0 .6em;padding-left:1.35em}
+.md-body li{margin:.22em 0}
+.md-body li > ul, .md-body li > ol{margin:.2em 0}
+.md-body .md-h{margin:1.1em 0 .45em;letter-spacing:.01em}
+.md-body .md-h2{border-bottom:1px solid var(--line);padding-bottom:.25em}
+.md-body blockquote{margin:.7em 0;padding:.15em 0 .15em .9em;
+  border-left:3px solid var(--line2);color:var(--muted)}
+.md-body .md-hr{margin:1.1em 0}
+.md-body .md-tablewrap{margin:.8em 0}
+.md-body strong, .md-body b{color:var(--text)}
+/* FILECARD: 「给我看这个文件」的卡片（文本带行号 / 图片直显 / 二进制给下载）。 */
+.filecard{margin:8px 0;border:1px solid var(--line2);border-radius:10px;
+  background:var(--panel);overflow:hidden}
+.filecard .fc-head,.filecard .fc-img-cap{display:flex;align-items:center;gap:8px;
+  padding:7px 10px;background:var(--panel2);border-bottom:1px solid var(--line);font-size:12.5px}
+.filecard .fc-name{flex:1 1 auto;min-width:0;font-weight:600;color:var(--text);
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.filecard .fc-meta{flex:none;color:var(--faint);font-size:11.5px;font-variant-numeric:tabular-nums}
+.filecard .fc-btn{flex:none;font-size:11.5px;color:var(--accent);background:none;border:0;
+  padding:0 4px;cursor:pointer;text-decoration:none}
+.filecard .fc-btn:hover{text-decoration:underline}
+.filecard .fc-body{margin:0;max-height:420px;overflow:auto;padding:8px 10px;
+  font-size:12px;line-height:1.65;white-space:pre;tab-size:4}
+.filecard .fc-body .fc-ln{display:inline-block;width:3.2em;text-align:right;margin-right:10px;
+  color:var(--faint);user-select:none}
+.filecard .fc-img{display:block;max-width:100%;height:auto;background:var(--panel2)}
+.filecard img{cursor:zoom-in}

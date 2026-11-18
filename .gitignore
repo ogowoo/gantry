@@ -1,0 +1,42 @@
+# ── 本地配置（含个人环境的实际配置，参考 config.example.json）──
+config.json
+
+# ── 浏览器登录态（含 Copilot 登录 Cookie，切勿提交）──
+EdgeProfile/
+
+# ── Agent 运行数据（SQLite 会话库、工作区产物）──
+data/
+workspace/
+.fanout/
+
+# ── 运行时诊断快照 ──
+last_page.txt
+last_page.html
+last_menu.html
+last_menu.txt
+last_answer.html
+# 调试用的时间线导出（for debug/ 目录由用户自建，不入库）
+for debug/
+
+# ── Python ──
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# ── 系统/编辑器 ──
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+# 提交信息临时文件（git commit -F 用），不该进仓库
+.commit_msg.txt
+# 调试截图（验证 UI 时生成的临时 PNG）
+_*.png
+
+# 密钥与本地环境（.env.example 是模板，可入库）
+.env
+.env.local
+!.env.example
+config.json.bak*

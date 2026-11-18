@@ -1,0 +1,3 @@
+# 可选：扫描件/图片 OCR（RapidOCR，ONNX，CPU 可用，模型首次运行自动下载约 20 MB）
+#   pip install -r requirements-ocr.txt   或   python install.py --ocr
+rapidocr>=3.10,<4

@@ -1,0 +1,7 @@
+# 可选：Xiaomi-OCR-0（0.8B 文档解析 VLM；表格 OTSL / 公式 LaTeX）
+#   体积较大（torch CPU wheel 数百 MB），只在需要高质量版面解析时装
+#   python install.py --xiaomi
+torch>=2.14,<3
+torchvision>=0.29,<1
+transformers>=5.17,<6
+rapidocr>=3.10,<4

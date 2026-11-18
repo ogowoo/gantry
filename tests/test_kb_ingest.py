@@ -1,0 +1,781 @@
+# -*- coding: utf-8 -*-
+"""kb_ingest 测试：各格式提取、URL 抓取（假网络）、落盘与 front-matter、插件导入/删除/收件箱。
+
+docx/xlsx/pptx/pdf 用库现场生成最小文件，不依赖外部样本。
+"""
+import asyncio
+import base64
+import importlib.util
+import io
+import json
+import shutil
+import sys
+import tempfile
+import unittest
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT))
+
+from gantry import kb_ingest as ing  # noqa: E402
+from gantry.kb import KnowledgeBase  # noqa: E402
+
+spec = importlib.util.spec_from_file_location("kb_plugin_imp", ROOT / "plugins" / "kb" / "plugin.py")
+plugin = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(plugin)
+
+
+def make_docx() -> bytes:
+    from docx import Document
+
+    d = Document()
+    d.add_heading("VPN 使用手册", level=1)
+    d.add_heading("常见问题", level=2)
+    d.add_paragraph("连不上时先换手机热点试一次。")
+    t = d.add_table(rows=2, cols=2)
+    t.cell(0, 0).text = "症状"
+    t.cell(0, 1).text = "处理"
+    t.cell(1, 0).text = "无法建立隧道"
+    t.cell(1, 1).text = "换端口 443"
+    buf = io.BytesIO()
+    d.save(buf)
+    return buf.getvalue()
+
+
+def make_xlsx() -> bytes:
+    from openpyxl import Workbook
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "资产"
+    ws.append(["主机名", "IP"])
+    ws.append(["pc-001", "10.0.0.5"])
+    buf = io.BytesIO()
+    wb.save(buf)
+    return buf.getvalue()
+
+
+def make_pptx() -> bytes:
+    from pptx import Presentation
+
+    prs = Presentation()
+    slide = prs.slides.add_slide(prs.slide_layouts[1])
+    slide.shapes.title.text = "网络应急流程"
+    slide.placeholders[1].text = "1. 断网先看灯\n2. 换网线"
+    buf = io.BytesIO()
+    prs.save(buf)
+    return buf.getvalue()
+
+
+def make_pdf() -> bytes:
+    """用 fpdf 生成一个带文本层的 PDF。"""
+    from fpdf import FPDF
+
+    pdf = FPDF()
+    pdf.add_page()
+    pdf.set_font("Helvetica", size=12)
+    pdf.cell(0, 10, "VPN troubleshooting guide")
+    pdf.ln(10)
+    pdf.cell(0, 10, "Port 443 must be allowed")
+    return bytes(pdf.output())
+
+
+class ExtractTests(unittest.TestCase):
+    def test_plain_text(self):
+        text = ing.extract_text("a.md", "# 标题\n\n正文".encode())
+        self.assertIn("正文", text)
+
+    def test_html_strips_script(self):
+        html = ("<html><head><title>网络手册</title><script>alert(1)</script></head>"
+                "<body><h2>排查</h2><p>换网线</p><li>看灯</li></body></html>")
+        title, body = ing._html_to_text(html)
+        self.assertEqual(title, "网络手册")
+        self.assertIn("排查", body)
+        self.assertIn("- 看灯", body)
+        self.assertNotIn("alert", body)
+
+    def test_docx(self):
+        text = ing.extract_text("vpn.docx", make_docx())
+        self.assertIn("# VPN 使用手册", text)
+        self.assertIn("## 常见问题", text)
+        self.assertIn("换手机热点", text)
+        self.assertIn("换端口 443", text, "表格内容也要进来")
+
+    def test_xlsx(self):
+        text = ing.extract_text("assets.xlsx", make_xlsx())
+        self.assertIn("## 资产", text)
+        self.assertIn("pc-001", text)
+
+    def test_pptx(self):
+        text = ing.extract_text("deck.pptx", make_pptx())
+        self.assertIn("网络应急流程", text)
+        self.assertIn("换网线", text)
+
+    def test_pdf(self):
+        text = ing.extract_text("guide.pdf", make_pdf())
+        self.assertIn("VPN troubleshooting guide", text)
+
+    def test_unsupported(self):
+        with self.assertRaises(ing.IngestError) as ctx:
+            ing.extract_text("old.doc", b"x")
+        self.assertIn("另存为", str(ctx.exception))
+
+    def test_empty(self):
+        with self.assertRaises(ing.IngestError):
+            ing.extract_text("a.txt", b"")
+
+
+class SaveTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp(prefix="ing_"))
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def test_slug(self):
+        self.assertEqual(ing.slug("VPN 使用手册"), "VPN-使用手册")
+        self.assertEqual(ing.slug("a/b:c*d"), "a-b-c-d")
+        self.assertEqual(ing.slug(""), "document")
+
+    def test_save_and_front_matter(self):
+        path = ing.save_document(self.tmp, "vpn.docx", "# 正文", title="VPN 手册",
+                                 source="inbox:vpn.docx")
+        text = path.read_text(encoding="utf-8")
+        self.assertTrue(path.parent.name == "imported")
+        self.assertIn("title: VPN 手册", text)
+        self.assertIn("category: imported", text)
+        self.assertIn("source: inbox:vpn.docx", text)
+        self.assertIn("# VPN 手册", text)
+
+    def test_same_title_overwrites(self):
+        a = ing.save_document(self.tmp, "x", "一", title="同名")
+        b = ing.save_document(self.tmp, "x", "二", title="同名")
+        self.assertEqual(a, b, "同标题应覆盖，避免重复导入产生多份")
+        self.assertIn("二", b.read_text(encoding="utf-8"))
+
+    def test_fetch_url_rejects_bad_scheme(self):
+        with self.assertRaises(ing.IngestError):
+            ing.fetch_url("ftp://example.com")
+
+
+class FakeResponse:
+    def __init__(self, body: bytes, ctype="text/html; charset=utf-8"):
+        self._body = body
+        self.headers = {"content-type": ctype}
+
+    def read(self, n=-1):
+        return self._body
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *a):
+        return False
+
+
+class UrlTests(unittest.TestCase):
+    def test_fetch_url_parses_html(self):
+        html = ("<html><head><title>IT 服务台</title></head><body>"
+                "<h1>报修</h1><p>拨打 8000</p></body></html>").encode("utf-8")
+        orig = ing.urllib.request.urlopen
+        ing.urllib.request.urlopen = lambda *a, **k: FakeResponse(html)
+        try:
+            title, text = ing.fetch_url("https://example.com/it")
+        finally:
+            ing.urllib.request.urlopen = orig
+        self.assertEqual(title, "IT 服务台")
+        self.assertIn("拨打 8000", text)
+
+
+class FakeCtx:
+    def __init__(self, **cfg):
+        self.config = dict(cfg)
+        self.state = {}
+        self.logs = []
+        self.tools = {}
+        self.apis = {}
+        self.panels = []
+        self._sem = None
+
+    def log(self, m, *a, **k):
+        self.logs.append(str(m))
+
+    def save_state(self, **kw):
+        self.state.update(kw)
+
+    def register_tool(self, n, f, d, args=None, **k):
+        self.tools[n] = f
+
+    def register_api(self, m, p, f):
+        self.apis[(m, p)] = f
+
+    def register_panel(self, p):
+        self.panels.append(p)
+
+
+class Req:
+    def __init__(self, params=None, body=None):
+        self.query_params = params or {}
+        self._body = body or {}
+
+    async def json(self):
+        return self._body
+
+
+class PluginImportTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp(prefix="ing_plugin_"))
+        kbdir = self.tmp / "data" / "kb"
+        kbdir.mkdir(parents=True)
+        self.kb = KnowledgeBase(self.tmp)
+        self._orig_kb = plugin._kb
+        plugin._kb = lambda ctx: self.kb
+        self.ctx = FakeCtx()
+
+    def tearDown(self):
+        plugin._kb = self._orig_kb
+        self.kb.close()
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def run_coro(self, coro):
+        return asyncio.new_event_loop().run_until_complete(coro)
+
+    def test_import_base64_docx(self):
+        plugin.setup(self.ctx)
+        fn = self.ctx.apis[("POST", "api/import")]
+        b64 = base64.b64encode(make_docx()).decode()
+        res = self.run_coro(fn(Req(body={"name": "vpn.docx", "data_b64": b64})))
+        self.assertTrue(res.get("ok"), res)
+        self.assertIn("imported", res["path"])
+        self.assertGreater(res["chars"], 10)
+        self.assertGreaterEqual(res["stats"]["documents"], 1)
+
+    def test_import_text(self):
+        plugin.setup(self.ctx)
+        fn = self.ctx.apis[("POST", "api/import")]
+        res = self.run_coro(fn(Req(body={"text": "打印机脱机时重启 spooler", "title": "打印机"})))
+        self.assertTrue(res.get("ok"))
+        self.assertEqual(res["title"], "打印机")
+
+    def test_import_requires_payload(self):
+        plugin.setup(self.ctx)
+        fn = self.ctx.apis[("POST", "api/import")]
+        res = self.run_coro(fn(Req(body={})))
+        self.assertFalse(res.get("ok"))
+
+    def test_import_bad_base64(self):
+        plugin.setup(self.ctx)
+        fn = self.ctx.apis[("POST", "api/import")]
+        res = self.run_coro(fn(Req(body={"name": "a.txt", "data_b64": "!!!notb64!!!"})))
+        self.assertFalse(res.get("ok"))
+
+    def test_import_url(self):
+        plugin.setup(self.ctx)
+        fn = self.ctx.apis[("POST", "api/import")]
+        orig = ing.urllib.request.urlopen
+        ing.urllib.request.urlopen = lambda *a, **k: FakeResponse(
+            "<html><head><title>FAQ</title></head><body><p>VPN 端口 443</p></body></html>".encode("utf-8"))
+        try:
+            res = self.run_coro(fn(Req(body={"url": "https://example.com/faq"})))
+        finally:
+            ing.urllib.request.urlopen = orig
+        self.assertTrue(res.get("ok"), res)
+        self.assertEqual(res["title"], "FAQ")
+
+    def test_delete(self):
+        plugin.setup(self.ctx)
+        imp = self.ctx.apis[("POST", "api/import")]
+        res = self.run_coro(imp(Req(body={"text": "临时文档", "title": "临时"})))
+        rel = Path(res["path"]).relative_to(Path(self.kb.dir)).as_posix()
+        dele = self.ctx.apis[("POST", "api/delete")]
+        out = self.run_coro(dele(Req(body={"path": rel})))
+        self.assertTrue(out.get("ok"), out)
+        self.assertEqual(out["stats"]["documents"], 0)
+
+    def test_delete_rejects_escape(self):
+        plugin.setup(self.ctx)
+        dele = self.ctx.apis[("POST", "api/delete")]
+        out = self.run_coro(dele(Req(body={"path": "../../config.json"})))
+        self.assertFalse(out.get("ok"))
+        self.assertIn("知识库目录", out.get("error", ""))
+
+    def test_inbox_scan(self):
+        plugin.setup(self.ctx)
+        inbox = Path(self.kb.dir) / "inbox"
+        inbox.mkdir(parents=True)
+        (inbox / "note.md").write_text("# 收件箱笔记\n换网线", encoding="utf-8")
+        listing = self.run_coro(self.ctx.apis[("GET", "api/inbox")](Req()))
+        self.assertEqual(listing["count"], 1)
+        res = self.run_coro(self.ctx.apis[("POST", "api/inbox/scan")](Req(body={})))
+        self.assertEqual(res["imported"], 1)
+        self.assertFalse((inbox / "note.md").exists(), "导入后应移到 imported/")
+        self.assertTrue((inbox / "imported" / "note.md").exists())
+
+
+class _FakeOcr:
+    """RapidOCR 3.x 形状：返回带 .txts/.boxes 的对象。"""
+
+    class _Out:
+        def __init__(self, txts, boxes=None):
+            self.txts = txts
+            self.boxes = boxes or []
+
+    def __init__(self, lines):
+        self.lines = lines
+        self.calls = 0
+
+    def __call__(self, arr):
+        self.calls += 1
+        return _FakeOcr._Out(list(self.lines))
+
+
+class OcrTests(unittest.TestCase):
+    def setUp(self):
+        from gantry import kb_ocr
+
+        self.kb_ocr = kb_ocr
+        self._orig = kb_ocr._ENGINE
+        self._orig_cfg = kb_ocr.config()
+        kb_ocr.configure({"engine": "rapidocr"})     # 显式走 RapidOCR，避免串台
+        kb_ocr.set_engine(None)
+
+    def tearDown(self):
+        self.kb_ocr.set_engine(self._orig)
+        self.kb_ocr.configure(self._orig_cfg)
+
+    def _png(self) -> bytes:
+        from PIL import Image
+
+        buf = io.BytesIO()
+        Image.new("RGB", (40, 20), "white").save(buf, format="PNG")
+        return buf.getvalue()
+
+    def test_png_goes_through_ocr(self):
+        self.kb_ocr.set_engine(_FakeOcr(["打印机脱机", "重启 spooler"]))
+        text = ing.extract_text("scan.png", self._png())
+        self.assertIn("打印机脱机", text)
+        self.assertIn("重启 spooler", text)
+
+    def test_ocr_empty_result_reports(self):
+        self.kb_ocr.set_engine(_FakeOcr([]))
+        with self.assertRaises(ing.IngestError) as ctx:
+            ing.extract_text("blank.png", self._png())
+        self.assertIn("没有识别出文字", str(ctx.exception))
+
+    def test_missing_engine_actionable(self):
+        """没装 rapidocr 时：报错要给出 pip install。"""
+        self.kb_ocr.set_engine(None)
+        import builtins
+
+        real_import = builtins.__import__
+
+        def fake_import(name, *a, **k):
+            if name == "rapidocr":
+                raise ImportError("no module")
+            return real_import(name, *a, **k)
+
+        builtins.__import__ = fake_import
+        try:
+            with self.assertRaises(ing.IngestError) as ctx:
+                self.kb_ocr.ocr_image_bytes(self._png())
+        finally:
+            builtins.__import__ = real_import
+        self.assertIn("pip install rapidocr", str(ctx.exception))
+
+    def test_scanned_pdf_falls_back_to_ocr(self):
+        """PDF 没有文本层时，逐页取内嵌图交给 OCR。"""
+        from fpdf import FPDF
+        from PIL import Image
+
+        tmp = Path(tempfile.mkdtemp(prefix="ocr_pdf_"))
+        try:
+            png = tmp / "page.png"
+            Image.new("RGB", (200, 60), "white").save(png, format="PNG")
+            pdf = FPDF()
+            pdf.add_page()
+            pdf.image(str(png), x=10, y=10, w=120)
+            data = bytes(pdf.output())
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+        self.kb_ocr.set_engine(_FakeOcr(["扫描页文字"]))
+        text = ing.extract_text("scan.pdf", data)
+        self.assertIn("扫描页文字", text)
+        self.assertIn("OCR", text)
+
+    def test_text_pdf_does_not_ocr(self):
+        """有文本层的 PDF 不该触发 OCR。"""
+        engine = _FakeOcr(["不该出现"])
+        self.kb_ocr.set_engine(engine)
+        text = ing.extract_text("guide.pdf", make_pdf())
+        self.assertIn("VPN troubleshooting", text)
+        self.assertEqual(engine.calls, 0)
+
+
+class XiaomiEngineTests(unittest.TestCase):
+    """engine=xiaomi 走 Xiaomi-OCR-0（用假 processor/model/torch 注入，不加载真模型）。"""
+
+    class _Out:
+        def __getitem__(self, s):
+            return [[9, 9]]
+
+        @property
+        def shape(self):
+            return (1, 1)
+
+    def setUp(self):
+        from gantry import kb_ocr
+
+        self.kb_ocr = kb_ocr
+        self._orig_cfg = kb_ocr.config()
+        self._orig_x = kb_ocr._XIAOMI
+        kb_ocr.set_xiaomi(None)
+        kb_ocr.configure({"engine": "xiaomi"})
+
+    def tearDown(self):
+        self.kb_ocr.configure(self._orig_cfg)
+        self.kb_ocr.set_xiaomi(self._orig_x)
+
+    class _Torch:
+        class inference_mode:
+            def __enter__(self):
+                return None
+
+            def __exit__(self, *a):
+                return False
+
+    class _Tensor(list):
+        @property
+        def shape(self):
+            return (1, len(self))
+
+    class _Proc:
+        def apply_chat_template(self, messages, **kw):
+            return {"input_ids": XiaomiEngineTests._Tensor([1, 2, 3])}
+
+        def batch_decode(self, new, skip_special_tokens=True):
+            return ["# 标题\n\n| 甲 | 乙 |"]
+
+    class _Model:
+        def generate(self, **kw):
+            return XiaomiEngineTests._Out()
+
+    def _png(self):
+        from PIL import Image
+
+        buf = io.BytesIO()
+        Image.new("RGB", (30, 12), "white").save(buf, format="PNG")
+        return buf.getvalue()
+
+    def test_xiaomi_returns_markdown(self):
+        self.kb_ocr.set_xiaomi((self._Proc(), self._Model(), self._Torch))
+        text = self.kb_ocr.ocr_image_bytes(self._png())
+        self.assertIn("标题", text)
+
+    def test_engine_switch(self):
+        self.assertEqual(self.kb_ocr.config()["engine"], "xiaomi")
+        self.kb_ocr.configure({"engine": "rapidocr"})
+        self.assertEqual(self.kb_ocr.config()["engine"], "rapidocr")
+
+    def test_invalid_engine_falls_back(self):
+        self.kb_ocr.configure({"engine": "nonsense"})
+        self.assertEqual(self.kb_ocr.config()["engine"], "rapidocr")
+
+
+class KbAddToolTests(unittest.TestCase):
+    """会话里让模型调用 kb_add 入库。"""
+
+    def setUp(self):
+        tmp = Path(tempfile.mkdtemp(prefix="kb_add_"))
+        self.tmp = tmp
+        kbdir = tmp / "data" / "kb"
+        kbdir.mkdir(parents=True)
+        self.kb = KnowledgeBase(tmp)
+        self._orig_kb = plugin._kb
+        plugin._kb = lambda ctx: self.kb
+        self.ctx = FakeCtx()
+
+    def tearDown(self):
+        plugin._kb = self._orig_kb
+        self.kb.close()
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def run_coro(self, coro):
+        return asyncio.new_event_loop().run_until_complete(coro)
+
+    def test_add_text(self):
+        plugin.setup(self.ctx)
+        res = self.run_coro(self.ctx.tools["kb_add"]("## 打印机\n脱机先重启 spooler",
+                                                    "打印机", "", None))
+        self.assertTrue(res.get("ok"), res)
+        self.assertEqual(res["added"][0]["kind"], "text")
+        self.assertGreaterEqual(res["documents"], 1)
+
+    def test_add_file(self):
+        plugin.setup(self.ctx)
+        f = self.tmp / "vpn.docx"
+        f.write_bytes(make_docx())
+        res = self.run_coro(self.ctx.tools["kb_add"]("", "", "", [str(f)]))
+        self.assertTrue(res.get("ok"), res)
+        self.assertEqual(res["added"][0]["kind"], "file")
+
+    def test_requires_payload(self):
+        plugin.setup(self.ctx)
+        res = self.run_coro(self.ctx.tools["kb_add"]("", "", "", None))
+        self.assertFalse(res.get("ok"))
+
+
+class AutoEngineTests(unittest.TestCase):
+    """engine=auto：普通文本走 RapidOCR；稀疏/表格状自动转 Xiaomi。"""
+
+    def setUp(self):
+        from gantry import kb_ocr
+
+        self.kb_ocr = kb_ocr
+        self._orig_cfg = kb_ocr.config()
+        self._orig_e = kb_ocr._ENGINE
+        self._orig_x = kb_ocr._XIAOMI
+        kb_ocr.configure({"engine": "auto"})
+        kb_ocr.set_engine(None)
+        kb_ocr.set_xiaomi(None)
+
+    def tearDown(self):
+        self.kb_ocr.configure(self._orig_cfg)
+        self.kb_ocr.set_engine(self._orig_e)
+        self.kb_ocr.set_xiaomi(self._orig_x)
+
+    def _png(self, size=(600, 200)):
+        from PIL import Image
+
+        buf = io.BytesIO()
+        Image.new("RGB", size, "white").save(buf, format="PNG")
+        return buf.getvalue()
+
+    def _xiaomi(self):
+        class Proc:
+            def apply_chat_template(self, messages, **kw):
+                class T(list):
+                    @property
+                    def shape(self):
+                        return (1, len(self))
+                return {"input_ids": T([1, 2])}
+
+            def batch_decode(self, new, skip_special_tokens=True):
+                return ["# XIAOMI 输出"]
+
+        class Model:
+            def generate(self, **kw):
+                class O:
+                    def __getitem__(self, s):
+                        return [[1]]
+
+                    @property
+                    def shape(self):
+                        return (1, 1)
+                return O()
+
+        class Torch:
+            class inference_mode:
+                def __enter__(self):
+                    return None
+
+                def __exit__(self, *a):
+                    return False
+
+        self.kb_ocr.set_xiaomi((Proc(), Model(), Torch))
+
+    def test_rich_text_stays_rapidocr(self):
+        self.kb_ocr.set_engine(_FakeOcr(["这是一段足够长的正文，用来避免稀疏判定。" * 3]))
+        self._xiaomi()
+        text = self.kb_ocr.ocr_image_bytes(self._png())
+        self.assertNotIn("XIAOMI", text)
+
+    def test_sparse_text_switches_to_xiaomi(self):
+        self.kb_ocr.set_engine(_FakeOcr(["短"]))
+        self._xiaomi()
+        text = self.kb_ocr.ocr_image_bytes(self._png((1000, 1000)))
+        self.assertIn("XIAOMI", text)
+
+    def test_empty_rapidocr_switches_to_xiaomi(self):
+        self.kb_ocr.set_engine(_FakeOcr([]))
+        self._xiaomi()
+        text = self.kb_ocr.ocr_image_bytes(self._png())
+        self.assertIn("XIAOMI", text)
+
+    def test_table_boxes_switch_to_xiaomi(self):
+        class TableOcr(_FakeOcr):
+            def __call__(self, arr):
+                return _FakeOcr._Out(["甲", "乙", "丙", "丁"],
+                                     boxes=[[[0, 0], [10, 0], [10, 10], [0, 10]],
+                                            [[20, 0], [30, 0], [30, 10], [20, 10]],
+                                            [[0, 30], [10, 30], [10, 40], [0, 40]],
+                                            [[20, 30], [30, 30], [30, 40], [20, 40]]])
+
+        self.kb_ocr.set_engine(TableOcr(None))
+        self._xiaomi()
+        text = self.kb_ocr.ocr_image_bytes(self._png((400, 200)))
+        self.assertIn("XIAOMI", text)
+
+    def test_xiaomi_unavailable_falls_back(self):
+        self.kb_ocr.set_engine(_FakeOcr(["短"]))
+        self.kb_ocr.set_xiaomi(None)                    # 没有 Xiaomi
+        import builtins
+
+        real = builtins.__import__
+
+        def fake(name, *a, **k):
+            if name in ("transformers", "torch"):
+                raise ImportError("no")
+            return real(name, *a, **k)
+
+        builtins.__import__ = fake
+        try:
+            text = self.kb_ocr.ocr_image_bytes(self._png((1000, 1000)))
+        finally:
+            builtins.__import__ = real
+        self.assertEqual(text, "短", "Xiaomi 不可用时应回退 RapidOCR 文本")
+
+
+class OcrWarmTests(unittest.TestCase):
+    def setUp(self):
+        from gantry import kb_ocr
+
+        self.kb_ocr = kb_ocr
+        self._orig_cfg = kb_ocr.config()
+        self._orig_load = kb_ocr._load_xiaomi
+        self._orig_engine = kb_ocr._engine
+        self._orig_x = kb_ocr._XIAOMI
+        kb_ocr.set_xiaomi(None)
+
+    def tearDown(self):
+        self.kb_ocr.configure(self._orig_cfg)
+        self.kb_ocr._load_xiaomi = self._orig_load
+        self.kb_ocr._engine = self._orig_engine
+        self.kb_ocr.set_xiaomi(self._orig_x)
+
+    def test_warm_xiaomi(self):
+        calls = {"n": 0}
+
+        def fake_load(name):
+            calls["n"] += 1
+            return ("p", "m", "t")
+
+        self.kb_ocr._load_xiaomi = fake_load
+        self.kb_ocr.configure({"engine": "xiaomi"})
+        res = self.kb_ocr.warm()
+        self.assertTrue(res["ok"], res)
+        self.assertEqual(calls["n"], 1)
+        self.assertIn("seconds", res)
+
+    def test_warm_rapidocr(self):
+        self.kb_ocr._engine = lambda: object()
+        self.kb_ocr.configure({"engine": "rapidocr"})
+        res = self.kb_ocr.warm()
+        self.assertTrue(res["ok"])
+        self.assertEqual(res.get("rapidocr"), "loaded")
+
+    def test_warm_reports_error(self):
+        def boom(name):
+            raise RuntimeError("模型下载失败")
+
+        self.kb_ocr._load_xiaomi = boom
+        self.kb_ocr.configure({"engine": "xiaomi"})
+        res = self.kb_ocr.warm()
+        self.assertFalse(res["ok"])
+        self.assertIn("下载失败", res.get("error", ""))
+
+
+class OcrAvailabilityTests(unittest.TestCase):
+    """OCR 是可选依赖：没装 RapidOCR 时要能用 Xiaomi，两个都没装要给安装指引。"""
+
+    def setUp(self):
+        from gantry import kb_ocr
+
+        self.kb_ocr = kb_ocr
+        self._orig_cfg = kb_ocr.config()
+        self._orig_av = kb_ocr.available
+        self._orig_xa = kb_ocr.available_xiaomi
+        self._orig_e = kb_ocr._ENGINE
+        self._orig_x = kb_ocr._XIAOMI
+        kb_ocr.set_engine(None)
+        kb_ocr.set_xiaomi(None)
+
+    def tearDown(self):
+        self.kb_ocr.configure(self._orig_cfg)
+        self.kb_ocr.available = self._orig_av
+        self.kb_ocr.available_xiaomi = self._orig_xa
+        self.kb_ocr.set_engine(self._orig_e)
+        self.kb_ocr.set_xiaomi(self._orig_x)
+
+    def _png(self):
+        from PIL import Image
+
+        buf = io.BytesIO()
+        Image.new("RGB", (60, 30), "white").save(buf, format="PNG")
+        return buf.getvalue()
+
+    def _xiaomi(self):
+        class Proc:
+            def apply_chat_template(self, messages, **kw):
+                class T(list):
+                    @property
+                    def shape(self):
+                        return (1, len(self))
+                return {"input_ids": T([1])}
+
+            def batch_decode(self, new, skip_special_tokens=True):
+                return ["XIAOMI 结果"]
+
+        class Model:
+            def generate(self, **kw):
+                class O:
+                    def __getitem__(self, s):
+                        return [[1]]
+
+                    @property
+                    def shape(self):
+                        return (1, 1)
+                return O()
+
+        class Torch:
+            class inference_mode:
+                def __enter__(self):
+                    return None
+
+                def __exit__(self, *a):
+                    return False
+
+        self.kb_ocr.set_xiaomi((Proc(), Model(), Torch))
+
+    def test_effective_engine(self):
+        self.kb_ocr.available = lambda: True
+        self.kb_ocr.available_xiaomi = lambda: True
+        self.kb_ocr.configure({"engine": "auto"})
+        self.assertEqual(self.kb_ocr.effective_engine(), "auto→rapidocr")
+        self.kb_ocr.available = lambda: False
+        self.assertEqual(self.kb_ocr.effective_engine(), "auto→xiaomi")
+        self.kb_ocr.available_xiaomi = lambda: False
+        self.assertIn("无可用引擎", self.kb_ocr.effective_engine())
+        self.kb_ocr.configure({"engine": "xiaomi"})
+        self.assertEqual(self.kb_ocr.effective_engine(), "xiaomi")
+
+    def test_auto_without_rapidocr_uses_xiaomi(self):
+        self.kb_ocr.available = lambda: False
+        self.kb_ocr.available_xiaomi = lambda: True
+        self.kb_ocr.configure({"engine": "auto"})
+        self._xiaomi()
+        self.assertIn("XIAOMI", self.kb_ocr.ocr_image_bytes(self._png()))
+
+    def test_auto_without_any_engine_actionable(self):
+        self.kb_ocr.available = lambda: False
+        self.kb_ocr.available_xiaomi = lambda: False
+        self.kb_ocr.configure({"engine": "auto"})
+        with self.assertRaises(ing.IngestError) as ctx:
+            self.kb_ocr.ocr_image_bytes(self._png())
+        msg = str(ctx.exception)
+        self.assertIn("pip install rapidocr", msg)
+        self.assertIn("transformers", msg)
+
+
+if __name__ == "__main__":
+    unittest.main()
