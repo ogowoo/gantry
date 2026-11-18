@@ -183,6 +183,102 @@ class UpdaterZipTests(unittest.TestCase):
         self.assertTrue(any(c[:2] == ["fetch", "origin"] for c in fetch_calls),
                         f"缺少 fetch origin main: {fetch_calls}")
 
+    def test_git_apply_force_fetches_missing_tag(self):
+        """回归：异机全新 clone 本地没有任何 v0.11 tag，rev-parse 会 exit 128。
+        更新器必须强制抓取单个 tag（而不是直接失败）。"""
+        up = u.Updater(config={"method": "git", "channel": "beta"}, current="0.10.0")
+        calls = []
+        state = {"tag_fetched": False}
+
+        def fake_git(args, timeout=None):
+            calls.append(args)
+            if args[:2] == ["status", "--porcelain"]:
+                return ""
+            if args[0] == "rev-parse" and "refs/tags/" in " ".join(args):
+                if state["tag_fetched"]:
+                    return "tagcommit123"
+                raise u.UpdateError("git rev-parse ... 失败（exit 128）: fatal: Needed a single revision")
+            if args[0] == "rev-parse":
+                if "HEAD" in args or "--abbrev-ref" in args:
+                    return "main" if "--abbrev-ref" in args else "prevcommit"
+                return "prevcommit"
+            if args[0] == "fetch":
+                if any("+refs/tags/" in a for a in args):
+                    state["tag_fetched"] = True
+                return ""
+            if args[0] == "merge":
+                return ""
+            return ""
+
+        with mock.patch.object(up, "_git", side_effect=fake_git), \
+                mock.patch.object(Path, "is_dir", return_value=True), \
+                mock.patch.object(up, "_new_backup", return_value=(Path("/tmp/b"), {})), \
+                mock.patch.object(up, "_save_backup"):
+            out = up._apply_git("0.11.0-beta.14", force=False)
+        self.assertTrue(out["changed"])
+        self.assertEqual(out["target_commit"], "tagcommit123"[:12])
+        # 必须用 "+refs/tags/x:refs/tags/x" 强制抓取（"+" 才允许覆盖已存在的 tag）
+        tag_fetch = [c for c in calls if c[0] == "fetch" and any("+refs/tags/" in a for a in c)]
+        self.assertTrue(tag_fetch, f"缺少强制抓取 tag 的 fetch: {calls}")
+        self.assertIn("--force", tag_fetch[0])
+
+    def test_git_apply_falls_back_to_remote_branch(self):
+        """tag 抓不到时退到 origin/<branch>，而不是整个更新失败。"""
+        up = u.Updater(config={"method": "git", "channel": "beta"}, current="0.10.0")
+        calls = []
+
+        def fake_git(args, timeout=None):
+            calls.append(args)
+            if args[:2] == ["status", "--porcelain"]:
+                return ""
+            if args[0] == "rev-parse" and any("refs/tags/" in a for a in args):
+                raise u.UpdateError("exit 128")
+            if args[0] == "rev-parse" and any("refs/remotes/origin/" in a for a in args):
+                return "remotehead456"
+            if args[0] == "rev-parse":
+                return "main" if "--abbrev-ref" in args else "prevcommit"
+            if args[0] == "fetch":
+                if any("+refs/tags/" in a for a in args):
+                    raise u.UpdateError("tag fetch failed")
+                return ""
+            if args[0] == "merge":
+                return ""
+            return ""
+
+        with mock.patch.object(up, "_git", side_effect=fake_git), \
+                mock.patch.object(Path, "is_dir", return_value=True), \
+                mock.patch.object(up, "_new_backup", return_value=(Path("/tmp/b"), {})), \
+                mock.patch.object(up, "_save_backup"):
+            out = up._apply_git("0.11.0-beta.14", force=False)
+        self.assertEqual(out["target_commit"], "remotehead456"[:12])
+
+    def test_git_merge_failure_gives_actionable_hint(self):
+        """ff-only 失败（本地有自己的提交/分叉）要给出可执行的修复命令。"""
+        up = u.Updater(config={"method": "git", "channel": "beta"}, current="0.10.0")
+
+        def fake_git(args, timeout=None):
+            if args[:2] == ["status", "--porcelain"]:
+                return ""
+            if args[0] == "rev-parse" and any("refs/tags/" in a for a in args):
+                return "tagcommit"
+            if args[0] == "rev-parse":
+                return "main" if "--abbrev-ref" in args else "prevcommit"
+            if args[0] == "fetch":
+                return ""
+            if args[0] == "merge":
+                raise u.UpdateError("git merge --ff-only 失败（exit 128）: Not possible to fast-forward")
+            return ""
+
+        with mock.patch.object(up, "_git", side_effect=fake_git), \
+                mock.patch.object(Path, "is_dir", return_value=True), \
+                mock.patch.object(up, "_new_backup", return_value=(Path("/tmp/b"), {})), \
+                mock.patch.object(up, "_save_backup"):
+            with self.assertRaises(u.UpdateError) as ctx:
+                up._apply_git("0.11.0-beta.14", force=False)
+        msg = str(ctx.exception)
+        self.assertIn("git reset --hard", msg)
+        self.assertIn("0.11.0-beta.14", msg)
+
 
 if __name__ == "__main__":
     unittest.main()

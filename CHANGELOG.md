@@ -14,6 +14,24 @@
 ### Fixed
 - 
 
+## [0.11.0-beta.15] - 2026-11-18
+
+### Fixed
+- **控制台更新失败：`git rev-parse --verify refs/tags/vX^{commit}` exit 128
+  （fatal: Needed a single revision）**。上一版为了避免 tag 分叉报
+  "would clobber existing tag"，改成只 fetch 分支、不 fetch tag；但
+  `_git()` 失败会直接抛异常，导致"本地没有该 tag 就单独抓一次"的兜底分支
+  根本执行不到。**全新 clone 的机器本地一个 v0.11 tag 都没有，因此必然失败。**
+  现在拆出 `_resolve_tag_commit()`：本地没有 → `git fetch --force origin
+  +refs/tags/vX:refs/tags/vX` 强制抓这一个 tag（"+" 允许覆盖同名 tag，不会再撞
+  clobber）→ 仍拿不到则退回 `origin/<branch>` 头，保证更新不再因 tag 缺失而中断。
+- `merge --ff-only` 失败时给出可执行的修复命令（`git reset --hard vX`），
+  而不是只抛 git 原始报错。
+
+### 测试
+- 新增 3 项 updater 回归：强制抓取缺失 tag、tag 不可用时退回远端分支头、
+  ff-only 失败的提示文案；updater/版本/ESM 共 35 项 OK，不变量 25/0。
+
 ## [0.11.0-beta.14] - 2026-11-18
 
 ### Added

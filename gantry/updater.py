@@ -342,6 +342,42 @@ class Updater:
         except Exception as exc:                 # noqa: BLE001
             log.warning("无法排定重启: %s", exc)
 
+    def _resolve_tag_commit(self, target: str, branch: str) -> str:
+        """解析目标 tag 对应的 commit。
+
+        为什么需要单独做：更新器**只 fetch 分支、不 fetch 全部 tag**（全量
+        `git fetch --tags` 在本地 tag 与远端分叉时会以 "would clobber existing
+        tag" 失败退出）。于是「本地没有该 tag」是常态——尤其异机全新 clone 后
+        第一次更新时，本地一个 v0.11 的 tag 都没有，`rev-parse refs/tags/...`
+        直接 exit 128。
+
+        顺序：本地 → 强制抓单个 tag（`+refs/tags/x:refs/tags/x`，"+" 允许覆盖
+        已存在的同名 tag，因此不会再撞 clobber）→ 远端分支头兜底。
+        """
+        ref = f"refs/tags/v{target}"
+        try:
+            out = self._git(["rev-parse", "--verify", f"{ref}^{{commit}}"], timeout=20)
+            if out:
+                return out
+        except UpdateError:
+            pass                                     # 本地没有这个 tag：正常
+        try:
+            self._git(["fetch", "--force", "origin", f"+{ref}:{ref}"], timeout=90)
+            out = self._git(["rev-parse", "--verify", f"{ref}^{{commit}}"], timeout=20)
+            if out:
+                return out
+        except UpdateError as exc:
+            log.warning("抓取 tag v%s 失败（改用远端分支头）: %s", target, exc)
+        remote_ref = f"refs/remotes/origin/{branch}"
+        try:
+            out = self._git(["rev-parse", remote_ref], timeout=20)
+            if out:
+                log.warning("未解析到 tag v%s，改用 %s（%s）", target, remote_ref, out[:12])
+                return out
+        except UpdateError:
+            pass
+        raise UpdateError(f"无法解析 v{target} 的提交：本地与远端都没有对应 tag，且远端分支不可用")
+
     def _apply_git(self, target: str, *, force: bool = False) -> dict[str, Any]:
         if not (self.root / ".git").is_dir():
             raise UpdateError("不是 git 仓库，不能用 git 更新")
@@ -351,24 +387,22 @@ class Updater:
         dirty = self._git(["status", "--porcelain", "--untracked-files=no"], timeout=20)
         if dirty and not (force or self.config.get("allow_dirty")):
             raise UpdateError("工作区有未提交改动；先 commit/stash，或显式 force")
-        # 不 --tags：本地 tag 若被移动过（rebase/force-push），--tags 会报
-        # "would clobber existing tag" 而失败。更新只需要分支 commit，
-        # 用 git fetch origin main 拿到 HEAD commit，再 merge --ff-only。
-        self._git(["fetch", "origin", "main"], timeout=90)
-        # 尝试从远端 tag 解析 commit；tag 没 fetch 到就直接 fetch 它
-        commit = self._git(["rev-parse", "--verify", f"refs/tags/v{target}^{{commit}}"], timeout=20)
-        if not commit:
-            self._git(["fetch", "origin", f"refs/tags/v{target}"], timeout=90)
-            commit = self._git(["rev-parse", "--verify", f"refs/tags/v{target}^{{commit}}"], timeout=20)
-        branch = self._git(["rev-parse", "--abbrev-ref", "HEAD"], timeout=10)
+        branch = self._git(["rev-parse", "--abbrev-ref", "HEAD"], timeout=10) or "main"
         previous = self._git(["rev-parse", "HEAD"], timeout=10)
+        # 只 fetch 分支：`git fetch --tags` 在 tag 分叉时会 "would clobber existing tag"
+        # 失败（exit 1）；需要的 tag 由 _resolve_tag_commit 单独强制抓取。
+        self._git(["fetch", "origin", branch], timeout=90)
+        commit = self._resolve_tag_commit(target, branch)
         bdir, record = self._new_backup("git", previous_commit=previous, branch=branch,
                                         target=target, target_commit=commit)
         self._save_backup(bdir, record)
         try:
             self._git(["merge", "--ff-only", commit], timeout=120)
-        except UpdateError:
-            raise
+        except UpdateError as exc:
+            raise UpdateError(
+                f"无法快进到 v{target}：本地 {branch} 可能已有自己的提交、或与远端分叉。"
+                f"（{exc}）\n可在安装目录手动执行：git fetch origin && "
+                f"git reset --hard v{target}，然后再更新依赖。") from exc
         return {"changed": True, "backup": bdir.name,
                 "previous_commit": previous[:12], "target_commit": commit[:12],
                 "branch": branch}
