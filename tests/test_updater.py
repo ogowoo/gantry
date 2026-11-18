@@ -154,6 +154,35 @@ class UpdaterZipTests(unittest.TestCase):
         self.assertTrue(any("--untracked-files=no" in c for c in status_calls),
                         f"status 调用缺少 --untracked-files=no: {status_calls}")
 
+    def test_git_fetch_does_not_use_tags(self):
+        """fetch 不能带 --tags：本地 tag 被移动过时会报 would clobber existing tag。"""
+        up = u.Updater(config={"method": "git", "channel": "beta"},
+                       current="0.10.0")
+        calls = []
+        def fake_git(args, timeout=None):
+            calls.append(args)
+            if args[:2] == ["status", "--porcelain"]:
+                return ""
+            if args[0] == "rev-parse":
+                return "abc123"
+            if args[0] == "fetch":
+                return ""
+            if args[0] == "merge":
+                return ""
+            return ""
+        with mock.patch.object(up, "_git", side_effect=fake_git), \
+                mock.patch.object(Path, "is_dir", return_value=True), \
+                mock.patch.object(up, "_new_backup", return_value=(Path("/tmp/b"), {})), \
+                mock.patch.object(up, "_save_backup"):
+            up._apply_git("0.11.0-beta.1", force=False)
+        fetch_calls = [c for c in calls if c[0] == "fetch"]
+        # fetch 调用不能带 --tags
+        for c in fetch_calls:
+            self.assertNotIn("--tags", c, f"fetch 不应带 --tags: {c}")
+        # 应该至少有一次 fetch origin main
+        self.assertTrue(any(c[:2] == ["fetch", "origin"] for c in fetch_calls),
+                        f"缺少 fetch origin main: {fetch_calls}")
+
 
 if __name__ == "__main__":
     unittest.main()

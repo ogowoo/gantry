@@ -351,8 +351,15 @@ class Updater:
         dirty = self._git(["status", "--porcelain", "--untracked-files=no"], timeout=20)
         if dirty and not (force or self.config.get("allow_dirty")):
             raise UpdateError("工作区有未提交改动；先 commit/stash，或显式 force")
-        self._git(["fetch", "--tags", "--prune", "origin"], timeout=90)
+        # 不 --tags：本地 tag 若被移动过（rebase/force-push），--tags 会报
+        # "would clobber existing tag" 而失败。更新只需要分支 commit，
+        # 用 git fetch origin main 拿到 HEAD commit，再 merge --ff-only。
+        self._git(["fetch", "origin", "main"], timeout=90)
+        # 尝试从远端 tag 解析 commit；tag 没 fetch 到就直接 fetch 它
         commit = self._git(["rev-parse", "--verify", f"refs/tags/v{target}^{{commit}}"], timeout=20)
+        if not commit:
+            self._git(["fetch", "origin", f"refs/tags/v{target}"], timeout=90)
+            commit = self._git(["rev-parse", "--verify", f"refs/tags/v{target}^{{commit}}"], timeout=20)
         branch = self._git(["rev-parse", "--abbrev-ref", "HEAD"], timeout=10)
         previous = self._git(["rev-parse", "HEAD"], timeout=10)
         bdir, record = self._new_backup("git", previous_commit=previous, branch=branch,
