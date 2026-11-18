@@ -27,7 +27,7 @@ section.card:has(#stepCount){margin-top:14px}
 #manualBody pre{margin:8px 0;padding:10px 12px;border:1px solid var(--jv-border);border-radius:9px;
   background:var(--jv-bg);color:var(--jv-text);font-size:12px;line-height:1.65;white-space:pre-wrap;
   overflow-wrap:anywhere;overflow-x:auto;
-  font-family:"Cascadia Mono","JetBrains Mono",Consolas,"Courier New","Microsoft YaHei Mono","Sarasa Mono SC",monospace}
+  font-family:var(--mono)}
 
 /* ── Copilot 未就绪提示条 ───────────────────────────────────────── */
 #bootBar{position:fixed;left:0;right:0;top:0;transform:none;max-width:none;width:auto;
