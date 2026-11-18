@@ -144,7 +144,7 @@
 #toolLog > #toolLogBody .streamstep .ss-det summary::before{content:"▸ ";color:var(--faint)}
 #toolLog > #toolLogBody .streamstep .ss-det[open] summary::before{content:"▾ "}
 #toolLog > #toolLogBody .streamstep .ss-det pre{margin:4px 0 0;max-height:220px;overflow:auto;
-  padding:7px 9px;font-size:12px;line-height:19px;font-family:var(--mono)}
+  padding:7px 9px;font-size:var(--code-size);line-height:var(--code-lh);font-family:var(--mono)}
 /* TODO-HOVER-VISIBLE: 待办条目 hover 必须一眼看出"鼠标在哪一条"（用户：看不出来，
    子代理那边反而清楚）。用 id 级选择器压过 .todo-completed / .todo-in_progress
    的底色规则，hover 时统一加一层强调色。 */

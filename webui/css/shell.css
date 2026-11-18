@@ -245,7 +245,7 @@ details{margin-top:7px}
 details>summary{cursor:pointer;color:var(--accent2);font-size:12.5px;user-select:none}
 
 /* JSON 树 */
-.jsonview{font-family:var(--mono);font-size:12.5px;line-height:1.65;background:var(--jv-bg);color:var(--jv-text);border:1px solid var(--jv-border);border-radius:9px;padding:10px 13px;overflow:auto;max-height:460px;white-space:normal}
+.jsonview{font-family:var(--mono);font-size:var(--code-size);line-height:var(--code-lh);background:var(--jv-bg);color:var(--jv-text);border:1px solid var(--jv-border);border-radius:9px;padding:10px 13px;overflow:auto;max-height:460px;white-space:normal}
 .jsonview .ind{padding-left:20px;border-left:1px dotted var(--jv-ind)}
 .jsonview .ky{color:var(--ky);font-weight:600}
 .jsonview .st{color:var(--st);white-space:pre-wrap;word-break:break-word}
