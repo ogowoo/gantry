@@ -13,6 +13,9 @@ function guessResultLang(s){
  const tool=String((s&&s.tool)||'');
  if(/python|unittest/.test(tool))return 'python';
  if(/excel/.test(tool))return 'text';
+ // Power Automate 表达式特征：items('...')?['...']、utcNow()、formatDateTime()
+ const r=String((s&&s.result&&s.result.text)||(s&&s.result)||'');
+ if(/items\('[^']+'\)\?\[|utcNow\(\)|formatDateTime\(|lessOrEquals\(|greaterOrEquals\(/.test(r))return 'wdl';
  return 'text'}
 /* 工具结果的"渲染视图"：短标量排成键值行，长文本/对象用同一套代码块渲染
    （语言标签、高亮、行号、折叠、复制全都一致）；JSON 视图另有一个页签。 */

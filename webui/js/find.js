@@ -61,7 +61,8 @@ const HL_ALIAS={py:'python',python:'python',python3:'python',
  json:'json',jsonc:'json',sh:'bash',bash:'bash',shell:'bash',zsh:'bash',console:'bash',
  ps1:'powershell',powershell:'powershell',pwsh:'powershell',
  sql:'sql',yml:'yaml',yaml:'yaml',html:'html',xml:'html',htm:'html',vue:'html',
- css:'css',scss:'css',less:'css',diff:'diff',patch:'diff',udiff:'diff'};
+ css:'css',scss:'css',less:'css',diff:'diff',patch:'diff',udiff:'diff',
+ wdl:'wdl',workflow:'wdl',expression:'wdl','power-automate':'wdl',pa:'wdl'};
 const HL_KW={
  python:'def class return if elif else for while import from as try except finally with lambda yield async await None True False self in not and or is pass raise global nonlocal assert del break continue',
  js:'function const let var return if else for while class new import export from async await try catch finally throw typeof instanceof null undefined true false this extends super of in do switch case break default delete void yield static get set',
@@ -71,7 +72,21 @@ const HL_KW={
  sql:'select from where insert into update delete join left right inner outer full on group by order having limit offset create table alter drop index view values set as and or not null distinct count sum avg min max like between asc desc union all case when then end',
  yaml:'true false null',
  html:'DOCTYPE html head body div span script style link meta title table tr td th a img input button form section header footer nav ul li p h1 h2 h3 h4 h5 h6 pre code br hr',
- css:'important media supports import charset'};
+ css:'important media supports import charset',
+ wdl:'true false null and or not if then else in'+
+    ' items variables parameters outputs triggerBody triggerOutputs body'+
+    ' concat formatDateTime utcNow addDays addHours addMinutes addSeconds addMonths addYears'+
+    ' sub add mul div mod min max'+
+    ' equals less lessOrEquals greater greaterOrEquals contains startsWith endsWith'+
+    ' not empty length first last join split replace substring indexOf lastIndexOf'+
+    ' toUpper toLower trim slice base64 base64ToBinary binary base64ToString decodeBase64 encodeUriComponent decodeUriComponent'+
+    ' uriPath uriQuery uriHost uriPort uriScheme uriAbsolute'+
+    ' createArray union intersection skip take filter select map reduce sort reverse'+
+    ' int float string bool array object json xml xpath'+
+    ' getFutureTime getPastTime subtractFromTime ticks convertTimeZone'+
+    ' dayOfWeek dayOfMonth dayOfYear weekOfMonth weekOfYear startOfDay startOfHour startOfMonth'+
+    ' rand guid'+
+    ' coalesce if null'};
 function hlKeyword(re){return new RegExp('\\b('+re+')\\b','g')}
 function hlWrap(store){return(html)=>{store.push(html);return '\u0000'+'z'.repeat(store.length)+'\u0000'}}
 /* 入参是**原始代码**（未转义），返回值是已转义并上色的 HTML。
@@ -114,6 +129,13 @@ function highlight(raw,lang){
  }else if(fam==='sql'){
   s=s.replace(/(--[^\n]*)/g,m=>keepEsc(m,'hl-c'));
   s=s.replace(/("(?:[^"\\\n]|\\.)*"|'(?:[^'\\\n]|\\.)*')/g,m=>keepEsc(m,'hl-s'));
+ }else if(fam==='wdl'){
+  // Power Automate 表达式（Workflow Definition Language）：
+  // 字符串、'?'属性访问、@函数前缀、括号颜色区分
+  s=s.replace(/("(?:[^"\\\n]|\\.)*"|'(?:[^'\\\n]|\\.)*')/g,m=>keepEsc(m,'hl-s'));
+  s=s.replace(/(\b[A-Za-z_]\w*(?=\s*\())/g,m=>keepEsc(m,'hl-k'));
+  s=s.replace(/(\['[^']*'\]|\["[^"]*"\])/g,m=>keepEsc(m,'hl-t'));
+  s=s.replace(/([()[\]{}])/g,m=>keepEsc(m,'hl-p'));
  }else{   // bash / powershell / yaml
   s=s.replace(/(#[^\n]*)/g,m=>keepEsc(m,'hl-c'));
   s=s.replace(/("(?:[^"\\\n]|\\.)*"|'(?:[^'\\\n]|\\.)*')/g,m=>keepEsc(m,'hl-s'));
