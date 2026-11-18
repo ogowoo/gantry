@@ -27,7 +27,7 @@
 .chg-ico.modified{color:var(--blue);border-color:color-mix(in srgb,var(--blue) 45%,var(--line2))}
 .chg-ico.deleted{color:var(--red);border-color:color-mix(in srgb,var(--red) 45%,var(--line2))}
 .chg-path{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
-  font-family:ui-monospace,Consolas,monospace;color:var(--text)}
+  font-family:var(--mono);color:var(--text)}
 .chg-num{flex:none;display:flex;gap:8px;font-family:var(--mono);font-size:12px}
 .chg-bin{color:var(--faint);font-style:normal;font-size:11.5px}
 .chg-more{margin:7px 12px 10px;align-self:flex-start}
