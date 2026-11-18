@@ -144,6 +144,12 @@
 .codemenu .cmitem:hover{background:var(--menu-hover)}
 .codemenu .cmitem.off{color:var(--muted)}
 .md-code{margin:0;padding:9px 11px;overflow:auto;max-height:420px;background:var(--jv-bg);color:var(--jv-text);font-family:var(--mono);font-size:12.5px;line-height:1.6;white-space:pre}
+/* 浏览器 UA 样式表里有 `code{font-family:monospace}`：它**直接作用于 <code> 元素**，
+   优先级高于从 <pre> 继承来的字体，导致代码块内部实际渲染成系统默认等宽字体
+   （实测中文 Windows 上是 NSimSun 新宋体，而不是 --mono 指定的字体）。
+   这里显式让 pre 内的 code 继承 pre 的字体。 */
+pre code{font-family:inherit}
+.md-code code{font-family:var(--mono)}
 .md-tablewrap{overflow:auto;margin:7px 0}
 /* 汇总表格：轻量化表线 + 斑马纹；左列名称弱化，右列数据等宽加粗右对齐 */
 .md-table{border-collapse:collapse;font-size:12.5px;min-width:60%;max-width:100%;

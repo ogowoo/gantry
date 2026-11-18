@@ -19,7 +19,7 @@
   --msg-user-bg:#1d3a6e;--msg-user-border:#2b4f8f;--big:#5a7493;
   --danger-bg:#241516;--danger-border:#5a2b28;--danger-text:#ff8a80;--danger-hover-text:#ffb3ad;
   --mask-bg:rgba(3,7,12,.66);--dlg-shadow:rgba(0,0,0,.8);
-  --mono:"Courier New",monospace;
+  --mono:Consolas,"Courier New",monospace;
 }
 *{box-sizing:border-box}
 /* 页面本身**永不滚动**：滚动只发生在内部面板（chatlog / steps / livepane）。
@@ -29,6 +29,10 @@
 html,body{margin:0;height:100%;overflow:hidden}
 body{font-family:"Segoe UI","PingFang SC","Microsoft YaHei",system-ui,sans-serif;background:var(--bg);color:var(--text);font-size:14px}
 button,input,textarea,select{font:inherit;color:inherit}
+/* 等宽元素统一用 --mono。必须显式写：浏览器 UA 样式表有
+   `code,kbd,samp,pre{font-family:monospace}`，它会**直接命中元素**，
+   优先级高于"从父元素继承"，导致中文 Windows 上实际渲染成 NSimSun 新宋体。 */
+code,kbd,samp,pre{font-family:var(--mono)}
 ::-webkit-scrollbar{width:9px;height:9px}::-webkit-scrollbar-thumb{background:var(--scrollbar);border-radius:6px}::-webkit-scrollbar-track{background:transparent}
 
 .app{display:grid;grid-template-columns:318px 1fr;height:100vh;overflow:hidden}
