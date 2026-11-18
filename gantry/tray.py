@@ -175,6 +175,10 @@ TEXT = {
         "failed": "操作失败",
         "no_service": "服务未响应：{err}",
         "language": "语言",
+        "check_update": "检查更新",
+        "update_available": "发现新版本 {ver}",
+        "update_ok": "已是最新版本",
+        "update_checking": "正在检查更新…",
     },
     "tw": {
         "open_webui": "開啟控制台",
@@ -204,6 +208,10 @@ TEXT = {
         "failed": "操作失敗",
         "no_service": "服務無回應：{err}",
         "language": "語言",
+        "check_update": "檢查更新",
+        "update_available": "發現新版本 {ver}",
+        "update_ok": "已是最新版本",
+        "update_checking": "正在檢查更新…",
     },
     "en": {
         "open_webui": "Open console",
@@ -233,6 +241,10 @@ TEXT = {
         "failed": "Action failed",
         "no_service": "Service not responding: {err}",
         "language": "Language",
+        "check_update": "Check for updates",
+        "update_available": "New version {ver} available",
+        "update_ok": "Already up to date",
+        "update_checking": "Checking for updates…",
     },
 }
 
@@ -709,6 +721,20 @@ class Tray:
         self.balloon(self.text["failed"], self.text["restart_timeout"], error=True)
         log.warning("托盘：重启后 60s 内 /health 未恢复（看 data/logs/crash.log）")
 
+    def _a_check_update(self) -> None:
+        log.info("托盘：检查更新")
+        self.balloon(self.title, self.text["update_checking"])
+        try:
+            d = self._http("/v1/update/check", timeout=15)
+        except Exception as exc:                        # noqa: BLE001
+            self.balloon(self.text["failed"], self.text["no_service"].format(err=str(exc)[:160]), error=True)
+            return
+        if d.get("update_available"):
+            ver = d.get("latest") or "?"
+            self.balloon(self.title, self.text["update_available"].format(ver=ver))
+        else:
+            self.balloon(self.title, self.text["update_ok"])
+
     def _a_lang_zh(self) -> None:
         self.set_language("zh")
 
@@ -747,6 +773,7 @@ def default_menu(tray: Tray) -> list:
         ("open_logs", t["open_logs"]),
         ("open_data", t["open_data"]),
         ("-",),
+        ("check_update", t["check_update"]),
         ("restart", t["restart"]),
         ("-",),
         ("--submenu--", t["language"],
