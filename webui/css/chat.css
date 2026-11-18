@@ -16,7 +16,7 @@
 .md-a{color:var(--accent2);text-decoration:none;border-bottom:1px solid var(--line2)}
 .md-a:hover{border-bottom-color:var(--accent2)}
 /* 内联命令/路径：等宽底框，从正文里一眼跳出来（python start.py 这类不再与文本混排） */
-.md-ic{font-family:"Cascadia Mono","JetBrains Mono",Consolas,"Courier New","Microsoft YaHei Mono","Sarasa Mono SC",monospace;font-size:12.5px;background:var(--term-bg);border:1px solid var(--jv-border);border-radius:5px;padding:1px 6px;color:var(--term-text);white-space:nowrap}
+.md-ic{font-family:var(--mono);font-size:12.5px;background:var(--term-bg);border:1px solid var(--jv-border);border-radius:5px;padding:1px 6px;color:var(--term-text);white-space:nowrap}
 .md-list{margin:3px 0 3px 4px;padding-left:20px}
 .md-list li{margin:1px 0}
 .md-quote{border-left:3px solid var(--line2);padding:2px 0 2px 10px;margin:4px 0;color:var(--muted)}
@@ -24,7 +24,7 @@
 /* 对齐 DSH 的极简风：头部窄、语言名淡、按钮轻。左边语言名、右边按钮组。 */
 .md-codebar{display:flex;align-items:center;justify-content:space-between;gap:6px;
   padding:5px 14px;background:var(--panel2);border-bottom:1px solid var(--jv-border)}
-.md-ico{font-family:"Cascadia Mono","JetBrains Mono",Consolas,"Courier New","Microsoft YaHei Mono","Sarasa Mono SC",monospace;font-size:11px;color:var(--faint);
+.md-ico{font-family:var(--mono);font-size:11px;color:var(--faint);
   border:1px solid var(--line2);border-radius:5px;padding:0 4px;line-height:15px}
 .md-lang{font-size:11px;color:var(--faint);font-weight:400}
 .md-icon{border:0;background:transparent;color:var(--faint);font-size:12px;cursor:pointer;padding:1px 4px;border-radius:4px;opacity:.7}
@@ -70,7 +70,7 @@
   background:var(--danger-bg);border-bottom:1px solid var(--danger-border);
   color:var(--danger-text);font-size:13px}
 .stoppedbanner .meta{color:var(--muted);font-size:12px}
-.stoppedbanner code{font-family:"Cascadia Mono","JetBrains Mono",Consolas,"Courier New","Microsoft YaHei Mono","Sarasa Mono SC",monospace;font-size:12px;
+.stoppedbanner code{font-family:var(--mono);font-size:12px;
   background:var(--panel2);border:1px solid var(--line2);border-radius:5px;padding:0 5px;color:var(--text)}
 /* ── 会话标签分组 + 时间线筛选 + 流式临时气泡 ─────────────────────── */
 .taghead{margin:8px 0 3px;padding:0 10px;font-size:11px;color:var(--muted);
@@ -123,10 +123,10 @@
 .kvlist{display:flex;flex-direction:column;gap:1px;margin:2px 0 6px;
   border:1px solid var(--jv-border);border-radius:8px;padding:5px 8px;background:var(--jv-bg)}
 .kvline{display:flex;gap:10px;font-size:12.5px;line-height:1.7}
-.kvk{color:var(--ky);font-family:"Cascadia Mono","JetBrains Mono",Consolas,"Courier New","Microsoft YaHei Mono","Sarasa Mono SC",monospace;flex:none;min-width:110px}
+.kvk{color:var(--ky);font-family:var(--mono);flex:none;min-width:110px}
 .kvv{color:var(--jv-text);word-break:break-word;min-width:0}
 .sectlabel{font-size:11.5px;color:var(--muted);margin:6px 0 -2px;
-  font-family:"Cascadia Mono","JetBrains Mono",Consolas,"Courier New","Microsoft YaHei Mono","Sarasa Mono SC",monospace}
+  font-family:var(--mono)}
 /* ── diff / patch 代码块着色（+绿 -红 @@蓝）───────────────────────── */.dl-add{color:var(--st);background:rgba(63,185,80,.10);display:block}
 .dl-del{color:var(--red);background:rgba(248,81,73,.10);display:block}
 .dl-hunk{color:var(--blue);display:block}
@@ -143,7 +143,7 @@
   padding:6px 9px;border-radius:6px;cursor:pointer;white-space:nowrap}
 .codemenu .cmitem:hover{background:var(--menu-hover)}
 .codemenu .cmitem.off{color:var(--muted)}
-.md-code{margin:0;padding:9px 11px;overflow:auto;max-height:420px;background:var(--jv-bg);color:var(--jv-text);font-family:"Cascadia Mono","JetBrains Mono",Consolas,"Courier New","Microsoft YaHei Mono","Sarasa Mono SC",monospace;font-size:12.5px;line-height:1.6;white-space:pre}
+.md-code{margin:0;padding:9px 11px;overflow:auto;max-height:420px;background:var(--jv-bg);color:var(--jv-text);font-family:var(--mono);font-size:12.5px;line-height:1.6;white-space:pre}
 .md-tablewrap{overflow:auto;margin:7px 0}
 /* 汇总表格：轻量化表线 + 斑马纹；左列名称弱化，右列数据等宽加粗右对齐 */
 .md-table{border-collapse:collapse;font-size:12.5px;min-width:60%;max-width:100%;
@@ -156,8 +156,8 @@
 .md-table tbody tr:nth-child(even){background:color-mix(in srgb,var(--panel2) 55%,transparent)}
 .md-table td:last-child,.md-table th:last-child{text-align:right;
   font-variant-numeric:tabular-nums}
-.md-table td:last-child{font-family:"Cascadia Mono","JetBrains Mono",Consolas,"Courier New",
-  "Microsoft YaHei Mono","Sarasa Mono SC",monospace;font-weight:600}
+.md-table td:last-child{font-family:var(--mono);
+  font-weight:600}
 .md-table td:first-child{color:var(--muted)}
 /* ── JSON 动作 / 徽标（对话里可视化 Agent 的 JSON 回复）───────────── */
 .act-badge{display:inline-block;font-size:10.5px;font-weight:600;letter-spacing:.3px;
@@ -169,7 +169,7 @@
 .act-head{display:flex;align-items:center;gap:7px;padding:5px 9px;background:var(--panel2);
   border-bottom:1px solid var(--line2);flex-wrap:wrap}
 .act-ico{font-size:12px}
-.act-tool{font-family:"Cascadia Mono","JetBrains Mono",Consolas,"Courier New","Microsoft YaHei Mono","Sarasa Mono SC",monospace;font-size:12px;font-weight:600;color:var(--accent2)}
+.act-tool{font-family:var(--mono);font-size:12px;font-weight:600;color:var(--accent2)}
 .act-why{font-size:11.5px;color:var(--muted);min-width:0;overflow-wrap:anywhere}
 .act-card .jsonview{border:0;border-radius:0;max-height:300px}
 /* ── 对话框内的"插入方式"单选（强行插入用）───────────────────────── */
