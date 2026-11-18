@@ -189,7 +189,7 @@ async function _injectTeamsBotModelControl(body, data, panel){
   lb.textContent=tr(label);
   const ta=document.createElement('textarea');
   ta.className='kbinput';ta.rows=3;ta.dataset.cfgKey=key;
-  ta.style.cssText='width:100%;font-family:var(--mono,ui-monospace,Consolas,monospace);font-size:11.5px;padding:6px 8px;resize:vertical';
+  ta.style.cssText='width:100%;font-family:var(--mono);font-size:11.5px;padding:6px 8px;resize:vertical';
   taWrap.appendChild(lb);taWrap.appendChild(ta);
  });
  const taSave=document.createElement('button');taSave.type='button';taSave.className='btn ghost';taSave.textContent=tr('保存提示词');

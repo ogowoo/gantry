@@ -90,7 +90,7 @@ const MEM_CSS=`
   background:color-mix(in srgb,var(--green) 10%,transparent)}
 .mem-text{white-space:pre-wrap;line-height:1.6;font-size:12.5px;margin:0;padding:10px 12px;
   border-radius:8px;background:var(--panel2);color:var(--text);
-  font-family:var(--mono,ui-monospace,Consolas,monospace)}
+  font-family:var(--mono)}
 .mem-empty{color:var(--muted);padding:14px 2px}
 `;
 function memInjectCss(){
