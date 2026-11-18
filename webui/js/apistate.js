@@ -195,7 +195,6 @@ async function _updateStatusBar(){
   _setStat('statTeams',st,txt,detail);
  }catch(e){_setStat('statTeams','off',tr('未加载'),'')}
 }
-}
 try{setInterval(_updateStatusBar,15000)}catch(e){}
 if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',_updateStatusBar,{once:true});
 else _updateStatusBar();
