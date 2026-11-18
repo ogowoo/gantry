@@ -5,7 +5,12 @@ import { HL_LABEL } from './toollog.js';
 function guessResultLang(s){
  const byExt={py:'python',pyw:'python',js:'js',mjs:'js',ts:'ts',json:'json',jsonc:'json',
   html:'html',htm:'html',css:'css',md:'markdown',yml:'yaml',yaml:'yaml',sh:'bash',
-  ps1:'powershell',sql:'sql',diff:'diff',patch:'diff',txt:'text',log:'text',csv:'text'};
+  ps1:'powershell',sql:'sql',diff:'diff',patch:'diff',txt:'text',log:'text',csv:'text',
+  go:'go',golang:'go',rs:'rust',java:'java',kt:'kotlin',c:'c',h:'c',cpp:'cpp',cc:'cpp',
+  cs:'csharp',rb:'ruby',php:'php',swift:'swift',scala:'scala',dart:'dart',lua:'lua',
+  r:'r',pl:'perl',hs:'haskell',clj:'clojure',ex:'elixir',erl:'erlang',
+  tf:'hcl',toml:'ini',ini:'ini',graphql:'graphql',gql:'graphql',proto:'protobuf',
+  dockerfile:'dockerfile'};
  const args=(s&&s.arguments)||{};
  const p=String(args.path||args.file||args.source||args.destination||'');
  const ext=(p.match(/\.([A-Za-z0-9]+)$/)||[])[1];

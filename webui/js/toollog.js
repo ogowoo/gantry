@@ -282,6 +282,11 @@ async function openChangeDiff(path){
 /* 语言显示名（对齐 Copilot 的写法：PowerShell 而不是 powershell） */
 const HL_LABEL={python:'Python',js:'JavaScript',typescript:'TypeScript',json:'JSON',
  bash:'Bash',powershell:'PowerShell',sql:'SQL',yaml:'YAML',html:'HTML',css:'CSS',
- diff:'Diff',wdl:'表达式',code:'代码'};
+ diff:'Diff',wdl:'表达式',go:'Go',rust:'Rust',java:'Java',kotlin:'Kotlin',
+ c:'C',cpp:'C++',csharp:'C#',ruby:'Ruby',php:'PHP',swift:'Swift',scala:'Scala',
+ dart:'Dart',lua:'Lua',r:'R',perl:'Perl',haskell:'Haskell',clojure:'Clojure',
+ elixir:'Elixir',erlang:'Erlang',markdown:'Markdown',dockerfile:'Dockerfile',
+ hcl:'HCL',ini:'INI',graphql:'GraphQL',protobuf:'Protobuf',
+ code:'代码'};
 
 export { toggleToolLog, renderToolLog, loadTurns, summarizeAnswer, turnRow, renderTurnFlow, fillToolLogBody, renderMessages, maybeLoadChanges, loadChanges, clearChanges, renderChangesCard, openChangeDiff, CHANGE_DONE, HL_LABEL };
