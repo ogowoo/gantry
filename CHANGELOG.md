@@ -14,6 +14,44 @@
 ### Fixed
 - 
 
+## [0.11.0-beta.14] - 2026-11-18
+
+### Added
+- 代码块语法高亮从 5 种语言扩展到 **30+ 种**：新增 Go、Rust、Java、Kotlin、C、C++、
+  C#、Ruby、PHP、Swift、Scala、Dart、Lua、R、Perl、Haskell、Clojure、Elixir、Erlang、
+  Markdown、Dockerfile、HCL、INI、GraphQL、Protobuf；每种语言按语族匹配正确的
+  注释/字符串规则（`//` `#` `--` `;;` `%` 等）。
+- 新增 **Power Automate 表达式（WDL）** 高亮：函数名、字符串、属性访问、括号分色。
+- 代码块无语言标签时**按内容自动识别**语言（WDL/Python/JS/Go/Rust/Java/Dockerfile/
+  SQL/HCL/GraphQL/Protobuf/Elixir/Clojure/Perl/Bash），模型省略 ` ``` ` 后的语言名也能高亮。
+- 托盘菜单新增 **「检查更新」**（三语），调用 `GET /v1/update/check` 后气泡提示
+  发现的新版本号或"已是最新版本"。
+- 等宽字号/行距抽成设计令牌 `--code-size` / `--code-lh`，集中一处可调。
+
+### Changed
+- 等宽字体统一为 `--mono: Consolas,"Courier New",monospace`，并把散落在
+  tokens/shell/chat/dialogs/overlays/composer/rows/changes 八个 CSS 文件里的
+  硬编码字体栈全部替换为 `var(--mono)`。
+- 代码块排版收紧：12.5px / 1.6 行距 → **12px / 1.5**（Consolas 的 x-height 偏大，
+  原来的行距显得松散）。
+- CSS 引用统一加版本参数（当前 `?v=20261118e`），改样式后浏览器不会再吃旧缓存。
+
+### Fixed
+- **代码块实际渲染成 NSimSun 新宋体**：浏览器 UA 样式表的
+  `code{font-family:monospace}` 直接命中 `<code>` 元素，优先级高于从 `<pre>` 继承，
+  导致 `--mono` 指定的字体从未生效（Playwright 实测 `pre` 是目标字体、其内部
+  `code` 是 `monospace`）。现在 `code,kbd,samp,pre{font-family:var(--mono)}`，
+  并让 `pre code` 继承。
+- 代码复制按钮拿到的文本丢换行、带行号：改为读 `data-raw` 原始内容。
+- `updater` 更新时误报「工作区有未提交改动」：`git status` 加
+  `--untracked-files=no`，运行时产生的 `data/`、`workspace/`、`__pycache__/` 不再算脏。
+- `updater` 更新时 `git fetch --tags` 因本地/远端 tag 分叉报
+  "would clobber existing tag" 而失败：改为只 fetch 分支，再单独解析目标 tag。
+- `apistate.js` 多了一个右花括号导致整个模块 `SyntaxError`（状态栏全部失效）。
+
+### 测试
+- 语言高亮、字体解析、ESM 迁移定向测试通过；不变量 25/0。
+
 ## [0.11.0-beta.13] - 2026-11-17
 
 ### Fixed
