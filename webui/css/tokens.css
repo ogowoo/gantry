@@ -19,7 +19,7 @@
   --msg-user-bg:#1d3a6e;--msg-user-border:#2b4f8f;--big:#5a7493;
   --danger-bg:#241516;--danger-border:#5a2b28;--danger-text:#ff8a80;--danger-hover-text:#ffb3ad;
   --mask-bg:rgba(3,7,12,.66);--dlg-shadow:rgba(0,0,0,.8);
-  --mono:"Lucida Console",monospace;
+  --mono:"Courier New",monospace;
 }
 *{box-sizing:border-box}
 /* 页面本身**永不滚动**：滚动只发生在内部面板（chatlog / steps / livepane）。
