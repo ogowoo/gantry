@@ -91,7 +91,7 @@ function codeBlockHtml(rawCode,lang,opts){
  const codeHtml=highlight(text,lang2);
  const n=text.split('\n').length;
  const long=opts.fold!==false&&n>22;
- return `<div class="md-codewrap${long?' foldable collapsed':''}"><div class="md-codebar">`+
+ return `<div class="md-codewrap${long?' foldable collapsed':'}" data-raw="${esc(text)}"><div class="md-codebar">`+
   `<span class="md-lang">${esc(opts.label||langLabel(lang2))}</span>`+
   (long?`<span class="md-lines">${esc(tr('{n} 行',{n:n}))}</span>`:'')+
   '<span class="md-actions">'+
