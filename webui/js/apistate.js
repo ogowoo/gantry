@@ -161,14 +161,34 @@ function _setStat(id, state, value, title){
  el.setAttribute('aria-label', value);
  el.title=title||value;
 }
+let _teamsProbeAt=0,_teamsLoadedFlag=false;
+async function _teamsLoaded(){
+ // teams-bot 禁用/未加载时不要请求它的 api/status：否则每 15 秒一条 404，
+ // 浏览器控制台会一直刷 "Failed to load resource"。插件状态缓存 60 秒。
+ if(Date.now()-_teamsProbeAt<60000)return _teamsLoadedFlag;
+ try{
+  const d=await api('/v1/plugins');
+  const p=(d&&d.plugins||[]).find(x=>x&&x.name==='teams-bot');
+  _teamsLoadedFlag=!!(p&&p.enabled&&String(p.status||'')==='loaded');
+ }catch(e){_teamsLoadedFlag=false}
+ _teamsProbeAt=Date.now();
+ return _teamsLoadedFlag;
+}
 async function _updateStatusBar(){
  // 服务
+ let serviceOk=false;
  try{
   const h=await api('/health');
-  _setStat('statService', h.status==='ok'?'ok':'bad',
-    h.status==='ok'?tr('正常'):tr('异常'),
+  serviceOk=h.status==='ok';
+  _setStat('statService', serviceOk?'ok':'bad',
+    serviceOk?tr('正常'):tr('异常'),
     h.version?`v${h.version}`:'');
- }catch(e){_setStat('statService','bad',tr('离线'),'')}
+ }catch(e){
+  _setStat('statService','bad',tr('离线'),'');
+  _setStat('statLocal','off',tr('不可用'),'');
+  _setStat('statTeams','off',tr('未加载'),'');
+  return;                       // 服务离线时不要继续打 local/teams，避免控制台刷屏
+ }
  // 本地模型
  try{
   const r=await api('/v1/models/local/status');
@@ -181,18 +201,22 @@ async function _updateStatusBar(){
      ps.map(p=>`${p.model_file||p.provider}: ${p.loaded?tr('运行中'):tr('未加载')}`).join('\n'));
   }
  }catch(e){_setStat('statLocal','off',tr('不可用'),'')}
- // Teams 机器人
+ // Teams 机器人：插件未启用/未加载时不发 api/status（避免每 15 秒 404）
  try{
-  const d=await api('/v1/plugins/teams-bot/api/status');
-  let st='off', txt=tr('未启用'), detail='';
-  if(d.enabled){
-   if(d.last_error){st='bad';txt=tr('异常');detail=d.last_error}
-   else if(d.busy){st='warn';txt=tr('处理中')}
-   else if(d.dry_run){st='warn';txt=tr('演练中')}
-   else if(!d.send_enabled){st='warn';txt=tr('只读')}
-   else {st='ok';txt=tr('就绪')}
+  if(await _teamsLoaded()){
+   const d=await api('/v1/plugins/teams-bot/api/status');
+   let st='off', txt=tr('未启用'), detail='';
+   if(d.enabled){
+    if(d.last_error){st='bad';txt=tr('异常');detail=d.last_error}
+    else if(d.busy){st='warn';txt=tr('处理中')}
+    else if(d.dry_run){st='warn';txt=tr('演练中')}
+    else if(!d.send_enabled){st='warn';txt=tr('只读')}
+    else {st='ok';txt=tr('就绪')}
+   }
+   _setStat('statTeams',st,txt,detail);
+  }else{
+   _setStat('statTeams','off',tr('未启用'),'');
   }
-  _setStat('statTeams',st,txt,detail);
  }catch(e){_setStat('statTeams','off',tr('未加载'),'')}
 }
 try{setInterval(_updateStatusBar,15000)}catch(e){}
