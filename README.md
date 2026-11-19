@@ -344,8 +344,8 @@ and `GET /v1/models`.
 |---|---|---|
 | `copilot_url` | `https://m365.cloud.microsoft/chat/` | Copilot entry URL |
 | `browser_channel` | `msedge` | Playwright browser channel (`msedge` / `chrome` / omit for bundled Chromium) |
-| `browser_width` | `800` | Automation browser viewport width (800–3200) |
-| `browser_height` | `600` | Automation browser viewport height (600–1080) |
+| `browser_width` | `1024` | Automation browser viewport width (800–3200) |
+| `browser_height` | `768` | Automation browser viewport height (600–1080) |
 | `headless` | `false` | Headless mode; automatically falls back to windowed mode if startup fails |
 | `reply_timeout_seconds` | `180` | **No-progress** timeout: a timeout is only declared when the reply has had no new text for this long |
 | `reply_hard_timeout_seconds` | `1200` | Hard per-turn cap (fallback to prevent waiting forever) |

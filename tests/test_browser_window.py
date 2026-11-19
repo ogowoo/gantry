@@ -14,12 +14,12 @@ from gantry.viewport import window_size
 
 
 class WindowSizeTests(unittest.TestCase):
-    def test_default_is_minimum(self):
+    def test_default_is_compact(self):
         with mock.patch.dict(b.CFG, {}, clear=False):
             b.CFG.pop("browser_width", None)
             b.CFG.pop("browser_height", None)
             kw = browser._launch_kwargs(False)
-        self.assertEqual(kw["viewport"], {"width": 800, "height": 600})
+        self.assertEqual(kw["viewport"], {"width": 1024, "height": 768})
 
     def test_config_override(self):
         with mock.patch.dict(b.CFG, {"browser_width": 900, "browser_height": 700}):

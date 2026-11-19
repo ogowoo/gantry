@@ -211,6 +211,6 @@
       "xiaomi_model": "SeerRay-Lab/Xiaomi-OCR-0"
     }
   },
-  "browser_width": 800,
-  "browser_height": 600
+  "browser_width": 1024,
+  "browser_height": 768
 }

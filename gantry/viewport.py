@@ -5,8 +5,8 @@ from __future__ import annotations
 from typing import Any, Mapping
 
 # 最小可用尺寸；高度上限 1080，避免在小屏/远程桌面上超出屏幕。
-DEFAULT_WIDTH = 800
-DEFAULT_HEIGHT = 600
+DEFAULT_WIDTH = 1024
+DEFAULT_HEIGHT = 768
 MIN_WIDTH = 800
 MAX_WIDTH = 3200
 MIN_HEIGHT = 600
