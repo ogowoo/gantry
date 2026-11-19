@@ -22,21 +22,26 @@ python install.py
 
 > 可选：`--ocr`（扫描件 OCR）、`--xiaomi`（表格/公式）、`--local`（本地 GGUF 模型）
 
-## 3. 登录（只做一次）
-
-```powershell
-python scripts/login.py
-```
-
-Edge 里登录 M365 账号，看到 Copilot 聊天页后回命令行按回车。
-
-## 4. 启动
+## 3. 启动
 
 ```powershell
 python start.py
 ```
 
-打开 **http://127.0.0.1:8765/ui** ，顶部显示 `Copilot 就绪` 即可用。
+打开 **http://127.0.0.1:8765/ui**。首次启动可能显示 `未就绪` / `等待登录`，这是正常的。
+
+## 4. 首次登录（可选，只做一次）
+
+**不需要先跑 `scripts/login.py`。** 推荐直接在 console/托盘里唤起自动化浏览器：
+
+- WebUI 顶部点 **「重试浏览器」**，或托盘右键 → **「启动自动化浏览器」**
+- 在弹出的自动化 Edge 里登录 M365 账号
+- 回到 WebUI 再点一次 **「重试浏览器」**，顶部变成 `Copilot 就绪`
+
+登录态保存在 `EdgeProfile/`，之后启动不需要再登录。
+
+> 也可以使用独立登录向导：先停止服务，再运行 `python scripts/login.py`。  
+> 它只是可选的 CLI 入口，不是启动服务的必需步骤。
 
 ## 5. 跑任务
 
@@ -58,7 +63,7 @@ python start.py
 
 | 现象 | 处理 |
 |---|---|
-| Copilot 未就绪 | 点「重试浏览器」，或重跑 `login.py` |
+| Copilot 未就绪 | 先点「重试浏览器」，在自动化 Edge 完成登录后再点一次；仍不行才停服务跑 `scripts/login.py` |
 | 端口被占 | `config.json` 改 `server.port` |
 | 想用 DeepSeek/Kimi | 设环境变量 `DEEPSEEK_API_KEY` 等，模型列表自动出现 |
 

@@ -76,14 +76,16 @@ python install.py
 #    python install.py --ocr      # RapidOCR: scanned PDFs / images (~20 MB models)
 #    python install.py --xiaomi   # Xiaomi-OCR-0: tables (OTSL) & formulas (LaTeX), large
 
-# 2. Copy the config and edit as needed
-copy config.example.json config.json
+# 2. install.py has already created config.json from config.example.json
+#    (edit it only if you need non-default ports/providers)
 
-# 3. Log in to Copilot (opens Edge; press Enter when login is complete)
-python scripts/login.py
-
-# 4. Start the service (default http://127.0.0.1:8765)
+# 3. Start the service (default http://127.0.0.1:8765)
 python start.py        # runs in the background (like pythonw): tray icon stays, terminal can close
+
+# 4. First login (optional, once): in the WebUI click "Retry browser",
+#    or use the tray menu "Start automation browser"; sign in to M365 in the
+#    automated Edge, then click "Retry browser" again.
+#    `python scripts/login.py` is an optional standalone wizard, not required.
 ```
 
 After startup, open `http://127.0.0.1:8765/ui` to use the console, or visit `/docs` for the API documentation.
