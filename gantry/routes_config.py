@@ -107,7 +107,7 @@ CONFIG_SCHEMA: dict[str, dict] = {
                         "label": "浏览器启动方式"},
     "browser_width": {"kind": "int", "min": 800, "max": 3200, "group": "browser",
                       "label": "自动化浏览器窗口宽度"},
-    "browser_height": {"kind": "int", "min": 600, "max": 2000, "group": "browser",
+    "browser_height": {"kind": "int", "min": 600, "max": 1080, "group": "browser",
                        "label": "自动化浏览器窗口高度"},
     "headless": {"kind": "bool", "group": "browser", "label": "无头模式（不显示浏览器窗口）"},
     "auto_resume": {"kind": "bool", "group": "exec", "label": "服务重启后自动续跑任务"},

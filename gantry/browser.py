@@ -21,8 +21,8 @@ def _window_size() -> dict[str, int]:
         except (TypeError, ValueError):
             value = default
         return max(lo, min(hi, value))
-    return {"width": _num("browser_width", 1200, 800, 3200),
-            "height": _num("browser_height", 800, 600, 2000)}
+    return {"width": _num("browser_width", 800, 800, 3200),
+            "height": _num("browser_height", 600, 600, 1080)}
 
 
 def _launch_kwargs(headless: bool) -> dict:
