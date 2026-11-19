@@ -98,6 +98,10 @@ async def session(sid: str):
     except Exception:
         _sub = {"count": 0, "steps": 0, "tokens": 0}
     x = dict(x)
+    # 详情页不需要 recent_steps；这是模型续跑上下文，可能非常大（曾出现 132MB）。
+    # 返回给浏览器既慢又会把 FastAPI 编码器拖死。
+    x.pop("recent_steps", None)
+    x.pop("initial_prompt", None)
     x["subagent_count"] = _sub.get("count", 0)
     x["subagent_running"] = _sub.get("running", 0)
     x["subagent_steps"] = _sub.get("steps", 0)

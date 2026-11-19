@@ -9,6 +9,23 @@ from pathlib import Path
 from typing import Any
 
 
+def _cap_value(value, limit: int = 12000, depth: int = 0):
+    """把要落库的步骤/最近历史压到可控大小。
+
+    事故：一次工具结果 132 MB 被原样写进 recent_steps 和 steps.payload，
+    agent.db 涨到 392 MB；之后每次 get/list 都解析这个字符串，服务被拖死。
+    """
+    if isinstance(value, str):
+        return value if len(value) <= limit else value[:limit] + f"...[truncated {len(value) - limit} chars]"
+    if depth >= 6:
+        return str(value)[:limit]
+    if isinstance(value, list):
+        return [_cap_value(v, limit, depth + 1) for v in value]
+    if isinstance(value, dict):
+        return {k: _cap_value(v, limit, depth + 1) for k, v in value.items()}
+    return value
+
+
 class SessionStore:
     STATES = {"ready", "running", "paused", "waiting", "suspended", "completed",
           "failed", "cancelled", "expired", "archived"}
@@ -386,6 +403,8 @@ CREATE TABLE IF NOT EXISTS conv_stats (
             "pending_steps","approval_pending","tag","goal","todos","plan","plan_mode",
             "parent_id","description","suspend_reason","last_view_file"}
         values = {k:v for k,v in values.items() if k in allowed}
+        if "recent_steps" in values:
+            values["recent_steps"] = _cap_value(values["recent_steps"])
         if "state" in values and values["state"] not in self.STATES: raise ValueError("invalid state")
         for key in ("conversation_urls","summary","recent_steps","modified_files","pending",
                 "pending_steps","approval_pending","goal","todos","plan"):
@@ -451,6 +470,7 @@ CREATE TABLE IF NOT EXISTS conv_stats (
         return self.get(sid)
 
     def add_step(self, sid: str, step_no: int, conversation_index: int, step: dict[str, Any]):
+        step = _cap_value(step)
         with self.lock, self._connect() as con:
             self.append_event(sid, "step_recorded",
                               {"step_no": int(step_no), "tool": step.get("tool"),

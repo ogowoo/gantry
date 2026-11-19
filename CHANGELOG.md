@@ -14,6 +14,21 @@
 ### Fixed
 - 
 
+## [0.11.0-beta.20] - 2026-11-19
+
+### Fixed
+- **点会话很慢**：详情接口不再返回 `recent_steps`/`initial_prompt`；一次失控任务
+  曾把 132 MB 工具结果写进 `recent_steps` 和 `steps.payload`，导致 agent.db
+  392 MB、每次点会话都解析巨量 JSON。
+- **落库前截断**：`SessionStore.patch` 的 `recent_steps` 和 `add_step` 的
+  `steps.payload` 统一截断到 12KB/层，避免再次写出百 MB 的步骤。
+- 已清理当前 132 MB 的失控记录并 `VACUUM`：数据库 392 MB → 13.2 MB，
+  会话详情 0.063 秒，服务内存约 78 MB。
+- 新增 `tests/test_session_payload_cap.py`。
+
+### 测试
+- 会话载荷/列表/Excel 快路径目标测试 17 项 OK；不变量 25/0。
+
 ## [0.11.0-beta.19] - 2026-11-19
 
 ### Fixed

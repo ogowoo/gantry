@@ -129,8 +129,8 @@ class ListEndpointTests(unittest.TestCase):
         self.assertNotIn("recent_steps", row)
         self.assertNotIn("initial_prompt", row)
         detail = self.client.get("/v1/agent/sessions/parent1").json()["session"]
-        self.assertIn("recent_steps", detail)
-        self.assertIn("initial_prompt", detail)
+        self.assertNotIn("recent_steps", detail)
+        self.assertNotIn("initial_prompt", detail)
 
 
 class FrontendConsistencyTests(unittest.TestCase):
