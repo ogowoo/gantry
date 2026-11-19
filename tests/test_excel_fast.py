@@ -79,6 +79,11 @@ class ExcelToolTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(rows[1], ["1", "2"])
         self.assertLessEqual(r["sheets"]["Sheet"]["columns_read"], 5)
 
+    async def test_read_excel_schema_lists_max_cols(self):
+        items = self.tools.descriptions()
+        spec = next(x for x in items if x.get("name") == "read_excel")
+        self.assertIn("max_cols", spec.get("arguments", {}))
+
     async def test_small_workbook_falls_back_to_openpyxl(self):
         import openpyxl
         dst = self.tmp / "small.xlsx"
