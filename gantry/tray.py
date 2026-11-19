@@ -655,9 +655,12 @@ class Tray:
         log.info("托盘：启动自动化浏览器（按需拉起，无需先跑登录脚本）")
         self.balloon(self.title, self.text["starting_browser"])
         try:
-            r = self._http("/v1/agent/browser", {}, timeout=180)
+            r = self._http("/v1/agent/browser", {}, timeout=30)
         except Exception as exc:                        # noqa: BLE001
             self.balloon(self.text["failed"], self.text["no_service"].format(err=str(exc)[:160]), error=True)
+            return
+        if r.get("started"):
+            self.balloon(self.title, self.text["starting_browser"])
             return
         mode = self.text["headless"] if r.get("headless") else self.text["visible"]
         self.balloon(self.title, self.text["browser_ready"].format(mode=mode))

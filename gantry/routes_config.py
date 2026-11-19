@@ -414,12 +414,14 @@ async def browser_state():
 
 @router.post("/v1/agent/browser")
 async def set_browser_mode(payload: dict):
-    await a.ensure_browser()   # 按需启动：走到 Copilot 路径才拉起浏览器
     """切换自动化浏览器窗口的显示/隐藏。
 
     headless 是启动参数，切换必然重建浏览器上下文（EdgeProfile 保留，
     登录态不受影响）。有请求/任务正在使用浏览器时返回 409 拒绝切换。
     persist=true 可把新模式写回 config.json。
+
+    注意：这里**不能**先等 ensure_browser（它最多等 240 秒 Copilot 就绪）。
+    启动按钮只需要把窗口拉起来；登录/SSO 由后台 boot_browser 继续处理。
     """
     target_raw = payload.get("headless")
     if target_raw is None:
@@ -438,9 +440,14 @@ async def set_browser_mode(payload: dict):
                         "focus_error": str(exc)[:160]}
             return {"headless": b.HEADLESS_CURRENT, "changed": False,
                     "fallback": False, "focused": focused}
-        actual = await b._start_browser(b.HEADLESS_CURRENT)
-        return {"headless": actual, "changed": True, "fallback": False,
-                "focused": True}
+        # 只启动：后台跑 boot_browser（含 Copilot 登录等待），HTTP 立即返回。
+        # 这样托盘/WebUI 不会卡 240 秒，状态由 /health 的 browser_state 轮询。
+        old = a.BOOT.get("task")
+        if old is None or old.done():
+            a.BOOT["task"] = asyncio.create_task(a.boot_browser())
+        return {"headless": b.HEADLESS_CURRENT, "changed": False,
+                "fallback": False, "started": True,
+                "state": a.BOOT.get("browser_state") or "starting"}
     if not isinstance(target_raw, bool):
         raise HTTPException(422, "headless 必须是布尔值")
     target = target_raw
