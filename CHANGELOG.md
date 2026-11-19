@@ -14,6 +14,19 @@
 ### Fixed
 - 
 
+## [0.11.0-beta.17] - 2026-11-19
+
+### Added
+- Agent 领域 profile：Power Automate / Power Apps / Office 365 / 编程，按任务关键词自动命中；
+  支持 `agent.profile=auto|off|<name>` 强制指定。
+- profile 只注入约 5 条针对性硬约束（先读后改、先生成包再 UI、保格式/发信确认、验证闭环），
+  并展开对应静态工具组；完整流程在 skills。
+- 新 skill：`office365`、`coding`。
+- `docs/AGENT_PROFILES.md`、`tests/test_agent_profiles.py`。
+
+### 测试
+- profile/提示词/技能目标测试 89 项 OK；不变量 25/0。
+
 ## [0.11.0-beta.16] - 2026-11-18
 
 ### Added

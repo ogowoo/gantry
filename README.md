@@ -8,7 +8,7 @@
 
 > **Works without Copilot**: the browser starts on demand — service startup never touches the browser, and the WebUI plus provider models (DeepSeek/Kimi/OpenAI, etc.) are usable immediately; the browser is only launched when Copilot is actually needed, and a status with a "Retry browser" button is shown at the top of the UI. **Note**: in lazy mode, the first Copilot task after a restart must wait for the browser to launch and for SSO (can take several minutes on enterprise tenants); that waiting time does not count toward the task timeout. Provider models are unaffected.
 
-> **Version**: the `main` branch is currently **0.11.0-beta.16** (the multi-window parallel preview line has been merged in).
+> **Version**: the `main` branch is currently **0.11.0-beta.17** (the multi-window parallel preview line has been merged in).
 > The old stable line is archived at tag `v10.2.1-archive` / branch `archive/10.2.1-stable`.
 > For versioning rules, release process, and multi-machine collaboration conventions, see [docs/VERSIONING.md](docs/VERSIONING.md);
 > for changes in each release, see [CHANGELOG.md](CHANGELOG.md).
@@ -408,6 +408,7 @@ The built-in defaults already cover **English + Chinese + Japanese** (`Copilot s
 | `max_sessions` | `100` | Cap on unarchived sessions; beyond it, archiving starts from the least recently updated |
 | `max_parse_failures` | `5` | Force context compaction after this many consecutive parse failures |
 | `max_actions_per_turn` | `4` | Maximum actions executed per reply (batch protocol, hard ceiling 12); raising it saves turns but makes truncation by Copilot's output limit more likely |
+| `profile` | `auto` | Domain profile: `auto` / `off` / `power_automate` / `power_apps` / `office365` / `coding`; see [docs/AGENT_PROFILES.md](docs/AGENT_PROFILES.md) |
 | `allow_copilot_file` | `true` | Whether to enable `copilot_file` (let Copilot generate files directly and download them into the workspace; content bypasses chat messages and the output limit). **Note**: `copilot_file` and `copilot_attach` depend on the Copilot web session, so they are **automatically disabled** in sessions using an API provider model (e.g. `deepseek/…`) — neither injected nor executed, avoiding wasted turns |
 | `copilot_file_model` | `""` | The specific model used when `copilot_file` generates files. When the session model is `Auto`, Auto usually only chats and never produces a download entry (measured); setting this (e.g. `copilot-gpt-5-6-sol-think-deeper`) switches automatically; leave empty to keep the session model and get an explicit reason on failure || `max_service_unavailable` | `30` | Cap on rate-limit backoff retries; beyond it, the task enters a safe pause |
 | `service_retry_base_seconds` / `service_retry_max_seconds` | `30` / `600` | Start/cap of the rate-limit exponential backoff |

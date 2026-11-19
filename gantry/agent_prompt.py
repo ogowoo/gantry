@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any
 
 from . import prompt_lang
+from .agent_profiles import profile_for_task, profile_groups, profile_prompt
 from .prompt import (PromptRegistry, agent_protocol, agent_team, deliverable_rule,
                      file_ops_rule, language_directive)
 
@@ -64,6 +65,14 @@ class PromptMixin:
         if "subagent" in self._active_tool_names():
             reg.add("team", agent_team, order=150)
         reg.add("self_upgrade", self._self_upgrade_rules(), order=200)
+        # 领域 profile：只注入一小段针对性硬约束 + 工具组路由；详细流程在 skill。
+        try:
+            _profile = profile_for_task(getattr(self, "_task_text", "") or "",
+                                        getattr(self, "config", None) or {})
+            if _profile is not None:
+                reg.add("profile", profile_prompt(_profile), order=260)
+        except Exception:                         # noqa: BLE001
+            pass
         reg.add("workspace", self._workspace_context(), order=300)
         # 分流那句也随提示词语言变（英文/繁体时不至于整段提示词只有这一句是中文）
         try:
@@ -119,6 +128,13 @@ class PromptMixin:
         for group, words in GROUP_KEYWORDS.items():
             if any(w in task for w in words):
                 names.update(TOOL_GROUPS.get(group, ()))
+        try:
+            _profile = profile_for_task(getattr(self, "_task_text", "") or "",
+                                        getattr(self, "config", None) or {})
+            for _g in profile_groups(_profile):
+                names.update(TOOL_GROUPS.get(_g, ()))
+        except Exception:                         # noqa: BLE001
+            pass
         if getattr(self.tools, "allow_self_upgrade", False):
             names.update(TOOL_GROUPS.get("self", ()))
         return names
