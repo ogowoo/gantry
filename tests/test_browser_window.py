@@ -49,6 +49,8 @@ class WindowBoundsTests(unittest.IsolatedAsyncioTestCase):
         session.send = mock.AsyncMock(side_effect=[{"windowId": 7}, {}])
         session.detach = mock.AsyncMock()
         page.context.new_cdp_session = mock.AsyncMock(return_value=session)
+        page.evaluate = mock.AsyncMock(side_effect=[[1040, 902], [1024, 768]])
+        page.set_viewport_size = mock.AsyncMock()
         ok = await apply_outer_window_size(page, {"browser_width": 1024,
                                                    "browser_height": 768})
         self.assertTrue(ok)
@@ -56,6 +58,7 @@ class WindowBoundsTests(unittest.IsolatedAsyncioTestCase):
             "windowId": 7,
             "bounds": {"width": 1024, "height": 768, "windowState": "normal"},
         })
+        page.set_viewport_size.assert_awaited_once_with({"width": 1008, "height": 634})
 
     async def test_cdp_failure_is_non_fatal(self):
         page = mock.MagicMock()

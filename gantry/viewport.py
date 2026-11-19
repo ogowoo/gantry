@@ -36,6 +36,11 @@ async def apply_outer_window_size(page: Any, cfg: Mapping[str, Any] | None = Non
     """
     size = window_size(cfg)
     try:
+        # 先量出当前窗口外框与内容区的差（标题栏/地址栏/边框），不同 DPI 下不同。
+        outer = await page.evaluate("[window.outerWidth, window.outerHeight]")
+        inner = await page.evaluate("[window.innerWidth, window.innerHeight]")
+        dx = max(0, int(outer[0]) - int(inner[0]))
+        dy = max(0, int(outer[1]) - int(inner[1]))
         session = await page.context.new_cdp_session(page)
         try:
             info = await session.send("Browser.getWindowForTarget")
@@ -45,6 +50,13 @@ async def apply_outer_window_size(page: Any, cfg: Mapping[str, Any] | None = Non
             })
         finally:
             await session.detach()
+        # 外框缩到目标后，把内容区也缩到「目标 - chrome」，否则页面会被标题栏/地址栏裁掉。
+        content = {"width": max(320, size["width"] - dx),
+                   "height": max(240, size["height"] - dy)}
+        try:
+            await page.set_viewport_size(content)
+        except Exception:                        # noqa: BLE001
+            pass
         return True
     except Exception:                            # noqa: BLE001
         return False
