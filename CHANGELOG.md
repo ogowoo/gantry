@@ -14,6 +14,25 @@
 ### Fixed
 - 
 
+## [0.11.0-beta.26] - 2026-11-19
+
+### Added
+- **visual-design 插件**：六个 Agent 工具
+  `design_create / design_modify / design_render / design_preview /
+  design_inspect / design_export`。
+  - HTML/CSS 与 SVG 可编辑源文件，独立 Chromium + Playwright 渲染，Pillow 检查。
+  - 项目目录 `visual-projects/<project_id>/`，design-spec 与 source 分离。
+  - 路径/画布/文件大小/渲染超时/并发限制；阻断外部网络和项目外 file 资源。
+  - 不支持 PDF、不生成 AI 插画（按确认范围）。
+- 内置插件可用 `allow_uninstall: true` 声明可卸载；`describe().removable` 与
+  `uninstall()` 支持该标记，不再需要把插件复制成外部安装才能卸载。
+- `requirements.txt` 增加 Pillow。
+
+### Tests
+- `tests/test_visual_design_plugin.py`、`tests/test_visual_design_e2e.py`：
+  HTML/SVG、中文、尺寸、路径穿越、超时、失败恢复、zip 安装/卸载、
+  Agent 1920×1080 中文海报 E2E。
+
 ## [0.11.0-beta.25] - 2026-11-19
 
 ### Added

@@ -996,6 +996,8 @@ Object.assign(I18N_EN, {
  "保存失败: ": "Save failed: ",
  "浏览器启动方式": "Browser startup",
  "无头模式（不显示浏览器窗口）": "Headless (no browser window)",
+ "自动化浏览器窗口宽度": "Automation browser window width",
+ "自动化浏览器窗口高度": "Automation browser window height",
  "服务重启后自动续跑任务": "Auto-resume tasks after restart",
  "允许 copilot_file 直读文件": "Allow copilot_file to read files",
  "保留诊断信息": "Keep diagnostics",

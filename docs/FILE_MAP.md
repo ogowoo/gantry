@@ -562,6 +562,7 @@ Web 控制台；`index.html` + `css/` + `js/`（ES 模块）。
 | `provider_selftest.py` | 提供商连通性自检：一条命令定位"浏览器能访问、服务说不可用"。 | mask, load_cfg, probe, main |
 | `reap_browsers.py` | 清理"泄漏的 Playwright 浏览器"。 | _ps, list_browsers, main |
 | `regression.py` | 整体回归：**真跑**每个面向用户的能力，而不是只跑单测。 | Ctx, step_health, step_tools, step_sandbox_api, step_plan_mode, step_write_task |
+| `render_html.py` | 把本地 HTML 渲染成 PNG（Gantry 海报/封面任务用）。 | main |
 | `resume_and_check.py` | 重启后：恢复 pyshot 任务，并确认 todo 从文件同步进来了。 | get, post |
 | `rollback.py` | 工作区改动回滚 CLI：服务/WebUI 起不来时的 failback 通道。 | project_root, main |
 | `run_tests_chunked.py` | 分模块跑测试（每个模块独立进程 + 超时），用于排查"整体跑会卡住"的次序问题。 | main |

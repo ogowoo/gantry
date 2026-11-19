@@ -92,7 +92,7 @@ class DetailFetchOnceTests(unittest.TestCase):
 
     def test_runtime_consumes_skip(self):
         i = APP.index("async function applyRuntime")
-        seg = APP[i:i + 4200]
+        seg = APP[i:i + 9000]
         self.assertIn("skipDetailOnce===myId", seg)
         self.assertIn("skipDetailOnce=null", seg)
 

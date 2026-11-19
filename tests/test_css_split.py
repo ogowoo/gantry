@@ -35,7 +35,7 @@ class CssSplitTests(unittest.TestCase):
         self.assertGreaterEqual(len(have), 8, "拆得太少没意义，也别拆成一堆碎片")
 
     def test_index_links_every_file_in_order(self):
-        links = re.findall(r'<link rel="stylesheet" href="css/([^"]+)">', HTML)
+        links = re.findall(r'<link rel="stylesheet" href="css/([^"?]+)', HTML)
         self.assertEqual(links, CSS_ORDER,
                          "index.html 里 <link> 的顺序必须等于 CSS_ORDER（= 层叠顺序）")
 

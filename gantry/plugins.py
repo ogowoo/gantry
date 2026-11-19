@@ -98,6 +98,9 @@ class PluginManifest:
     contributes: dict[str, Any] = field(default_factory=dict)
     config: dict[str, Any] = field(default_factory=dict)
     default_enabled: bool = True
+    # 内置插件默认不可卸载；插件可显式声明 allow_uninstall=true（例如
+    # visual-design 这类可独立发布的插件），管理器才显示并允许卸载。
+    allow_uninstall: bool = False
     dsh: dict[str, Any] = field(default_factory=dict)     # DSH 兼容元数据（只读透传）
     # 插件自带译文：{"en": {"中文原文": "English"}, "tw": {...}}
     # 平台不知道第三方插件写了哪些中文，让它自己在清单里带上最不失真。
@@ -109,6 +112,7 @@ class PluginManifest:
                 "entry": self.entry, "permissions": self.permissions,
                 "contributes": self.contributes, "config": self.config,
                 "default_enabled": self.default_enabled, "dsh": self.dsh,
+                "allow_uninstall": self.allow_uninstall,
                 "i18n": self.i18n}
 
 
@@ -150,6 +154,7 @@ def _read_manifest(plugin_dir: Path) -> PluginManifest | None:
             config=dict(block.get("config") or {}),
             default_enabled=bool(block.get("default_enabled",
                                            not bool(block.get("default_disabled", False)))),
+            allow_uninstall=bool(block.get("allow_uninstall", False)),
             dsh=dict(raw.get("dsh") or {}),
             dir=plugin_dir,
         )
@@ -664,8 +669,14 @@ class PluginHost:
         if not dest.is_dir() and name not in self.records:
             raise PluginError(f"没有名为 {name} 的插件")
         meta = (self._state.get(name) or {}).get("installed") or {}
-        if not meta and not allow_builtin:
-            raise PluginError(f"{name} 是内置插件，不能卸载；请用禁用/重载")
+        manifest = (self.records.get(name) or {}).get("manifest")
+        if manifest is None:
+            try:
+                manifest = next((m for m in self.discover() if m.name == name), None)
+            except Exception:                    # noqa: BLE001
+                manifest = None
+        if not meta and not allow_builtin and not (manifest and manifest.allow_uninstall):
+            raise PluginError(f"{name} 是内置插件，不能卸载；请用禁用/重载（或声明 allow_uninstall=true）")
         self._unload(name)
         backup = self._backup(name) if keep_backup and dest.is_dir() else ""
         if dest.is_dir():
@@ -722,6 +733,11 @@ class PluginHost:
     def describe(self, name: str) -> dict[str, Any]:
         rec = self.records.get(name) or {}
         manifest: PluginManifest | None = rec.get("manifest")
+        if manifest is None:
+            try:
+                manifest = next((m for m in self.discover() if m.name == name), None)
+            except Exception:                    # noqa: BLE001
+                manifest = None
         ctx: PluginContext | None = rec.get("ctx")
         installed = (self._state.get(name) or {}).get("installed") or {}
         return {
@@ -732,7 +748,7 @@ class PluginHost:
             "error": rec.get("error"),
             "enabled": self.enabled(name),
             "source": installed.get("source") or "builtin",
-            "removable": bool(installed),
+            "removable": bool(installed or (manifest and manifest.allow_uninstall)),
             "permissions": list(manifest.permissions) if manifest else [],
             "contributes": (manifest.contributes if manifest else {}),
             "dsh": (manifest.dsh if manifest else {}),

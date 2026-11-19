@@ -1,0 +1,22 @@
+{
+  "name": "visual-design",
+  "version": "0.1.0",
+  "description": "2D visual design: editable HTML/CSS/SVG projects, controlled Chromium rendering, inspection and PNG/JPG/SVG export",
+  "entry": "plugin.py",
+  "permissions": ["tools", "files"],
+  "contributes": {
+    "tools": [
+      "design_create",
+      "design_modify",
+      "design_render",
+      "design_preview",
+      "design_inspect",
+      "design_export"
+    ]
+  },
+  "default_enabled": false,
+  "allow_uninstall": true,
+  "config": {
+    "render_timeout_seconds": 30
+  }
+}

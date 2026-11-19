@@ -44,7 +44,7 @@ class ProfileRouteTests(unittest.TestCase):
     def test_visual(self):
         p = profile_for_task("用 GIMP 做一张六一儿童节海报")
         self.assertEqual(p.name, "visual")
-        self.assertIn("poster-design", p.zh)
+        self.assertIn("visual-design", p.zh)
         self.assertIn("visual design", profile_prompt(p, "en").lower())
 
     def test_forced_and_off(self):
