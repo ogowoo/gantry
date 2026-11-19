@@ -207,7 +207,7 @@
     },
     "ocr": {
       "engine": "auto",
-      "eager": true,
+      "eager": false,
       "xiaomi_model": "SeerRay-Lab/Xiaomi-OCR-0"
     }
   },

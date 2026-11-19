@@ -188,6 +188,7 @@ skills/                         Agent 技能说明与模板
 | `viewport.py` | 自动化浏览器窗口尺寸：服务与 scripts/login.py 共用同一套默认值/夹取。 | window_size, apply_outer_window_size |
 | `window_pool.py` | Copilot 自动化窗口池：一个窗口 = 一个独立的 Copilot 网页标签页。 | WindowBusy, _page_closed, Window, WindowPool |
 | `workspace_files.py` | workspace_files.py — 工作区文件与目录操作：写文件、建目录、系统目录选择对话框、目录浏览 | save_workspace_file, create_directory, pick_directory_native, browse_directories |
+| `xlsx_patch.py` | 大 Excel 的快速值写入（直接改 xlsx/xlsm 内部 XML）。 | FastPathUnsupported, _col, _xml_text, _sheet_paths, _cell_xml, _rewrite_row |
 
 ## plugins/
 
@@ -336,6 +337,7 @@ Web 控制台；`index.html` + `css/` + `js/`（ES 模块）。
 | `test_esm_migration.py` | app.js → ES 模块（ESM 解耦）的**终态**回归测试。 | RetirementTests, RouteTests, NoBareSharedStateTests, TopLevelWindowCallTests |
 | `test_event_log.py` | 事件日志（P2-10 第一期）：检查点动作会并行落事件；读取路径不变。 | EventLogTests |
 | `test_event_source_switch.py` | P2-10 第三期开关：同一条事实两条读取路径（列/投影），不一致时回退到列。 | EventSourceTests |
+| `test_excel_fast.py` | Excel 大文件快路径、read_excel 提前停止、事件循环不阻塞。 | ExcelToolTests |
 | `test_fanout.py` | 确定性扇出：任务归一化、父会话消息、单项失败不影响其余、上限。 | FanoutTests |
 | `test_file_ops_rule.py` | 文件操作必须走 Python 工具，不许拿 PowerShell 改文件。 | FileToolsArePurePythonTests, FileOpsRuleInjectionTests |
 | `test_fileview.py` | 测试：文件直读（文本/图片/二进制 + 路径解析 + 不误判）。 | FileViewTests, ReferentialViewTests, NoopGuardScopeTests, MultiLangIntentTests |
@@ -618,6 +620,7 @@ Web 控制台；`index.html` + `css/` + `js/`（ES 模块）。
 | `CSS-SPLIT.md` | 样式结构：`webui/css/*.css`（12 个文件） |  |
 | `DELIVERY-SUMMARY.md` | 交付物登记与遗留问题汇总 |  |
 | `ESM-MIGRATION.md` | app.js → ES Modules 迁移（已完成） |  |
+| `EXCEL_PERFORMANCE.md` | Excel 大文件性能 |  |
 | `FILE_MAP.md` | 项目文件功能地图 |  |
 | `KB_RAG.md` | 知识库：通用父子块与可插拔精排 |  |
 | `MULTI-WINDOW.md` | Copilot 通道多窗口并行（`agent.copilot_windows`） |  |

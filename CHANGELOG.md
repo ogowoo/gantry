@@ -14,6 +14,20 @@
 ### Fixed
 - 
 
+## [0.11.0-beta.19] - 2026-11-19
+
+### Fixed
+- **会话列表卡死**：`GET /v1/agent/sessions` 之前 `SELECT *` 并解析每个会话的
+  `recent_steps`/`initial_prompt` 等大字段；用户 392 MB 的 agent.db 让一次列表
+  请求阻塞事件循环十几秒，`/ui/` 也打不开。新增 light 查询（只 SELECT 侧栏
+  31 个字段），会话列表 1.1s→0.12s；DB/汇总移到 `asyncio.to_thread`。
+- **OCR 启动占用 1.6 GB**：`kb.ocr.eager=true` 会在后台加载 Xiaomi-OCR-0，
+  重启后资源仍被占住。默认改为 `eager=false`，按需懒加载。
+- 会话列表不再返回详情大字段；详情接口仍返回完整字段。
+
+### 测试
+- 会话列表/附件/标签目标测试 24 项 OK；不变量 25/0。
+
 ## [0.11.0-beta.18] - 2026-11-19
 
 ### Fixed

@@ -30,7 +30,16 @@ router = APIRouter()
 async def sessions(include_archived: bool = False, include_subagents: bool = True):
     """会话列表。默认**不返回子代理会话**——它们已经挂在父会话下（子代理面板可看），
     再占一行会把主列表淹掉。需要时传 include_subagents=true。"""
-    rows = b.AGENT_SESSIONS.list(include_archived)
+    rows = await asyncio.to_thread(b.AGENT_SESSIONS.list, include_archived, True)
+    # 列表只返回侧栏字段。recent_steps/initial_prompt 等大字段属于会话详情，
+    # 若随列表返回，FastAPI jsonable_encoder 会递归遍历几十万条步骤，
+    # 把事件循环卡死（实测：provider 响应超时，/health 也不回）。
+    drop = ("original_task", "recent_steps", "summary", "initial_prompt",
+            "pending", "pending_steps", "approval_pending", "conversation_urls",
+            "modified_files", "goal", "todos", "plan")
+    for x in rows:
+        for key in drop:
+            x.pop(key, None)
     # 默认返回**全部**（含子代理，带 parent_id）：WebUI 据此把子会话折叠到父会话下；
     # 需要扁平列表的调用方显式传 include_subagents=false。
     if not include_subagents:
@@ -38,7 +47,7 @@ async def sessions(include_archived: bool = False, include_subagents: bool = Tru
     # 列表行也要带上"含子代理"的合计：侧栏与详情页/KPI 必须同一口径，否则同一个
     # 任务在两处显示两个步数/Token（用户实测）。用递归版本（含孙代理）。
     try:
-        agg = b.AGENT_SESSIONS.subagent_totals_all()
+        agg = await asyncio.to_thread(b.AGENT_SESSIONS.subagent_totals_all)
         for x in rows:
             a = agg.get(str(x.get("id") or ""))
             if a and (a.get("count") or a.get("running")):

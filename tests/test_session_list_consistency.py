@@ -16,6 +16,7 @@
 - 前端：侧栏行显示 `主 + 子` 的步骤/Token（虚线下划线 + `title` 给拆分），
   KPI 卡片「会话」改成 `conversation_index + 1`，与侧栏/活动面板一致。
 """
+import json
 import sqlite3
 import sys
 import tempfile
@@ -115,6 +116,21 @@ class ListEndpointTests(unittest.TestCase):
         detail = self.client.get("/v1/agent/sessions/parent1").json()["session"]
         for key in ("subagent_steps", "subagent_tokens", "subagent_count", "subagent_running"):
             self.assertEqual(row[key], detail[key], f"{key} 列表与详情不一致")
+
+    def test_list_omits_large_detail_fields(self):
+        con = sqlite3.connect(self.tmp / "agent.db")
+        con.execute("UPDATE sessions SET recent_steps=?, initial_prompt=? WHERE id='parent1'",
+                    (json.dumps([{"tool": "x", "result": "y" * 1000}]),
+                     "p" * 1000))
+        con.commit()
+        con.close()
+        rows = self.client.get("/v1/agent/sessions").json()["sessions"]
+        row = next(x for x in rows if x["id"] == "parent1")
+        self.assertNotIn("recent_steps", row)
+        self.assertNotIn("initial_prompt", row)
+        detail = self.client.get("/v1/agent/sessions/parent1").json()["session"]
+        self.assertIn("recent_steps", detail)
+        self.assertIn("initial_prompt", detail)
 
 
 class FrontendConsistencyTests(unittest.TestCase):

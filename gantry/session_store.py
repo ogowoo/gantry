@@ -210,17 +210,31 @@ CREATE TABLE IF NOT EXISTS conv_stats (
                     pass  # 列已存在
 
     @staticmethod
-    def _decode(row):
+    def _decode(row, light: bool = False):
         if row is None:
             return None
         item = dict(row)
-        for key in ("conversation_urls", "summary", "recent_steps", "modified_files", "pending",
-                    "pending_steps", "approval_pending", "goal", "todos", "plan"):
-            try: item[key] = json.loads(item[key] or "null")
-            except Exception: item[key] = [] if key in {"conversation_urls", "recent_steps", "pending", "pending_steps", "todos"} else None
+        if not light:
+            for key in ("conversation_urls", "summary", "recent_steps", "modified_files", "pending",
+                        "pending_steps", "approval_pending", "goal", "todos", "plan"):
+                try: item[key] = json.loads(item[key] or "null")
+                except Exception: item[key] = [] if key in {"conversation_urls", "recent_steps", "pending", "pending_steps", "todos"} else None
         for key in ("cancel_requested", "archived", "compact_requested", "rollover_requested"):
             item[key] = bool(item[key])
         return item
+
+    # 会话列表只需要的字段：绝不 SELECT recent_steps/initial_prompt 等大 JSON。
+    # 用户 DB 里 97 个会话就 392 MB，整行 decode 一次可达数秒，并会阻塞事件循环。
+    _LIST_COLUMNS = (
+        "s.id", "s.title", "s.state", "s.created", "s.updated", "s.workspace",
+        "s.model", "s.current_url", "s.conversation_index", "s.total_steps",
+        "s.conversation_steps", "s.estimated_tokens", "s.estimated_chars",
+        "s.last_error", "s.cancel_requested", "s.archived", "s.compact_requested",
+        "s.rollover_requested", "s.conv_tokens", "s.conv_chars", "s.gate_state",
+        "s.retry_resume_at", "s.retry_attempt", "s.rate_limited_since", "s.tag",
+        "s.parent_id", "s.description", "s.plan_mode", "s.suspend_reason",
+        "s.last_view_file",
+    )
 
     def create(self, sid: str, task: str, workspace: str, model: str, title: str | None = None):
         now = time.time()
@@ -235,14 +249,20 @@ CREATE TABLE IF NOT EXISTS conv_stats (
         with self.lock, self._connect() as con:
             return self._decode(con.execute("SELECT * FROM sessions WHERE id=?", (sid,)).fetchone())
 
-    def list(self, include_archived: bool = False):
-        # attachment_count：该会话带图片附件的消息数，供会话列表显示 📎 角标。
-        query = ("SELECT s.*, (SELECT COUNT(*) FROM messages m WHERE m.session_id=s.id "
-                 "AND m.attachments IS NOT NULL AND m.attachments NOT IN ('[]','')) AS attachment_count "
-                 "FROM sessions s" + ("" if include_archived else " WHERE s.archived=0")
-                 + " ORDER BY s.updated DESC")
+    def list(self, include_archived: bool = False, light: bool = False):
+        """会话列表。light=True 用于侧栏：不读 recent_steps 等大字段。"""
+        where = "" if include_archived else " WHERE s.archived=0"
+        if not light:
+            query = ("SELECT s.*, (SELECT COUNT(*) FROM messages m WHERE m.session_id=s.id "
+                     "AND m.attachments IS NOT NULL AND m.attachments NOT IN ('[]','')) AS attachment_count "
+                     "FROM sessions s" + where + " ORDER BY s.updated DESC")
+        else:
+            query = ("SELECT " + ", ".join(self._LIST_COLUMNS) + ", "
+                     "(SELECT COUNT(*) FROM messages m WHERE m.session_id=s.id "
+                     "AND m.attachments IS NOT NULL AND m.attachments NOT IN ('[]','')) AS attachment_count "
+                     "FROM sessions s" + where + " ORDER BY s.updated DESC")
         with self.lock, self._connect() as con:
-            return [self._decode(x) for x in con.execute(query)]
+            return [self._decode(x, light=light) for x in con.execute(query)]
 
     def list_subagents(self, parent_id: str | None = None, limit: int = 50):
         """列出子代理会话（parent_id 非空），可选按父会话过滤。
