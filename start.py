@@ -43,6 +43,7 @@ if not _CFG_PATH.is_file():
     print("[gantry] 缺少 config.json。先运行：python install.py\n"
           "         （install.py 会自动从 config.example.json 生成）", file=sys.stderr)
     raise SystemExit(1)
+CFG: dict = {}
 try:
     CFG = json.loads(_CFG_PATH.read_text(encoding="utf-8"))
 except Exception as exc:

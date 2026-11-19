@@ -61,6 +61,7 @@ if not _cfg_path.is_file():
           "（install.py 会自动从 config.example.json 生成；不要直接跑 login.py）",
           file=sys.stderr)
     sys.exit(1)
+CFG: dict = {}
 try:
     CFG = json.loads(_cfg_path.read_text(encoding="utf-8"))
 except Exception as exc:
