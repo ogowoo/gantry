@@ -10,6 +10,7 @@ sys.path.insert(0, str(ROOT))
 
 from gantry import bridge as b
 from gantry import browser
+from gantry.viewport import window_size
 
 
 class WindowSizeTests(unittest.TestCase):
@@ -32,6 +33,13 @@ class WindowSizeTests(unittest.TestCase):
         with mock.patch.dict(b.CFG, {"browser_width": 1800, "browser_height": 9999}):
             kw = browser._launch_kwargs(False)
         self.assertEqual(kw["viewport"], {"width": 1800, "height": 1080})
+
+    def test_login_uses_shared_size(self):
+        src = (ROOT / "scripts" / "login.py").read_text(encoding="utf-8")
+        self.assertIn("window_size(CFG)", src)
+        self.assertNotIn("1440", src)
+        self.assertEqual(window_size({"browser_width": 800, "browser_height": 600}),
+                         {"width": 800, "height": 600})
 
 
 if __name__ == "__main__":

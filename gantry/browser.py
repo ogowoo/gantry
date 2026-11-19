@@ -10,19 +10,12 @@ import asyncio, contextlib
 from pathlib import Path
 
 from . import bridge as b
+from .viewport import window_size
 from .window_pool import WindowBusy, WindowPool
 
 
 def _window_size() -> dict[str, int]:
-    """自动化浏览器窗口尺寸；可用 config.json 的 browser_width/height 覆盖。"""
-    def _num(key: str, default: int, lo: int, hi: int) -> int:
-        try:
-            value = int(b.CFG.get(key) or default)
-        except (TypeError, ValueError):
-            value = default
-        return max(lo, min(hi, value))
-    return {"width": _num("browser_width", 800, 800, 3200),
-            "height": _num("browser_height", 600, 600, 1080)}
+    return window_size(b.CFG)
 
 
 def _launch_kwargs(headless: bool) -> dict:

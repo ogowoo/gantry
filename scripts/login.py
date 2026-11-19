@@ -6,6 +6,7 @@ import sys
 from pathlib import Path
 
 BASE = Path(__file__).resolve().parent.parent  # 脚本在 scripts/ 内，项目根目录再上一层
+sys.path.insert(0, str(BASE))
 
 # Windows 控制台默认代码页会把中文打成乱码/直接 UnicodeEncodeError（cp1252）。
 for _stream in (sys.stdout, sys.stderr):
@@ -52,6 +53,7 @@ if not _has_playwright(sys.executable):
     sys.exit(1)
 
 from playwright.async_api import async_playwright  # noqa: E402
+from gantry.viewport import window_size  # noqa: E402
 
 _cfg_path = BASE / "config.json"
 if not _cfg_path.is_file():
@@ -114,7 +116,7 @@ async def main():
             user_data_dir=str(PROFILE),
             channel=CFG.get("browser_channel", "msedge"),
             headless=False,
-            viewport={"width": 1440, "height": 1000},
+            viewport=window_size(CFG),
         )
         page = ctx.pages[0] if ctx.pages else await ctx.new_page()
         await page.goto(CFG["copilot_url"], wait_until="domcontentloaded", timeout=120000)
