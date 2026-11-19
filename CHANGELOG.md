@@ -14,6 +14,22 @@
 ### Fixed
 - 
 
+## [0.11.0-beta.18] - 2026-11-19
+
+### Fixed
+- **Excel 大文件写瓶颈**：新增 xlsx/xlsm XML 快路径，超过 1 MB 的文件不再每次
+  openpyxl 全量 load/save。实测 Tracker（3.4 MB、dimension 到 XEJ、实际约 555k
+  单元格）写入从约 15 秒降到约 0.5 秒，并保留样式、公式、条件格式、数据验证、
+  合并单元格和 VBA。
+- **read_excel 提前停止**：只读 `max_rows` 行，不再为了 `total_rows` 扫描整表；
+  `total_rows` 用工作表元数据。
+- **不阻塞事件循环**：`read_excel` / `write_excel` 的 openpyxl/XML 操作移到
+  `asyncio.to_thread`，写大表时 WebUI 和任务轮询不再卡死。
+- 新增 `docs/EXCEL_PERFORMANCE.md`、`tests/test_excel_fast.py`。
+
+### 测试
+- Excel 快路径/读写/回退目标测试 20 项 OK；不变量 25/0。
+
 ## [0.11.0-beta.17] - 2026-11-19
 
 ### Added

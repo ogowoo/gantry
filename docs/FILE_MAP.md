@@ -65,6 +65,7 @@ skills/                         Agent 技能说明与模板
 | `__init__.py` | Gantry 核心包初始化。 |  |
 | `agent.py` | Agent 主循环、工具调用与消息编排。 |  |
 | `agent_parse.py` | Agent 输出解析：从模型文本提取工具调用/参数（ParseMixin）。 |  |
+| `agent_profiles.py` | Agent 的领域 profile：按任务自动注入一小段针对性规则，并展开相关工具组。 | Profile, _score, profile_for_task, profile_prompt, profile_groups |
 | `agent_prompt.py` | Agent 系统提示词与上下文拼装（PromptMixin）。 |  |
 | `agent_text.py` | Agent 文本清洗、截断与格式化（TextMixin）。 |  |
 | `agentrun.py` | agentrun.py — Agent 回合编排：等待回答、单次 chat、run_agent 主流程、回合标记与缓存、待办同步、纯对话回合 | wait_agent_answer, agent_chat_once, run_agent, _agent_chat_marker, stable_conversation_url, remember_initial_prompt |
@@ -184,6 +185,7 @@ skills/                         Agent 技能说明与模板
 | `ui_src.py` | 前端源码取用（测试用）：`webui/*.js`（经典脚本）+ `webui/js/*.js`（ES 模块 + globals）。 | ui_js, ui_css, css_rule, fn_body |
 | `updater.py` | 检查 GitHub 版本、git/zip 更新、备份与回滚。 |  |
 | `version.py` | 版本号唯一来源与版本解析/比较工具。 |  |
+| `viewport.py` | 自动化浏览器窗口尺寸：服务与 scripts/login.py 共用同一套默认值/夹取。 | window_size, apply_outer_window_size |
 | `window_pool.py` | Copilot 自动化窗口池：一个窗口 = 一个独立的 Copilot 网页标签页。 | WindowBusy, _page_closed, Window, WindowPool |
 | `workspace_files.py` | workspace_files.py — 工作区文件与目录操作：写文件、建目录、系统目录选择对话框、目录浏览 | save_workspace_file, create_directory, pick_directory_native, browse_directories |
 
@@ -220,6 +222,8 @@ skills/                         Agent 技能说明与模板
 | `telegram/README.md` | telegram 插件 |  |
 | `telegram/plugin.json` | 插件元数据：权限、配置、面板、贡献点。 |  |
 | `telegram/plugin.py` | telegram 插件：用 Telegram 机器人操作 Gantry（手机端下任务、看进度、收回答）。 | _cfg, _env, _token, _allowed, _chats, _sid_for |
+| `vector-index/plugin.json` | 插件元数据：权限、配置、面板、贡献点。 |  |
+| `vector-index/plugin.py` | BGE-M3 向量索引插件（重型、可选）。 | VectorIndexError, _root, _cfg, _public_cfg, _embed, _cos |
 | `web-search/cordis.patch.yml` | YAML 配置/工作流。 |  |
 | `web-search/plugin.json` | 插件元数据：权限、配置、面板、贡献点。 |  |
 | `web-search/plugin.py` | web-search 插件：联网搜索（可插拔后端）。 | _env, _decode_ddg, _clean, _search_ddg, _search_gnews, _search_brave |
@@ -292,6 +296,7 @@ Web 控制台；`index.html` + `css/` + `js/`（ES 模块）。
 | `fixtures/mock_mcp_server.py` | 最小 MCP server（stdio），只用于测试 MCP 客户端插件。 | _send, main |
 | `test_adversarial_audit.py` | 对抗式审计（adversarial audit）：审计员并行 + 裁判核验 + 收敛判定。 | run, ParseTests, AuditFlowTests, AuditApiTests |
 | `test_agent_parse.py` | AgentRunner 动作解析的回归测试。 | ParseTests, EscapeDecodeTests, TruncatedWriteRecoveryTests, WorkspaceContextTests, InstructionPathTests, TruncatedFinalTests |
+| `test_agent_profiles.py` | Agent 领域 profile：关键词路由、强制 profile、提示词语言和工具组。 | ProfileRouteTests, PromptIntegrationTests |
 | `test_anim_settings.py` | 「设置 → 外观 → 动画」：示波器 4 参数 + 输入框呼吸 3 参数。 | ControlTests, SaveToastTests, PrefsModuleTests, ScopeTests, CssTests, BootTests |
 | `test_answer_noise.py` | 答案噪声：CBP 标记 / 无障碍提示 / 自己的问题回声都不能当成回答。 | CleanAnswerTests, SuggestionTailTests |
 | `test_api_hardening.py` | 后端加固：跨站写入拦截、安全响应头、文档鉴权、日志脱敏、runtime 快照一致性。 | OriginGuardTests, SecurityHeaderTests, DocsAuthTests, RedactFilterTests, RuntimeSnapshotTests |
@@ -305,6 +310,8 @@ Web 控制台；`index.html` + `css/` + `js/`（ES 模块）。
 | `test_backend_i18n.py` | 后端错误文案本地化：翻译表、模式匹配、未知原文回落、HTTP 头生效。 | TranslateTests, HandlerTests |
 | `test_batch_actions.py` | 批量动作协议测试：一次回答执行多个工具动作（省回合）。 | act, BatchParseTests, TruncatedBatchRecoveryTests, BatchExecutionTests |
 | `test_browser_boot_aborted.py` | 回归测试：首次启动的 `goto` 必须容忍 ERR_ABORTED。 | ErrAbortedTests |
+| `test_browser_start_api.py` | 启动自动化浏览器接口必须立即返回，不能等 Copilot 就绪。 | BrowserStartApiTests |
+| `test_browser_window.py` | 自动化浏览器窗口尺寸：默认最小，并支持 config 覆盖/夹取。 | WindowSizeTests, WindowBoundsTests |
 | `test_changes_card.py` | 任务完成后的「改了哪些文件」卡片：快照原像 vs 当前文件的行级统计。 | ChangesStatsTests, DiffTests, ApiTests, FrontendCardTests |
 | `test_chat_header_compact.py` | 对话面板头部压缩：4 行 → 3 行（次要按钮收进 ⋯ 菜单、说明改 tooltip）。 | ChatHeaderCompactionTests |
 | `test_chat_windows.py` | 普通对话通道 / 管理操作的「窗口独占」语义回归。 | FakeWindow, _req, PlainChatWindowTests, BusySemanticsTests |
@@ -346,6 +353,7 @@ Web 控制台；`index.html` + `css/` + `js/`（ES 模块）。
 | `test_indentation_tools.py` | 缩进/空白编辑不再靠"字符串携带空格"——修掉空转死循环。 | IndentationToolsTests, ReplaceAllTests, RevealWhitespaceTests, AnswerUnfoldTests, RepeatGuardWiringTests |
 | `test_initial_prompt.py` | 会话初始提示词：落库、只记第一次、旧会话近似重建、端点可查。 | InitialPromptTests |
 | `test_inject_message.py` | 强行插入指令（DSH Ctrl+J 式）：运行中即时生效，不等当前这轮跑完。 | InjectEndpointTests, _act, InjectedPendingReachesNextTurnTests |
+| `test_install_config.py` | install.py 自动生成 config.json；login.py 缺配置时给可行动提示。 | EnsureConfigTests, DocsTests |
 | `test_instruction_budget.py` | 项目指令预算：超预算丢宽泛优先、可见提示、闭合标签转义。 | InstructionBudgetTests |
 | `test_interrupt_prominence.py` | 中断类提醒：① 文案必须完整翻译；② 必须显眼到不会被漏掉。 | InterruptI18nTests, InterruptProminenceTests |
 | `test_invariants.py` | 不变量检查必须全通过；并验证它真的能抓到破坏（避免"永远绿"的假保险）。 | InvariantTests |
@@ -496,6 +504,7 @@ Web 控制台；`index.html` + `css/` + `js/`（ES 模块）。
 | `test_update_ui.py` | 侧栏更新提示与设置更新面板的静态回归。 | UpdateUiTests |
 | `test_updater.py` | 更新系统：版本排序、git 检查、zip 替换/回滚与安全解压。 | VersionCompareTests, UpdaterCheckTests, UpdaterZipTests |
 | `test_validation_gate.py` | 验证闭环旗的持久化回归测试。 | act, GatePersistenceTests |
+| `test_vector_index_plugin.py` | vector-index 插件：manifest 默认关闭、索引/检索、管理面板与 API 注册。 | _fake_embed, FakeHost, FakeCtx, VectorIndexTests |
 | `test_version.py` | 版本相关的回归测试：保证"单一来源"不被破坏。 | VersionFormatTests, SingleSourceTests |
 | `test_version_chip.py` | WebUI 版本信息与侧栏底栏（DSH 式：⚙ 设置 + 版本号固定在侧栏底部）。 | css_block, RailFooterTests, SettingsI18nTests |
 | `test_view_cache.py` | 从子代理返回父会话不能"整棵重建"（用户："从 subagent 返回到 live stream 的时候会很卡"）。 | ViewCacheSourceTests |
@@ -602,6 +611,7 @@ Web 控制台；`index.html` + `css/` + `js/`（ES 模块）。
 
 | 文件 | 功能 | 关键入口 |
 |---|---|---|
+| `AGENT_PROFILES.md` | Agent 领域 Profile |  |
 | `ANALYSIS.md` | Gantry 代码与工程分析报告 |  |
 | `ARCHITECTURE.md` | Gantry 架构基线 |  |
 | `AUDIT-2026-11-10.md` | 项目审计报告（2026-11-10） |  |
@@ -624,6 +634,7 @@ Web 控制台；`index.html` + `css/` + `js/`（ES 模块）。
 | `TODO.md` | Gantry 治理 TODO |  |
 | `TRAY.md` | 托盘与后台启动 |  |
 | `UPDATES.md` | Gantry 更新系统 |  |
+| `VECTOR_INDEX.md` | Gantry 向量索引插件（BGE-M3 / sqlite-vec） |  |
 | `VERSIONING.md` | 版本规则与协作流程 |  |
 | `audit-pyshot.md` | 审计报告：用 pyshot 任务（388 步 / 11.3 小时）反查 CBP 的 Copilot 利用效率 |  |
 | `gantry-mindmap.md` | Gantry 结构与流程 Mindmap |  |
@@ -638,8 +649,10 @@ Agent 技能定义、模板与示例。
 
 | 文件 | 功能 | 关键入口 |
 |---|---|---|
+| `coding/SKILL.md` | 编程任务 |  |
 | `debug-agent-task/SKILL.md` | Agent 任务异常排查 |  |
 | `gantry-tool-plugin/SKILL.md` | Gantry 工具插件开发 |  |
+| `office365/SKILL.md` | Office 365 任务 |  |
 | `power-apps/SKILL.md` | Power Apps maker 门户直接操作 |  |
 | `power-automate/SKILL.md` | 生成 Power Automate 工程 |  |
 | `power-automate/examples/outlook-daily.json` | 数据/配置/示例 JSON。 |  |

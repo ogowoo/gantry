@@ -43,11 +43,18 @@ class OfficeMixin:
         target = self._path(path)
         if not target.is_file():
             raise ToolError(f"文件不存在: {path}")
+        limit = max(1, min(self._int_arg(max_rows, 200, "max_rows"), 2000))
+        # openpyxl 即使 read_only 也可能卡在超大 dimension 上；整体丢线程，
+        # 避免一次读表把事件循环（WebUI 轮询/任务状态）卡住。
+        out = await asyncio.to_thread(self._read_excel_sync, target, sheet, limit)
+        return {"path": path, **out}
+
+    @staticmethod
+    def _read_excel_sync(target: Path, sheet: str, limit: int) -> dict[str, Any]:
         try:
             import openpyxl
         except ImportError:
             raise ToolError("缺少依赖 openpyxl，请运行 pip install openpyxl")
-        limit = max(1, min(self._int_arg(max_rows, 200, "max_rows"), 2000))
         wb = openpyxl.load_workbook(target, data_only=True, read_only=True)
         try:
             if sheet and sheet not in wb.sheetnames:
@@ -55,13 +62,17 @@ class OfficeMixin:
             out = {}
             for name in ([sheet] if sheet else wb.sheetnames):
                 ws = wb[name]
-                rows, total = [], 0
-                for r in ws.iter_rows(values_only=True):
-                    total += 1
-                    if len(rows) < limit:
-                        rows.append(["" if c is None else str(c) for c in r])
-                out[name] = {"rows": rows, "total_rows": total, "truncated": total > limit}
-            return {"path": path, "sheets": out}
+                rows = []
+                # 只取前 limit 行；total_rows 用 max_row 元数据，不再为了精确
+                # 计数把 5000+ 行全部扫一遍。尾部纯格式行可能让 max_row 偏大。
+                for r in ws.iter_rows(max_row=limit, values_only=True):
+                    rows.append(["" if c is None else str(c) for c in r])
+                    if len(rows) >= limit:
+                        break
+                total = int(ws.max_row or len(rows))
+                out[name] = {"rows": rows, "total_rows": total,
+                             "truncated": total > limit}
+            return {"sheets": out}
         finally:
             wb.close()
 
@@ -69,17 +80,45 @@ class OfficeMixin:
         self._office_allowed()
         if not isinstance(rows, list) or not rows:
             raise ToolError("rows 必须是非空二维数组")
+        target = self._path(path)
+        self._snap("write_excel", path, target)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        before = self._hash(target)
+        # 大文件优先走 XML 快路径（不再 load 整个工作簿）；失败回退 openpyxl。
+        meta = await asyncio.to_thread(
+            self._write_excel_sync, target, rows, sheet, start_cell)
+        after = self._hash(target)
+        return {"path": path, **meta,
+                "file_event": {"tool": "write_excel", "path": path,
+                               "before_hash": before, "after_hash": after,
+                               "result": "ok"}}
+
+    @staticmethod
+    def _write_excel_sync(target: Path, rows: list, sheet: str,
+                          start_cell: str) -> dict[str, Any]:
+        # 1 MB 以上直接改 XML：Tracker 这类文件有几十万真实单元格，
+        # openpyxl 全量 load/save 一次约 15 秒，而且会丢掉条件格式扩展。
+        fast_ok = (target.is_file() and target.suffix.lower() in (".xlsx", ".xlsm")
+                   and target.stat().st_size >= 1_000_000)
+        if fast_ok:
+            try:
+                from .xlsx_patch import FastPathUnsupported, write_cells
+                written = write_cells(target, rows, sheet, start_cell)
+                return {"sheet": sheet or "", "cells_written": written,
+                        "engine": "xml-fast"}
+            except FastPathUnsupported:
+                pass
+            except Exception:
+                # XML 补丁失败不是"数据已写"：回退到 openpyxl 重新写一遍。
+                pass
         try:
             import openpyxl
             from openpyxl.utils.cell import coordinate_from_string, column_index_from_string
         except ImportError:
             raise ToolError("缺少依赖 openpyxl，请运行 pip install openpyxl")
-        target = self._path(path)
-        self._snap("write_excel", path, target)
-        target.parent.mkdir(parents=True, exist_ok=True)
-        before = self._hash(target)
         try:
-            wb = openpyxl.load_workbook(target) if target.is_file() else openpyxl.Workbook()
+            wb = openpyxl.load_workbook(target, keep_vba=target.suffix.lower() == ".xlsm") \
+                if target.is_file() else openpyxl.Workbook()
         except Exception as exc:
             raise ToolError(f"无法读取 Excel 文件（可能不是有效的 xlsx）: {exc}")
         try:
@@ -103,9 +142,7 @@ class OfficeMixin:
             title = ws.title
         finally:
             wb.close()
-        return {"path": path, "sheet": title, "cells_written": written,
-                "file_event": {"tool": "write_excel", "path": path,
-                               "before_hash": before, "after_hash": self._hash(target), "result": "ok"}}
+        return {"sheet": title, "cells_written": written, "engine": "openpyxl"}
 
     async def read_docx(self, path: str) -> dict[str, Any]:
         self._office_allowed()
