@@ -13,12 +13,24 @@ from . import bridge as b
 from .window_pool import WindowBusy, WindowPool
 
 
+def _window_size() -> dict[str, int]:
+    """自动化浏览器窗口尺寸；可用 config.json 的 browser_width/height 覆盖。"""
+    def _num(key: str, default: int, lo: int, hi: int) -> int:
+        try:
+            value = int(b.CFG.get(key) or default)
+        except (TypeError, ValueError):
+            value = default
+        return max(lo, min(hi, value))
+    return {"width": _num("browser_width", 1200, 800, 3200),
+            "height": _num("browser_height", 800, 600, 2000)}
+
+
 def _launch_kwargs(headless: bool) -> dict:
     kwargs = dict(
         user_data_dir=str(b.PROFILE),
         channel=b.CFG.get("browser_channel", "msedge"),
         headless=headless,
-        viewport={"width": 1440, "height": 1000},
+        viewport=_window_size(),
     )
     # 可选：强制浏览器区域语言（如 zh-CN / zh-TW / ja-JP / en-US）。
     # Copilot 网页若按浏览器语言自动选择 UI，这能把界面切到对应语言，
