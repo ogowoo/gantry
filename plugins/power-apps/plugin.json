@@ -35,6 +35,7 @@
         "POST api/press",
         "POST api/select"
       ]
-    }
+    },
+    "allow_uninstall": true
   }
 }

@@ -29,6 +29,7 @@
         "GET api/status",
         "POST api/settings"
       ]
-    }
+    },
+    "allow_uninstall": true
   }
 }

@@ -24,6 +24,7 @@
     "config": {
       "backend": "auto",
       "max_results": 6
-    }
+    },
+    "allow_uninstall": true
   }
 }

@@ -57,6 +57,7 @@
         "xiaomi_model": "SeerRay-Lab/Xiaomi-OCR-0",
         "eager": false
       }
-    }
+    },
+    "allow_uninstall": true
   }
 }

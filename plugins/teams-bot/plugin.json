@@ -81,6 +81,7 @@
       "seen_limit": 300,
       "only_direct": true,
       "kb_min_coverage": 0.34
-    }
+    },
+    "allow_uninstall": true
   }
 }

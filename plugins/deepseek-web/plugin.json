@@ -33,6 +33,7 @@
       ],
       "timeout_seconds": 300,
       "probe_timeout_seconds": 1.5
-    }
+    },
+    "allow_uninstall": true
   }
 }

@@ -14,6 +14,21 @@
 ### Fixed
 - 
 
+## [0.11.0-beta.27] - 2026-11-20
+
+### Changed
+- 所有内置插件清单声明 `allow_uninstall: true`，插件管理器现在把
+  coding-harness-tools / deepseek-web / image-gen / kb / mcp /
+  power-apps / power-automate / power-platform / research / schedule /
+  teams-bot / telegram / vector-index / visual-design / web-search
+  都显示为可卸载。
+- 保持 `allow_uninstall` 的默认值仍为 false：第三方/未来插件不显式声明
+  时，内核仍然拒绝误删内置插件。
+
+### Tests
+- 新增 `test_all_builtin_plugins_are_removable`，防止后续新增内置插件
+  忘记声明可卸载。
+
 ## [0.11.0-beta.26] - 2026-11-19
 
 ### Added

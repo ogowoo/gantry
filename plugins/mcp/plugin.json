@@ -38,6 +38,7 @@
         "MCP 服务器": "MCP servers",
         "连接状态、工具与资源": "Connection state, tools and resources"
       }
-    }
+    },
+    "allow_uninstall": true
   }
 }

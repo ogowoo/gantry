@@ -50,6 +50,19 @@ class PluginTests(unittest.TestCase):
         self.host.disable("demo")
         self.assertNotIn("demo_tool", self.reg._tools, "禁用应摘掉工具")
 
+    def test_all_builtin_plugins_are_removable(self):
+        from gantry.plugins import _read_manifest
+        root = Path(__file__).resolve().parent.parent / "plugins"
+        manifests = []
+        for path in sorted(root.glob("*/plugin.json")):
+            manifest = _read_manifest(path.parent)
+            if manifest is not None:
+                manifests.append(manifest)
+        self.assertGreaterEqual(len(manifests), 10)
+        self.assertEqual([m.name for m in manifests if not m.allow_uninstall], [])
+        host = PluginHost(Path(__file__).resolve().parent.parent, registry=self.reg)
+        self.assertEqual([p["name"] for p in host.list() if not p["removable"]], [])
+
     def test_permission_is_enforced(self):
         _write_plugin(self.tmp, "bad", {
             "name": "bad", "gantry": {"permissions": [], "contributes": {}},
