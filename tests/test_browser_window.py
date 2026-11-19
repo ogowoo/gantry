@@ -10,7 +10,7 @@ sys.path.insert(0, str(ROOT))
 
 from gantry import bridge as b
 from gantry import browser
-from gantry.viewport import window_size
+from gantry.viewport import apply_outer_window_size, window_size
 
 
 class WindowSizeTests(unittest.TestCase):
@@ -40,6 +40,27 @@ class WindowSizeTests(unittest.TestCase):
         self.assertNotIn("1440", src)
         self.assertEqual(window_size({"browser_width": 800, "browser_height": 600}),
                          {"width": 800, "height": 600})
+
+
+class WindowBoundsTests(unittest.IsolatedAsyncioTestCase):
+    async def test_cdp_sets_outer_size(self):
+        page = mock.MagicMock()
+        session = mock.MagicMock()
+        session.send = mock.AsyncMock(side_effect=[{"windowId": 7}, {}])
+        session.detach = mock.AsyncMock()
+        page.context.new_cdp_session = mock.AsyncMock(return_value=session)
+        ok = await apply_outer_window_size(page, {"browser_width": 1024,
+                                                   "browser_height": 768})
+        self.assertTrue(ok)
+        session.send.assert_any_await("Browser.setWindowBounds", {
+            "windowId": 7,
+            "bounds": {"width": 1024, "height": 768, "windowState": "normal"},
+        })
+
+    async def test_cdp_failure_is_non_fatal(self):
+        page = mock.MagicMock()
+        page.context.new_cdp_session = mock.AsyncMock(side_effect=RuntimeError("headless"))
+        self.assertFalse(await apply_outer_window_size(page, {}))
 
 
 if __name__ == "__main__":

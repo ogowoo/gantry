@@ -25,3 +25,27 @@ def window_size(cfg: Mapping[str, Any] | None = None) -> dict[str, int]:
 
     return {"width": _num("browser_width", DEFAULT_WIDTH, MIN_WIDTH, MAX_WIDTH),
             "height": _num("browser_height", DEFAULT_HEIGHT, MIN_HEIGHT, MAX_HEIGHT)}
+
+
+async def apply_outer_window_size(page: Any, cfg: Mapping[str, Any] | None = None) -> bool:
+    """把**整个浏览器窗口**（含标题栏/地址栏）设成目标尺寸。
+
+    Playwright 的 ``viewport`` 只控制页面内容区；浏览器外框会多出约 16×134px
+    （实测 1024×768 内容 → 1040×902 窗口）。用户说“窗口 1024×768”通常指外框，
+    所以启动后用 CDP 再校正一次。失败不影响使用（例如 headless）。
+    """
+    size = window_size(cfg)
+    try:
+        session = await page.context.new_cdp_session(page)
+        try:
+            info = await session.send("Browser.getWindowForTarget")
+            await session.send("Browser.setWindowBounds", {
+                "windowId": info["windowId"],
+                "bounds": {**size, "windowState": "normal"},
+            })
+        finally:
+            await session.detach()
+        return True
+    except Exception:                            # noqa: BLE001
+        return False
+

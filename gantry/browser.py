@@ -10,7 +10,7 @@ import asyncio, contextlib
 from pathlib import Path
 
 from . import bridge as b
-from .viewport import window_size
+from .viewport import apply_outer_window_size, window_size
 from .window_pool import WindowBusy, WindowPool
 
 
@@ -109,6 +109,12 @@ async def _start_browser(headless: bool) -> bool:
     # 共享页登记成 1 号窗口：windows=1 时任务复用它，不新开标签页
     try:
         b.WINDOWS.attach_existing(b._PAGE_RAW)
+    except Exception:
+        pass
+    # Playwright viewport 只管内容区；这里把外框也校准到目标尺寸（含标题栏）。
+    try:
+        if b._PAGE_RAW is not None:
+            await apply_outer_window_size(b._PAGE_RAW, b.CFG)
     except Exception:
         pass
     # ERR_ABORTED（domcontentloaded 之前就被 SSO 重定向走）不是失败：页面仍在跳，

@@ -53,7 +53,7 @@ if not _has_playwright(sys.executable):
     sys.exit(1)
 
 from playwright.async_api import async_playwright  # noqa: E402
-from gantry.viewport import window_size  # noqa: E402
+from gantry.viewport import apply_outer_window_size, window_size  # noqa: E402
 
 _cfg_path = BASE / "config.json"
 if not _cfg_path.is_file():
@@ -119,6 +119,7 @@ async def main():
             viewport=window_size(CFG),
         )
         page = ctx.pages[0] if ctx.pages else await ctx.new_page()
+        await apply_outer_window_size(page, CFG)
         await page.goto(CFG["copilot_url"], wait_until="domcontentloaded", timeout=120000)
         print(GUIDE)
         print("请完成登录，确认 Copilot 可正常对话后按 Enter。")
