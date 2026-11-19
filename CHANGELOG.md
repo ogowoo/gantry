@@ -14,6 +14,22 @@
 ### Fixed
 - 
 
+## [0.11.0-beta.21] - 2026-11-19
+
+### Fixed
+- **read_excel 返回超大结果**：Tracker 的 max_column 是 16364（远端空样式单元格造成），
+  `max_rows=200` 会返回约 13 MB JSON，塞进 Copilot 提示词后发送失败。现在：
+  - 新增 `max_cols`（默认 300，最大 1000）
+  - 每行裁掉尾部空单元格
+  - 结果附带 `total_columns`/`columns_read`
+- **spill 后仍把完整结果塞上下文**：`_spill_result` 现在会真正用 preview 替换工具结果，
+  完整内容留在 `.spill/`，上下文只保留前 6000 字符 + 路径提示。
+- office365 skill 明确要求宽表先读表头（`max_rows=5, max_cols=200`）再读数据列。
+- 清理了 read_excel 产生的两条 13 MB step payload；数据库会再次 VACUUM。
+
+### 测试
+- Excel 列裁剪/spill 目标测试通过；不变量 25/0。
+
 ## [0.11.0-beta.20] - 2026-11-19
 
 ### Fixed

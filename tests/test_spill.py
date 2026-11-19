@@ -59,6 +59,11 @@ class SpillTests(unittest.TestCase):
         self.assertIn("hint", step["spill"])
         self.assertIn("read_text", step["spill"]["hint"])
 
+    def test_spill_does_not_put_full_result_in_prompt(self):
+        calls = self._run(size=60000)
+        self.assertNotIn("A" * 50000, "\n".join(calls),
+                         "spill 后上下文只能放摘要，完整结果必须在 .spill 文件里")
+
     def test_small_result_not_spilled(self):
         self._run(size=200)
         step = next(s for s in self.steps if s.get("tool") == "read_text")

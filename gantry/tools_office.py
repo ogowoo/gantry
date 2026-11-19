@@ -38,19 +38,22 @@ class OfficeMixin:
         except (TypeError, ValueError):
             raise ToolError(f"{name} 必须是整数")
 
-    async def read_excel(self, path: str, sheet: str = "", max_rows: int = 200) -> dict[str, Any]:
+    async def read_excel(self, path: str, sheet: str = "", max_rows: int = 200,
+                         max_cols: int = 300) -> dict[str, Any]:
         self._office_allowed()
         target = self._path(path)
         if not target.is_file():
             raise ToolError(f"文件不存在: {path}")
         limit = max(1, min(self._int_arg(max_rows, 200, "max_rows"), 2000))
+        columns = max(1, min(self._int_arg(max_cols, 300, "max_cols"), 1000))
         # openpyxl 即使 read_only 也可能卡在超大 dimension 上；整体丢线程，
         # 避免一次读表把事件循环（WebUI 轮询/任务状态）卡住。
-        out = await asyncio.to_thread(self._read_excel_sync, target, sheet, limit)
+        out = await asyncio.to_thread(self._read_excel_sync, target, sheet, limit, columns)
         return {"path": path, **out}
 
     @staticmethod
-    def _read_excel_sync(target: Path, sheet: str, limit: int) -> dict[str, Any]:
+    def _read_excel_sync(target: Path, sheet: str, limit: int,
+                         columns: int) -> dict[str, Any]:
         try:
             import openpyxl
         except ImportError:
@@ -65,12 +68,17 @@ class OfficeMixin:
                 rows = []
                 # 只取前 limit 行；total_rows 用 max_row 元数据，不再为了精确
                 # 计数把 5000+ 行全部扫一遍。尾部纯格式行可能让 max_row 偏大。
-                for r in ws.iter_rows(max_row=limit, values_only=True):
-                    rows.append(["" if c is None else str(c) for c in r])
-                    if len(rows) >= limit:
-                        break
+                # max_col 必须限制：Tracker 的 max_column 是 16364（几个远端空样式
+                # 单元格造成），不限制会把 200 行 × 16364 列塞进工具结果。
+                for r in ws.iter_rows(max_row=limit, max_col=columns, values_only=True):
+                    vals = ["" if c is None else str(c) for c in r]
+                    while vals and vals[-1] == "":
+                        vals.pop()
+                    rows.append(vals)
                 total = int(ws.max_row or len(rows))
                 out[name] = {"rows": rows, "total_rows": total,
+                             "total_columns": int(ws.max_column or 0),
+                             "columns_read": columns,
                              "truncated": total > limit}
             return {"sheets": out}
         finally:

@@ -1274,9 +1274,15 @@ class AgentRunner(PromptMixin, ParseMixin, TextMixin):
                                     pass
                         _spill = self._spill_result(str(tool), total + 1, result)
                         if _spill:
-                            if isinstance(result, dict):
-                                result = dict(result)
-                                result["spill"] = _spill
+                            # 关键：spill 只落盘还不够，必须把**送进上下文的 result**
+                            # 也换成一个短摘要；否则 13 MB 的 read_excel 仍会原样进提示词。
+                            raw = json.dumps(result, ensure_ascii=False)
+                            result = {
+                                "spill": _spill,
+                                "preview": raw[:6000],
+                                "truncated": True,
+                                "note": "完整结果已落盘，必须用 read_text 分段读取；不要把 preview 当完整数据。",
+                            }
                             step["spill"] = _spill
                         step.update({"status": "ok", "result": result})
                         # 只读结果留一份缓存，供"重复调用"时回放（见上面的 repeat 分流）

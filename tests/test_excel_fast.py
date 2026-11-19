@@ -65,6 +65,20 @@ class ExcelToolTests(unittest.IsolatedAsyncioTestCase):
         finally:
             wb.close()
 
+    async def test_read_excel_limits_columns_and_trims_trailing_empty(self):
+        import openpyxl
+        dst = self.tmp / "wide.xlsx"
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.append(["A", "B", "C", "", "", "", "", "", "", ""])
+        ws.append(["1", "2", "", "", "", "", "", "", "", ""])
+        wb.save(dst)
+        r = await self.tools.read_excel("wide.xlsx", max_rows=2, max_cols=5)
+        rows = r["sheets"]["Sheet"]["rows"]
+        self.assertEqual(rows[0], ["A", "B", "C"])
+        self.assertEqual(rows[1], ["1", "2"])
+        self.assertLessEqual(r["sheets"]["Sheet"]["columns_read"], 5)
+
     async def test_small_workbook_falls_back_to_openpyxl(self):
         import openpyxl
         dst = self.tmp / "small.xlsx"

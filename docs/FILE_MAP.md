@@ -448,6 +448,7 @@ Web 控制台；`index.html` + `css/` + `js/`（ES 模块）。
 | `test_send_guard.py` | 护栏：Copilot 未就绪时要明确失败，不能一直挂在 sending。 | SendGuardTests |
 | `test_session_list_consistency.py` | 侧栏列表与会话页的数字必须来自同一口径。 | _build_store, TotalsAllTests, ListEndpointTests, FrontendConsistencyTests |
 | `test_session_model.py` | 会话级模型：接口切换 + 续跑沿用（服务重启后不丢）。 | SessionModelTests |
+| `test_session_payload_cap.py` | 大 step/recent_steps 必须落库前截断，避免 agent.db 被 132MB 工具结果拖死。 | PayloadCapTests |
 | `test_session_revive.py` | 体验细节：cancelled 会话发消息应自动恢复；凭据失效的错误要能看懂。 | CancelledReviveTests, CredentialHintTests |
 | `test_session_state_icon.py` | 会话行的状态用 SVG 图标表示，不再用文字块。 | SessionStateIconTests |
 | `test_session_tag.py` | 会话标签：列表分组用的本地元数据（不参与 Agent 逻辑）。 | SessionTagTests |
