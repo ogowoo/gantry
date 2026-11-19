@@ -551,7 +551,7 @@ class LocalProvider(ApiProvider):
             max_prompt_tokens=int(cfg.get("max_prompt_tokens") or 0),
             truncate=bool(cfg.get("truncate", True)))
         self.base_url = self.base_url or "local://in-process"
-        self.api_key = ***REDACTED_SECRET*** or "local"
+        self.api_key = self.api_key or "local"
 
     @property
     def configured(self) -> bool:

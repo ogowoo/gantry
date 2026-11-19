@@ -77,7 +77,7 @@ docker run -d -p 8000:8000 -v ${PWD}/config.json:/app/config.json `
   "providers": {
     "dsweb": {
       "base_url": "http://127.0.0.1:8000/v1",
-      "api_key": "***REDACTED_SECRET***",
+      "api_key": "sk-dsapi",
       "models": ["deepseek-default", "deepseek-reasoner"],
       "api": "openai",
       "timeout_seconds": 300,

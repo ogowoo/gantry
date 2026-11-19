@@ -22,7 +22,7 @@
     },
     "config": {
       "base_url": "http://127.0.0.1:8000/v1",
-      "api_key": "***REDACTED_SECRET***",
+      "api_key": "sk-dsapi",
       "provider": "dsweb",
       "models": [
         "deepseek-default",

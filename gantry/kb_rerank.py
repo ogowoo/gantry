@@ -54,7 +54,7 @@ class HttpReranker:
                  top_k: int = 3, timeout: float = 30.0):
         self.base_url = str(base_url).rstrip("/")
         self.model = str(model or "")
-        self.api_key = ***REDACTED_SECRET*** or "")
+        self.api_key = str(api_key or "")
         self.top_k = int(top_k or 3)
         self.timeout = float(timeout or 30)
         self.name = f"http-rerank:{self.model or 'default'}"
@@ -74,7 +74,7 @@ class HttpReranker:
                 "documents": docs, "top_n": k}
         headers = {"Content-Type": "application/json"}
         if self.api_key:
-            ***REDACTED_SECRET***"Authorization"] = "Bearer " + self.api_key
+            headers["Authorization"] = "Bearer " + self.api_key
         req = urllib.request.Request(self._endpoint(),
                                      data=json.dumps(body).encode("utf-8"),
                                      headers=headers, method="POST")
@@ -133,6 +133,6 @@ def build_reranker(cfg: dict[str, Any] | None = None) -> Reranker | None:
     model = str(c.get("model") or "").strip()
     if not base or not model:
         raise RerankError("rerank.enabled=true 需要 base_url 和 model")
-    return HttpReranker(base, model, api_key=***REDACTED_SECRET***"api_key") or ""),
+    return HttpReranker(base, model, api_key=str(c.get("api_key") or ""),
                         top_k=int(c.get("top_k") or 3),
                         timeout=float(c.get("timeout") or 30))

@@ -34,7 +34,7 @@ import httpx
 
 DEFAULTS = {
     "base_url": "http://127.0.0.1:8000/v1",
-    "api_key": "***REDACTED_SECRET***",
+    "api_key": "sk-dsapi",
     "provider": "dsweb",
     "models": ["deepseek-default", "deepseek-reasoner", "deepseek-search",
                "deepseek-expert-reasoner", "deepseek-vision"],
@@ -97,7 +97,7 @@ def probe_sync(base_url: str, api_key: str, timeout: float = 1.5) -> dict[str, A
     url = base_url.rstrip("/") + "/models"
     req = urllib.request.Request(url)
     if api_key:
-        ***REDACTED_SECRET***"Authorization", f"Bearer {api_key}")
+        req.add_header("Authorization", f"Bearer {api_key}")
     t0 = time.monotonic()
     try:
         with urllib.request.urlopen(req, timeout=timeout) as resp:
@@ -131,7 +131,7 @@ def _refresh_loop(ctx: Any, interval: float = 20.0) -> None:
                 continue
             ctx.register_provider(str(cfg["provider"]), {
                 "base_url": str(cfg["base_url"]),
-                "api_key": ***REDACTED_SECRET***"api_key"]),
+                "api_key": str(cfg["api_key"]),
                 "models": live,
                 "api": "openai",
                 "timeout_seconds": int(cfg["timeout_seconds"]),
@@ -191,7 +191,7 @@ async def _status(ctx: Any) -> dict[str, Any]:
         try:
             ctx.register_provider(str(cfg["provider"]), {
                 "base_url": str(cfg["base_url"]),
-                "api_key": ***REDACTED_SECRET***"api_key"]),
+                "api_key": str(cfg["api_key"]),
                 "models": list(live_models),
                 "api": "openai",
                 "timeout_seconds": int(cfg["timeout_seconds"]),
@@ -228,7 +228,7 @@ def setup(ctx: Any) -> None:
     models = [str(m) for m in (quick["models"] if quick["ok"] else []) if str(m).strip()]
     ctx.register_provider(prefix, {
         "base_url": str(cfg["base_url"]),
-        "api_key": ***REDACTED_SECRET***"api_key"]),
+        "api_key": str(cfg["api_key"]),
         "models": models,
         "api": "openai",
         "timeout_seconds": int(cfg["timeout_seconds"]),

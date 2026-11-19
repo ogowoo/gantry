@@ -59,7 +59,7 @@ class HttpEmbedder:
                  timeout: float = 60.0, dim: int = 0):
         self.base_url = str(base_url).rstrip("/")
         self.model = str(model)
-        self.api_key = ***REDACTED_SECRET*** or "")
+        self.api_key = str(api_key or "")
         self.timeout = float(timeout)
         self.dim = int(dim or 0)
         self.name = f"http:{self.model}"
@@ -407,7 +407,7 @@ def build_embedder(cfg: dict[str, Any] | None = None) -> Embedder | None:
                              dim=int(c.get("dim") or 0))
     base = str(c.get("base_url") or "http://127.0.0.1:18085/v1")
     model = str(c.get("model") or "qwen3-embed")
-    emb = HttpEmbedder(base, model, api_key=***REDACTED_SECRET***"api_key") or ""),
+    emb = HttpEmbedder(base, model, api_key=str(c.get("api_key") or ""),
                        dim=int(c.get("dim") or 0))
     if backend == "http":
         return emb
