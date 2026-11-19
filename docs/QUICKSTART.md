@@ -15,8 +15,10 @@
 git clone https://github.com/ogowoo/gantry.git
 cd gantry
 python install.py
-copy config.example.json config.json
 ```
+
+> `install.py` 会自动从 `config.example.json` 生成 `config.json`；已存在则保留。
+> 不需要再手工 `copy`。
 
 > 可选：`--ocr`（扫描件 OCR）、`--xiaomi`（表格/公式）、`--local`（本地 GGUF 模型）
 

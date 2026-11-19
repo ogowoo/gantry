@@ -53,7 +53,18 @@ if not _has_playwright(sys.executable):
 
 from playwright.async_api import async_playwright  # noqa: E402
 
-CFG = json.loads((BASE / "config.json").read_text(encoding="utf-8"))
+_cfg_path = BASE / "config.json"
+if not _cfg_path.is_file():
+    print(f"缺少 {_cfg_path.name}。先运行：python install.py\n"
+          "（install.py 会自动从 config.example.json 生成；不要直接跑 login.py）",
+          file=sys.stderr)
+    sys.exit(1)
+try:
+    CFG = json.loads(_cfg_path.read_text(encoding="utf-8"))
+except Exception as exc:
+    print(f"config.json 读取失败：{exc}\n请检查 JSON 格式，或重新从 config.example.json 复制一份。",
+          file=sys.stderr)
+    sys.exit(1)
 PROFILE = BASE / "EdgeProfile"
 PORT = int(CFG.get("server", {}).get("port", 8765))
 

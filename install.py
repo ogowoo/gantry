@@ -20,6 +20,26 @@ from pathlib import Path
 BASE = Path(__file__).resolve().parent
 
 
+def ensure_config(base: Path = BASE) -> bool:
+    """确保 config.json 存在：缺失时从 config.example.json 复制一份。
+
+    返回是否新建。已存在的 config.json 永远不覆盖（里面可能有 API key/端口等
+    用户修改）；example 也缺失时给出可行动错误，而不是让 login.py/start.py
+    后面抛 FileNotFoundError。
+    """
+    cfg = Path(base) / "config.json"
+    example = Path(base) / "config.example.json"
+    if cfg.is_file():
+        return False
+    if not example.is_file():
+        raise SystemExit(
+            f"缺少 {cfg.name}，且找不到 {example.name}；"
+            "请确认仓库完整，或手动创建 config.json")
+    shutil.copyfile(example, cfg)
+    print(f"[gantry] 已从 {example.name} 生成 {cfg.name}（之后可自行修改）")
+    return True
+
+
 def pip(*args: str) -> None:
     cmd = [sys.executable, "-m", "pip", "install", *args]
     print("+", " ".join(cmd))
@@ -49,6 +69,7 @@ def main() -> int:
     ap.add_argument("--no-browser", action="store_true", help="跳过 Playwright 浏览器下载")
     args = ap.parse_args()
 
+    ensure_config(BASE)
     pip("-r", str(BASE / "requirements.txt"))
     if args.xiaomi or args.all:
         pip("-r", str(BASE / "requirements-ocr-xiaomi.txt"))

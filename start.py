@@ -38,7 +38,18 @@ BASE = Path(__file__).resolve().parent
 if str(BASE) not in sys.path:
     sys.path.insert(0, str(BASE))
 
-CFG = json.loads((BASE / "config.json").read_text(encoding="utf-8"))
+_CFG_PATH = BASE / "config.json"
+if not _CFG_PATH.is_file():
+    print("[gantry] 缺少 config.json。先运行：python install.py\n"
+          "         （install.py 会自动从 config.example.json 生成）", file=sys.stderr)
+    raise SystemExit(1)
+try:
+    CFG = json.loads(_CFG_PATH.read_text(encoding="utf-8"))
+except Exception as exc:
+    print(f"[gantry] config.json 读取失败：{exc}\n"
+          "         请检查 JSON 格式，或重新从 config.example.json 复制一份。",
+          file=sys.stderr)
+    raise SystemExit(1)
 SERVER = CFG.get("server", {})
 BIND_RETRIES = 6          # 绑定失败重试次数（合计约 6 × 0.8s ≈ 5s 窗口）
 BIND_RETRY_DELAY = 0.8
