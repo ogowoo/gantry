@@ -293,6 +293,7 @@ Web 控制台；`index.html` + `css/` + `js/`（ES 模块）。
 |---|---|---|
 | `__init__.py` | 测试包初始化。 |  |
 | `evals/tasks.json` | 数据/配置/示例 JSON。 |  |
+| `fixtures/mock_mcp_big.py` | A minimal MCP stdio server whose tools/list is larger than asyncio's 64 KiB default. |  |
 | `fixtures/mock_mcp_http.py` | 最小 MCP **HTTP** server（streamable HTTP），用于测试 HTTP 传输与 resources。 | _rpc, Handler, MockMcpHttp |
 | `fixtures/mock_mcp_server.py` | 最小 MCP server（stdio），只用于测试 MCP 客户端插件。 | _send, main |
 | `test_adversarial_audit.py` | 对抗式审计（adversarial audit）：审计员并行 + 裁判核验 + 收敛判定。 | run, ParseTests, AuditFlowTests, AuditApiTests |
@@ -541,6 +542,7 @@ Web 控制台；`index.html` + `css/` + `js/`（ES 模块）。
 | `eval.py` | 轨迹级回归评测：把"Agent 该怎么做"固化成可重跑的断言。 | check_task, main |
 | `gen_file_map.py` | 生成 docs/FILE_MAP.md：按目录列出每个文件的功能与关键入口。 | files, py_info, js_info, md_info, describe, main |
 | `gen_s2t.py` | 从 webui/i18n.js 的 S2T_CHARS 生成 gantry/s2t_data.py（简→繁对照）。 | main |
+| `gimp_mcp_stdio.py` | Gantry MCP stdio 启动器：把 gimp-mcp 直接 exec 到 Python 子进程。 | _find, main |
 | `health.py` | 会话健康巡检：事件日志 vs 数据库列的一致性（P2-10 第二期的运行时验收）。 | load_sessions, check_session, main |
 | `i18n_coverage.py` | 多语言覆盖审计：在英文模式下把每个界面状态都过一遍，抓出仍然显示中文的文本。 | states, main |
 | `i18n_static_scan.py` | 不变量：index.html 里的中文文本/属性都要有英文词条（含隐藏弹窗）。 | check |
@@ -623,6 +625,7 @@ Web 控制台；`index.html` + `css/` + `js/`（ES 模块）。
 | `ESM-MIGRATION.md` | app.js → ES Modules 迁移（已完成） |  |
 | `EXCEL_PERFORMANCE.md` | Excel 大文件性能 |  |
 | `FILE_MAP.md` | 项目文件功能地图 |  |
+| `GIMP_MCP.md` | GIMP MCP 接入 |  |
 | `KB_RAG.md` | 知识库：通用父子块与可插拔精排 |  |
 | `MULTI-WINDOW.md` | Copilot 通道多窗口并行（`agent.copilot_windows`） |  |
 | `POWER_APPS_SOURCE.md` | Power Apps Canvas App 源码生成与 pac |  |
@@ -656,6 +659,7 @@ Agent 技能定义、模板与示例。
 | `coding/SKILL.md` | 编程任务 |  |
 | `debug-agent-task/SKILL.md` | Agent 任务异常排查 |  |
 | `gantry-tool-plugin/SKILL.md` | Gantry 工具插件开发 |  |
+| `gimp/SKILL.md` | GIMP MCP 图片处理 |  |
 | `office365/SKILL.md` | Office 365 任务 |  |
 | `power-apps/SKILL.md` | Power Apps maker 门户直接操作 |  |
 | `power-automate/SKILL.md` | 生成 Power Automate 工程 |  |

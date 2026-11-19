@@ -41,6 +41,12 @@ class ProfileRouteTests(unittest.TestCase):
     def test_generic_has_no_profile(self):
         self.assertIsNone(profile_for_task("今天天气怎么样"))
 
+    def test_visual(self):
+        p = profile_for_task("用 GIMP 做一张六一儿童节海报")
+        self.assertEqual(p.name, "visual")
+        self.assertIn("poster-design", p.zh)
+        self.assertIn("visual design", profile_prompt(p, "en").lower())
+
     def test_forced_and_off(self):
         self.assertEqual(profile_for_task("随便", {"profile": "office365"}).name,
                          "office365")

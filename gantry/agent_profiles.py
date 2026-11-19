@@ -89,6 +89,24 @@ PROFILES: tuple[Profile, ...] = (
 - Do not perform unrelated refactors, formatting, or dependency upgrades; justify any new dependency.
 - Report changed files/behavior, verification commands/results, and remaining risks.""",
     ),
+    Profile(
+        "visual", "Visual design",
+        ("海报", "封面", "宣传图", "活动图", "节日图", "图片处理", "修图",
+         "抠图", "gimp", "banner", "poster", "logo", "社交媒体图"),
+        (),
+        """【本任务按视觉设计方向执行】
+- 先读 skill poster-design 和 gimp；先定画布/安全边距/信息层级，再动 GIMP。
+- 不要用 GIMP 椭圆/折线/贝塞尔基础形状拼人物或复杂插画；需要插画先确认 image_generate 可用或使用用户素材/SVG。生成服务 401/未配置时停下来说明，不要用粗糙几何图假装完成。
+- 文字每个角色只建一个图层；反复重试前先 inspect 现有图层，禁止叠加重复文字。
+- 导出前 preview 检查重叠/错位/截断/残留选区；确认无选区、无参考线、无文本框边线。
+- 交付 PNG + 可编辑源文件；说明画布、字体、素材来源和导出路径。""",
+        """【This task uses the visual design profile】
+- Read skill poster-design and gimp first; define canvas/margins/hierarchy before touching GIMP.
+- Do not construct people or complex illustrations from GIMP ellipses/lines/Bézier primitives; use an available image generator, user assets, or SVG/HTML. If image generation is unconfigured/401, stop and say so; do not substitute crude geometry.
+- Create exactly one text layer per role; inspect existing layers before retrying and never stack duplicate text.
+- Before export, preview for overlap/misalignment/truncation/selection artifacts; confirm no selection, guides, or text-box outlines.
+- Deliver PNG plus editable source; report canvas, fonts, asset source, and export path.""",
+    ),
 )
 
 
