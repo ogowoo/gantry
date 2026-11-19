@@ -62,6 +62,34 @@ description: 海报/封面/宣传图的排版规范：先定网格与信息层�
 6. 导出前 `gimp_get_selection` 确认无选区
 7. 导出 PNG + 保存 XCF
 
+## 在 Gantry 里生成排版海报（推荐）
+
+不要用 GIMP 基础形状画人物。用 HTML/CSS 排版，再用本仓库的渲染脚本：
+
+```powershell
+# 1. Agent 用 write_text 创建 HTML
+#    workspace/my-poster.html
+
+# 2. 渲染成 PNG（1080×1440）
+.\.venv\Scripts\python.exe scripts\render_html.py `
+  workspace\my-poster.html `
+  workspace\my-poster.png `
+  1080 1440
+
+# 3. present 两个文件
+```
+
+在 Gantry 的新任务里可以这样写：
+
+```text
+使用 poster-design 技能做一张 1080×1440 的六一儿童节排版海报。
+不要用 GIMP 基础形状画人物；先用 write_text 写 HTML/CSS，
+再运行 .venv\Scripts\python.exe scripts\render_html.py 生成 PNG，
+最后 present PNG 和 HTML。
+```
+
+`pwsh` 需要一次授权，允许后脚本输出会返回 PNG 路径和字节数。
+
 ## 失败处理
 
 如果 `image_generate` 401/未配置：

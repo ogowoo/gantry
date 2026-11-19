@@ -661,6 +661,7 @@ Agent 技能定义、模板与示例。
 | `gantry-tool-plugin/SKILL.md` | Gantry 工具插件开发 |  |
 | `gimp/SKILL.md` | GIMP MCP 图片处理 |  |
 | `office365/SKILL.md` | Office 365 任务 |  |
+| `poster-design/SKILL.md` | 海报设计 |  |
 | `power-apps/SKILL.md` | Power Apps maker 门户直接操作 |  |
 | `power-automate/SKILL.md` | 生成 Power Automate 工程 |  |
 | `power-automate/examples/outlook-daily.json` | 数据/配置/示例 JSON。 |  |
