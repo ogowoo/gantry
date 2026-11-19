@@ -2,7 +2,7 @@
 
 日期：2026-11-19  
 状态：**已确认范围，按本方案实施**  
-范围：只分析/规划，不修改 Gantry 核心代码。
+范围：插件实现；核心仅增加 `plugins.py` 的 `allow_uninstall` 标记，不修改 Agent 循环。
 
 ## 1. 源码分析结论
 
@@ -486,7 +486,7 @@ tests/fixtures/visual-design/...
 - 渲染超时（低 timeout 注入）
 - 渲染失败恢复（已有成功输出，后续失败不覆盖）
 - `design_inspect` 尺寸不一致报警
-- `design_export` PNG/JPG/SVG/PDF
+- `design_export` PNG/JPG/SVG（无 PDF）
 - 工具注册/卸载后工具消失
 - 插件 zip 安装、启用、卸载（临时 `PluginHost`）
 
@@ -516,7 +516,7 @@ python -m unittest discover -s tests
 python scripts/invariants.py
 ```
 
-不修改核心，现有测试应全绿。
+除 `plugins.py` 的 `allow_uninstall` 标记外不修改核心，现有测试应全绿。
 
 ## 10. 文件改动清单（待确认）
 
@@ -546,7 +546,7 @@ requirements-visual.txt       # 如果不想改核心 requirements.txt
 scripts/build_visual_design_plugin.py
 ```
 
-**不修改：**
+**不修改（除 `plugins.py` 的 allow_uninstall 标记）：**
 
 ```text
 gantry/agent.py

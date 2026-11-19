@@ -45,13 +45,19 @@ class FakeCtx:
 class PowerPlatformUiTests(unittest.TestCase):
     def test_without_browser_degrades(self):
         old = getattr(b, "ctx", None)
+        old_raw = getattr(b, "ENSURE_BROWSER_RAW", None)
+        old_fn = getattr(b, "ENSURE_BROWSER", None)
         b.ctx = None
+        b.ENSURE_BROWSER_RAW = None
+        b.ENSURE_BROWSER = None
         try:
             probe = asyncio.run(ui.probe("powerapps"))
             fill = asyncio.run(ui.fill_text("App name", "x"))
             press = asyncio.run(ui.press_key("Enter"))
         finally:
             b.ctx = old
+            b.ENSURE_BROWSER_RAW = old_raw
+            b.ENSURE_BROWSER = old_fn
         self.assertFalse(probe["ok"])
         self.assertFalse(fill["ok"])
         self.assertFalse(press["ok"])

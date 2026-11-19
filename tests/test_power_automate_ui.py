@@ -47,12 +47,15 @@ class ProbeTests(unittest.TestCase):
 
     def test_fill_and_press_degrade_without_browser(self):
         old_ctx = getattr(b, "ctx", None)
+        old_raw = getattr(b, "ENSURE_BROWSER_RAW", None)
         b.ctx = None
+        b.ENSURE_BROWSER_RAW = None
         try:
             fill = asyncio.run(power_automate_ui.fill_text("Flow name", "x"))
             press = asyncio.run(power_automate_ui.press_key("Enter"))
         finally:
             b.ctx = old_ctx
+            b.ENSURE_BROWSER_RAW = old_raw
         self.assertFalse(fill["ok"])
         self.assertFalse(press["ok"])
         self.assertIn("浏览器", fill["error"])
