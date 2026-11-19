@@ -14,6 +14,20 @@
 ### Fixed
 - 
 
+## [0.11.0-beta.24] - 2026-11-19
+
+### Added
+- **GIMP MCP**：通过 MCP 插件接入 `gimp-mcp`，暴露 `mcp__gimp__*` 工具；
+  已验证 `gimp_status`：GIMP 3.2.8、bridge protocol 1、plug-in/server 0.7.0 匹配。
+- `scripts/gimp_mcp_stdio.py`：用 `python.exe` exec 到缓存里的 `gimp-mcp.exe`，
+  避免 Windows `uvx` 包装器导致 stdio `tools/list` 超时。
+- `skills/gimp`、`docs/GIMP_MCP.md`。
+
+### Fixed
+- MCP stdio 客户端把 StreamReader 上限设为 16 MB。gimp-mcp 的 `tools/list`
+  超过 asyncio 默认 64 KB，旧代码会 `LimitOverrunError` 并表现为超时。
+- 新增超大 tools/list 回归测试。
+
 ## [0.11.0-beta.23] - 2026-11-19
 
 ### Changed

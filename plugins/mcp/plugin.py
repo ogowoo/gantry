@@ -119,7 +119,11 @@ class McpStdioClient:
             stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
-            env=env, cwd=self.cwd, **kwargs)
+            env=env, cwd=self.cwd, **kwargs,
+            # gimp-mcp 的 tools/list 是超大 JSON（几十~几百 KB），
+            # StreamReader 默认 64 KiB 会在 readline 时抛 LimitOverrunError，
+            # 表现为 tools/list 超时。给 MCP 响应留足上限。
+            limit=16 * 1024 * 1024)
         self._pump_task = asyncio.create_task(self._pump())
         self._stderr_task = asyncio.create_task(self._drain_stderr())
         await self._handshake()

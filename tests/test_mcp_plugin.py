@@ -9,6 +9,7 @@ from pathlib import Path
 BASE = Path(__file__).resolve().parent.parent
 PLUGIN = BASE / "plugins" / "mcp" / "plugin.py"
 MOCK = BASE / "tests" / "fixtures" / "mock_mcp_server.py"
+BIG = BASE / "tests" / "fixtures" / "mock_mcp_big.py"
 sys.path.insert(0, str(BASE / "tests" / "fixtures"))
 
 import mock_mcp_http  # noqa: E402
@@ -37,6 +38,17 @@ class McpStdioTests(unittest.TestCase):
             names = [t["tool"] for t in self.mgr.tool_specs()]
             # mock 同时提供 prompts，所以还会多一个 use_prompt（每个有 prompt 的 server 一个）
             self.assertEqual(sorted(names), ["add", "boom", "echo", "use_prompt"])
+            await self.mgr.close_all()
+
+        asyncio.run(scenario())
+
+    def test_large_tools_list_exceeds_default_stream_limit(self):
+        async def scenario():
+            self.mgr.add("big", {"command": sys.executable, "args": [str(BIG)]})
+            await self.mgr.connect_all()
+            self.assertNotIn("big", self.mgr.errors)
+            names = [t["tool"] for t in self.mgr.tool_specs()]
+            self.assertIn("huge", names)
             await self.mgr.close_all()
 
         asyncio.run(scenario())
