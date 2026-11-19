@@ -79,6 +79,7 @@ class OfficeMixin:
                 out[name] = {"rows": rows, "total_rows": total,
                              "total_columns": int(ws.max_column or 0),
                              "columns_read": columns,
+                             "used_columns_sample": max((len(x) for x in rows), default=0),
                              "truncated": total > limit}
             return {"sheets": out}
         finally:

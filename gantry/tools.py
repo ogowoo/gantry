@@ -585,7 +585,7 @@ class ToolsCoreMixin:
             items.append({"name": "run_python", "description": "运行短 Python 计算；禁止用于修改项目文件", "arguments": {"code": "短 Python 代码"}})
         if self.allow_office:
             items += [
-                {"name": "read_excel", "description": "读取 Excel 工作表内容；宽表先 max_rows=5 读表头，再用 max_cols 限定真实列范围（默认300，尾随空列会裁掉）", "arguments": {"path": "相对路径", "sheet": "工作表名，默认全部", "max_rows": "每表最多行数，默认 200", "max_cols": "每表最多列数，默认 300，最大 1000"}},
+                {"name": "read_excel", "description": "读取 Excel 工作表内容；不要假设第一行是表头，建议先 max_rows=15/max_cols=200 探测，再按目标列读取；尾随空列会裁掉", "arguments": {"path": "相对路径", "sheet": "工作表名，默认全部", "max_rows": "每表最多行数，默认 200", "max_cols": "每表最多列数，默认 300，最大 1000"}},
                 {"name": "write_excel", "description": "向 Excel 写入二维行数据（不存在则创建）", "arguments": {"path": "相对路径", "sheet": "工作表名，默认当前表", "rows": "二维数组", "start_cell": "起始单元格，默认 A1"}},
                 {"name": "read_docx", "description": "提取 Word 文档段落与表格文本", "arguments": {"path": "相对路径"}},
                 {"name": "write_docx", "description": "创建或追加 Word 文档段落", "arguments": {"path": "相对路径", "paragraphs": "字符串数组", "mode": "append 或 overwrite，默认 append"}},
