@@ -1,0 +1,56 @@
+/* preview.css — 生成文件右侧预览面板（DSH/Kimi 风格 artifact 面板）
+ * 固定覆盖在右侧，不改变主对话布局；窄屏变成底部全宽抽屉。 */
+.previewpanel{
+  position:fixed;z-index:70;right:18px;top:calc(18px + var(--banner-h,0px));
+  bottom:18px;width:min(600px,46vw);min-width:340px;max-width:760px;
+  display:flex;flex-direction:column;overflow:hidden;
+  background:var(--panel);border:1px solid var(--line);border-radius:14px;
+  box-shadow:0 18px 60px rgba(0,0,0,.28),0 2px 8px rgba(0,0,0,.12);
+  color:var(--text);
+}
+.previewpanel[hidden]{display:none!important}
+.pv-head{display:flex;align-items:center;justify-content:space-between;gap:10px;
+  padding:10px 12px;border-bottom:1px solid var(--line);flex:none;background:var(--panel2)}
+.pv-title{display:flex;align-items:center;gap:9px;min-width:0}
+.pv-icon{font-size:18px;flex:none}
+.pv-titletext{display:flex;flex-direction:column;min-width:0;line-height:1.35}
+.pv-titletext b{font-size:13px;font-weight:650;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pv-path{font-size:10.5px;color:var(--faint);font-family:var(--mono);white-space:nowrap;
+  overflow:hidden;text-overflow:ellipsis;max-width:280px}
+.pv-meta{font-size:10.5px;color:var(--muted);white-space:nowrap;flex:none}
+.pv-actions{display:flex;align-items:center;gap:3px;flex:none}
+.pv-actions .iconbtn{width:27px;height:27px;font-size:14px}
+.pv-body{flex:1;min-height:0;overflow:auto;background:var(--bg);position:relative}
+.pv-image-wrap{min-height:100%;display:flex;align-items:center;justify-content:center;
+  padding:14px;background:
+    linear-gradient(45deg,var(--panel2) 25%,transparent 25%,transparent 75%,var(--panel2) 75%),
+    linear-gradient(45deg,var(--panel2) 25%,transparent 25%,transparent 75%,var(--panel2) 75%);
+  background-size:18px 18px;background-position:0 0,9px 9px}
+.pv-image{max-width:100%;max-height:calc(100vh - 160px);object-fit:contain;
+  border-radius:8px;box-shadow:0 3px 18px rgba(0,0,0,.18);background:#fff}
+.pv-frame{width:100%;height:100%;min-height:calc(100vh - 150px);border:0;background:#fff}
+.pv-pdf{height:calc(100vh - 150px)}
+.pv-text{margin:0;padding:14px 16px;font:12px/1.65 var(--mono);white-space:pre-wrap;
+  overflow-wrap:anywhere;color:var(--text)}
+.pv-markdown{padding:14px 18px;font-size:13px;line-height:1.7;overflow-wrap:anywhere}
+.pv-markdown pre{margin:10px 0;padding:10px;border-radius:8px;background:var(--panel2);overflow:auto}
+.pv-empty{padding:46px 24px;text-align:center;color:var(--muted);font-size:13px;line-height:1.7}
+.pv-empty-ico{font-size:38px;margin-bottom:10px}
+.pv-error{color:var(--danger-text)}
+/* 文件改动行/交付物上的“右侧预览”入口；放在这里，避免再拆一个 CSS 块 */
+.chg-pv{flex:none;width:22px;height:22px;margin-left:6px;padding:0;border:1px solid transparent;
+  border-radius:6px;background:transparent;color:var(--muted);font-size:13px;line-height:1;
+  cursor:pointer;display:grid;place-items:center}
+.chg-pv:hover{color:var(--accent2);border-color:var(--line2);background:var(--panel2)}
+.chg-dchip{font:inherit;font-size:11px;color:var(--accent2);background:var(--panel2);
+  border:1px solid var(--line2);border-radius:6px;padding:2px 7px;cursor:pointer;max-width:100%;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.chg-dchip:hover{border-color:var(--accent);background:var(--panel)}
+.fc-previewable{cursor:pointer}
+.fc-previewable:hover{color:var(--accent2)}
+@media(max-width:860px){
+  .previewpanel{left:12px;right:12px;bottom:12px;top:auto;width:auto;min-width:0;
+    max-width:none;height:min(62vh,560px);border-radius:14px}
+  .pv-image{max-height:calc(62vh - 110px)}
+  .pv-frame{min-height:calc(62vh - 100px)}
+}

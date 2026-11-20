@@ -1,4 +1,4 @@
-<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="icon" type="image/x-icon" href="favicon.ico"><title>Gantry</title><script src="boot.js"></script><!-- 样式按块拆分：加载顺序 = 层叠顺序，别用 @import --><link rel="stylesheet" href="css/tokens.css?v=20261118e"><link rel="stylesheet" href="css/shell.css?v=20261118e"><link rel="stylesheet" href="css/chat.css?v=20261118e"><link rel="stylesheet" href="css/dialogs.css?v=20261118e"><link rel="stylesheet" href="css/themes.css?v=20261118e"><link rel="stylesheet" href="css/overlays.css?v=20261118e"><link rel="stylesheet" href="css/composer.css?v=20261119a"><link rel="stylesheet" href="css/layout.css?v=20261118e"><link rel="stylesheet" href="css/settings.css?v=20261118e"><link rel="stylesheet" href="css/alerts.css?v=20261118e"><link rel="stylesheet" href="css/rows.css?v=20261118e"><link rel="stylesheet" href="css/changes.css?v=20261118e"></head><body>
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="icon" type="image/x-icon" href="favicon.ico"><title>Gantry</title><script src="boot.js"></script><!-- 样式按块拆分：加载顺序 = 层叠顺序，别用 @import --><link rel="stylesheet" href="css/tokens.css?v=20261118e"><link rel="stylesheet" href="css/shell.css?v=20261118e"><link rel="stylesheet" href="css/chat.css?v=20261118e"><link rel="stylesheet" href="css/dialogs.css?v=20261118e"><link rel="stylesheet" href="css/themes.css?v=20261118e"><link rel="stylesheet" href="css/overlays.css?v=20261118e"><link rel="stylesheet" href="css/composer.css?v=20261119a"><link rel="stylesheet" href="css/layout.css?v=20261118e"><link rel="stylesheet" href="css/settings.css?v=20261118e"><link rel="stylesheet" href="css/alerts.css?v=20261118e"><link rel="stylesheet" href="css/rows.css?v=20261118e"><link rel="stylesheet" href="css/changes.css?v=20261118e"><link rel="stylesheet" href="css/preview.css?v=20261120a"></head><body>
 <div class="app">
   <aside class="rail">
     <button type="button" id="railBtn" title="收起/展开侧栏" data-act="toggleRail">‹</button>
@@ -281,6 +281,27 @@
             <textarea id="followup" aria-label="跟进消息" rows="2" data-act-input="slashFollowInput" data-act-key="slashFollowKey" placeholder="输入消息，Enter 发送，Shift+Enter 换行；可直接粘贴截图。Ctrl+J = 运行中强行插入指令"></textarea>            <button type="button" id="sendFollowup" class="btn accent sendRound" data-act="sendFollowup" title="发送" aria-label="发送"><svg id="sendIcon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 19V5M5.5 11.5 12 5l6.5 6.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
           </div>
   </main>
+  <!-- 生成文件右侧预览（DSH/Kimi 风格 artifact 面板）：由 js/preview.js 驱动 -->
+  <aside id="previewPanel" class="previewpanel" hidden aria-label="文件预览">
+    <header class="pv-head">
+      <div class="pv-title">
+        <span id="pvIcon" class="pv-icon">📄</span>
+        <div class="pv-titletext">
+          <b id="pvName">预览</b>
+          <span id="pvPath" class="pv-path"></span>
+        </div>
+        <span id="pvMeta" class="pv-meta"></span>
+      </div>
+      <div class="pv-actions">
+        <button type="button" class="iconbtn" data-act="previewReload" title="刷新预览">↻</button>
+        <button type="button" class="iconbtn" data-act="previewOpen" title="在新窗口打开">↗</button>
+        <button type="button" class="iconbtn" data-act="previewDownload" title="下载文件">⤓</button>
+        <button type="button" class="iconbtn" data-act="copyPreviewPath" title="复制路径">⧉</button>
+        <button type="button" class="iconbtn" data-act="closePreview" title="关闭预览">✕</button>
+      </div>
+    </header>
+    <div id="pvBody" class="pv-body"><div class="pv-empty">选择文件后在此预览</div></div>
+  </aside>
 </div>
 <div class="mask" role="dialog" aria-modal="true" aria-labelledby="dlgTitle" id="dlgMask" data-act="mask" data-arg="dlg">
   <div class="dlg">

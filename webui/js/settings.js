@@ -7,6 +7,7 @@ import { readAnimPrefs, applyAnimPrefs, setAnimPref, animPrefLabel, ANIM_RANGES 
 import { openKb, closeKb, kbPick, kbRefresh, kbReindex, kbImportUrl, kbImportText, kbInbox, kbSearch, kbDelete, fmtErr, wireKbSettings, kbLoadSettings, kbSaveSettings } from './kb.js';
 import { openModels, closeModels, renderModels, modelDelete, modelCopyPath, modelDownload, modelPreset, modelStart, modelStop } from './models.js';
 import { kbSaveMsg as kbSaveMsgImpl, THEMES } from './composer.js';
+import { openPreview, closePreview, reloadPreview, openPreviewExternal, downloadPreview, copyPreviewPath } from './preview.js';
 
 /* 设置左侧的“工具页”：不弹窗，直接把对应面板的 .dlg 移进设置右侧渲染。 */
 const TOOL_TABS = [
@@ -721,6 +722,12 @@ const ACTIONS={
  openUpdateSettings:()=>openUpdateSettings(),
  toggleTodos:()=>toggleTodos(),
  imgZoom:(el)=>imgZoom(el),
+ openPreview:(el)=>openPreview(el.dataset.arg||el.dataset.path||''),
+ closePreview:()=>closePreview(),
+ previewReload:()=>reloadPreview(),
+ previewOpen:()=>openPreviewExternal(),
+ previewDownload:()=>downloadPreview(),
+ copyPreviewPath:()=>copyPreviewPath(),
  mCopy:(el)=>{const m=codeMenuEl;if(m)copyText(m.dataset.code||'',el);closeCodeMenu()},
  mDownload:(el)=>{
   const m=codeMenuEl;if(!m){return}

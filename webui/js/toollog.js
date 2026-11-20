@@ -241,21 +241,25 @@ function renderChangesCard(){
   const num=f.binary?'<i class="chg-bin">'+esc(tr('二进制'))+'</i>'
     :('<i class="chg-add">+'+esc(f.additions||0)+'</i> <i class="chg-del">−'+esc(f.deletions||0)+'</i>');
   const clickable=(f.status!=='dir'&&!f.binary);
+  const canPreview=(f.status!=='dir');
+  const previewBtn=canPreview?'<button type="button" class="chg-pv" data-preview="'+esc(f.path)+'" title="'+esc(tr('在右侧预览'))+'">◉</button>':'';
   return '<div class="chg-row'+(clickable?' click':'')+'"'+(clickable?' data-diff="'+esc(f.path)+'"':'')
     +' title="'+esc(clickable?tr('查看差异'):tr('二进制文件，无文本差异'))+'">'
     +'<span class="chg-ico '+esc(f.status)+'">'+esc(lab[0])+'</span>'
     +'<span class="chg-path">'+esc(f.path)+'</span>'
-    +'<span class="chg-num">'+num+'</span></div>'}).join('');
+    +'<span class="chg-num">'+num+'</span>'+previewBtn+'</div>'}).join('');
  const more=files.length>6?'<button type="button" class="btn ghost chg-more">'
    +esc(changesExpanded?tr('收起'):tr('全部 {n} 个文件',{n:files.length}))+'</button>':'';
  const dv=deliv.length?'<div class="chg-deliv"><b>'+esc(tr('交付物'))+'</b>'
-   +deliv.map(x=>'<span class="chg-dchip" title="'+esc(x.description||x.path)+'">'+esc(x.path)
-     +(x.exists===false?' ⚠':'')+'</span>').join('')+'</div>':'';
+   +deliv.map(x=>'<button type="button" class="chg-dchip" data-preview="'+esc(x.path)+'" title="'+esc(x.description||x.path)+'">'+esc(x.path)
+     +(x.exists===false?' ⚠':'')+'</button>').join('')+'</div>':'';
  card.innerHTML='<div class="chg-head"><b>'+esc(files.length?tr('本次改动 {n} 个文件',{n:files.length}):tr('本次交付'))
    +'</b><span class="chg-stat"><i class="chg-add">+'+esc(d.additions||0)+'</i>'
    +'<i class="chg-del">−'+esc(d.deletions||0)+'</i></span></div>'
    +'<div class="chg-list">'+rows+'</div>'+more+dv;
  card.querySelectorAll('[data-diff]').forEach(el=>{el.onclick=()=>openChangeDiff(el.dataset.diff)});
+ card.querySelectorAll('[data-preview]').forEach(el=>{
+   el.onclick=(e)=>{e.stopPropagation();try{window.openPreview&&window.openPreview(el.dataset.preview)}catch(_){}}});
  const mb=card.querySelector('.chg-more');
  if(mb)mb.onclick=()=>{changesExpanded=!changesExpanded;renderChangesCard()};
 }

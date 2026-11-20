@@ -33,8 +33,15 @@ import { themeChoice, resolveTheme, applyTheme, toggleTheme, watchSystemTheme, t
 import { renderSandbox, loadSandbox, pickSandbox, openSettings, closeSettings, renderSettings, setSettingsTab, collectSettings, saveSettings } from './settings.js';
 import { applyTitleVersion, loadVersion } from './version.js';
 import { applyAnimPrefs, readAnimPrefs, setAnimPref, animPrefLabel } from './animprefs.js';
+import { openPreview, closePreview, reloadPreview, openPreviewExternal, downloadPreview, copyPreviewPath } from './preview.js';
 import { openModels, closeModels, renderModels, modelDelete, modelCopyPath, modelDownload } from './models.js';
 window.applyAnimPrefs = applyAnimPrefs;
+window.openPreview = openPreview;
+window.closePreview = closePreview;
+window.reloadPreview = reloadPreview;
+window.openPreviewExternal = openPreviewExternal;
+window.downloadPreview = downloadPreview;
+window.copyPreviewPath = copyPreviewPath;
 window.readAnimPrefs = readAnimPrefs;
 window.setAnimPref = setAnimPref;
 window.animPrefLabel = animPrefLabel;
