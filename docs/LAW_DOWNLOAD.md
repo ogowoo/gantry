@@ -10,9 +10,10 @@
 .\.venv\Scripts\python.exe scripts\law_download.py `
   --query 民法典 --limit 1 --out workspace\LAW --scope national --format pdf
 
-# 国家层面小批量（现行有效）
+# 国家层面全量（慢速，支持断点：已有文件/bbbs 会跳过）
 .\.venv\Scripts\python.exe scripts\law_download.py `
-  --limit 5 --out workspace\LAW --scope national --format pdf
+  --limit 0 --pages 400 --page-size 100 --sleep 1.0 `
+  --out workspace\LAW --scope national --format pdf
 
 # 搜索深圳地方规定（按标题/制定机关包含“深圳”过滤）
 .\.venv\Scripts\python.exe scripts\law_download.py `
@@ -29,6 +30,9 @@ workspace/LAW/
 │       ├── 中华人民共和国民法典_2020-05-28.pdf
 │       └── 中华人民共和国民法典_2020-05-28.meta.json
 ```
+
+有些法规只有 Word 附件（`ossPdfPath=None`），脚本会自动回退下载 `.docx`；
+`meta.json` 的 `format` 会记录实际格式。
 
 ## 实现链路
 

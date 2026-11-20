@@ -88,9 +88,13 @@ def download_law(page, row: dict[str, Any], out_dir: Path, fmt: str = "pdf") -> 
     title = re.sub(r"<[^>]+>", "", title)
     date = str(detail.get("gbrq") or row.get("gbrq") or "")
     oss = detail.get("ossFile") or {}
+    actual_fmt = fmt
     if fmt == "pdf" and not str(oss.get("ossPdfPath") or "").strip():
-        raise RuntimeError("该法规没有可下载的 PDF 附件")
-    if fmt == "docx" and not str(oss.get("ossWordPath") or "").strip():
+        if str(oss.get("ossWordPath") or "").strip():
+            actual_fmt = "docx"       # 部分国家法规只有 Word 附件
+        else:
+            raise RuntimeError("该法规没有可下载的 PDF/Word 附件")
+    if actual_fmt == "docx" and not str(oss.get("ossWordPath") or "").strip():
         raise RuntimeError("该法规没有可下载的 Word 附件")
     meta = {
         "bbbs": bbbs,
@@ -102,14 +106,14 @@ def download_law(page, row: dict[str, Any], out_dir: Path, fmt: str = "pdf") -> 
         "zdjg_name": detail.get("zdjgName") or row.get("zdjgName"),
         "source": f"{BASE}/detail?bbbs={bbbs}",
         "ossFile": oss,
-        "format": fmt,
+        "format": actual_fmt,
         "downloaded_at": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
     }
     out_dir.mkdir(parents=True, exist_ok=True)
     stem = _safe_name(f"{title}_{date}".strip("_"))
-    target = out_dir / f"{stem}.{fmt}"
+    target = out_dir / f"{stem}.{actual_fmt}"
     meta_path = out_dir / f"{stem}.meta.json"
-    url = _download_url(page, bbbs, fmt)
+    url = _download_url(page, bbbs, actual_fmt)
     with httpx.stream("GET", url, timeout=120, follow_redirects=True,
                       headers={"User-Agent": USER_AGENT}) as response:
         response.raise_for_status()
@@ -125,11 +129,16 @@ def download_law(page, row: dict[str, Any], out_dir: Path, fmt: str = "pdf") -> 
                     raise RuntimeError(f"{title}: 文件超过 100 MB")
                 fh.write(chunk)
         tmp.replace(target)
-    if fmt == "pdf":
+    if actual_fmt == "pdf":
         with target.open("rb") as fh:
             if fh.read(5) != b"%PDF-":
                 target.unlink(missing_ok=True)
                 raise RuntimeError(f"{title}: 下载内容不是 PDF")
+    else:
+        with target.open("rb") as fh:
+            if fh.read(2) != b"PK":
+                target.unlink(missing_ok=True)
+                raise RuntimeError(f"{title}: 下载内容不是 DOCX")
     meta.update({"file": target.name, "bytes": target.stat().st_size})
     meta_path.write_text(json.dumps(meta, ensure_ascii=False, indent=2) + "\n",
                          encoding="utf-8")
@@ -139,23 +148,42 @@ def download_law(page, row: dict[str, Any], out_dir: Path, fmt: str = "pdf") -> 
 def main() -> int:
     ap = argparse.ArgumentParser(description="下载国家法律法规数据库 PDF")
     ap.add_argument("--query", default="", help="标题关键词；空串表示按分类列表")
-    ap.add_argument("--limit", type=int, default=10, help="最多下载几条（默认 10）")
-    ap.add_argument("--pages", type=int, default=1, help="最多搜索页数（默认 1）")
+    ap.add_argument("--limit", type=int, default=10,
+                    help="最多下载几条；0 = 不限制（默认 10）")
+    ap.add_argument("--pages", type=int, default=1,
+                    help="最多搜索页数；全量请配合 --limit 0 放大")
     ap.add_argument("--page-size", type=int, default=20)
+    ap.add_argument("--sleep", type=float, default=0.8,
+                    help="每次下载后的等待秒数（默认 0.8，慢爬防限流）")
     ap.add_argument("--out", default="workspace/LAW", help="输出根目录")
     ap.add_argument("--scope", choices=("national", "shenzhen", "all"),
                     default="national", help="national 过滤地方法规")
     ap.add_argument("--format", choices=("pdf", "docx"), default="pdf")
-    ap.add_argument("--effective", action="store_true", default=True,
-                    help="只取现行有效（默认开启）")
     ap.add_argument("--include-pending", action="store_true",
-                    help="包含尚未生效的法规")
+                    help="包含尚未生效的法规；默认只取现行有效")
     args = ap.parse_args()
 
     out_root = Path(args.out).resolve()
     target_dir = out_root / "laws" / (args.scope if args.scope != "all" else "all")
     records: list[dict[str, Any]] = []
     seen: set[str] = set()
+    index = out_root / "laws" / "index.json"
+    old: list[dict[str, Any]] = []
+    if index.is_file():
+        try:
+            old = json.loads(index.read_text(encoding="utf-8")).get("records") or []
+        except Exception:
+            old = []
+    done = {str(r.get("bbbs")): r for r in old if r.get("bbbs")}
+    for rec in old:
+        try:
+            if rec.get("file") and (target_dir / rec["file"]).is_file():
+                seen.add(str(rec.get("bbbs")))
+        except Exception:
+            pass
+
+    def reached_limit() -> bool:
+        return args.limit > 0 and len(records) >= args.limit
 
     with __import__("playwright.sync_api", fromlist=["sync_playwright"]).sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
@@ -173,15 +201,26 @@ def main() -> int:
                 "pageNum": page_no, "pageSize": max(1, min(100, args.page_size)),
             }
             rows = _listed_rows(page, body)
+            if not rows:
+                print(f"[list] page {page_no} empty; stop")
+                break
             for row in rows:
-                if len(records) >= args.limit:
+                if reached_limit():
                     break
                 bbbs = str(row.get("bbbs") or "")
                 if not bbbs or bbbs in seen:
                     continue
                 flxz = str(row.get("flxz") or "")
-                if args.scope == "national" and flxz == "地方法规":
-                    continue
+                if args.scope == "national":
+                    zdjg = str(row.get("zdjgName") or "")
+                    if flxz not in ("宪法", "法律", "行政法规", "监察法规", "司法解释"):
+                        # “法规性决定”既有全国人大也有地方人大；按制定机关收窄，
+                        # 避免把地方决定误当国家层面法规下载。
+                        if not (flxz == "法规性决定" and
+                                any(x in zdjg for x in ("全国人民代表大会", "国务院",
+                                                        "最高人民法院", "最高人民检察院",
+                                                        "国家监察委员会"))):
+                            continue
                 if args.scope == "shenzhen":
                     hay = f"{row.get('title') or ''} {row.get('zdjgName') or ''}"
                     if "深圳" not in hay:
@@ -190,27 +229,29 @@ def main() -> int:
                 try:
                     rec = download_law(page, row, target_dir, args.format)
                     records.append(rec)
-                    print(f"[{len(records)}/{args.limit}] {rec['title']} "
-                          f"({rec['bytes']} bytes) -> {rec['file']}")
+                    print(f"[{len(records)}/{args.limit if args.limit else 'all'}] "
+                          f"{rec['title']} ({rec['bytes']} bytes) -> {rec['file']}", flush=True)
                 except Exception as exc:
-                    print(f"[skip] {row.get('title') or bbbs}: {exc}")
-            if len(records) >= args.limit:
+                    print(f"[skip] {row.get('title') or bbbs}: {exc}", flush=True)
+                if args.sleep > 0:
+                    time.sleep(args.sleep)
+            if reached_limit():
                 break
         browser.close()
 
-    index = out_root / "laws" / "index.json"
-    old = []
-    if index.is_file():
-        try:
-            old = json.loads(index.read_text(encoding="utf-8")).get("records") or []
-        except Exception:
-            old = []
-    old.extend(records)
-    index.write_text(json.dumps({"source": BASE, "records": old},
+    merged = []
+    by_bbbs = {}
+    for rec in old + records:
+        key = str(rec.get("bbbs") or rec.get("file") or "")
+        if key and key not in by_bbbs:
+            by_bbbs[key] = rec
+            merged.append(rec)
+    index.parent.mkdir(parents=True, exist_ok=True)
+    index.write_text(json.dumps({"source": BASE, "records": merged},
                                 ensure_ascii=False, indent=2) + "\n",
                      encoding="utf-8")
     print(f"downloaded {len(records)}; index {index}")
-    return 0 if records else 1
+    return 0 if records or old else 1
 
 
 if __name__ == "__main__":
