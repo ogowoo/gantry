@@ -114,6 +114,64 @@ class ProviderDropTests(unittest.TestCase):
         finally:
             bridge.AGENT_SESSIONS = saved
 
+    def test_ocr_fallback_injects_text(self):
+        from gantry import bridge
+        from gantry import kb_ocr
+        tmp = Path(tempfile.mkdtemp())
+        saved = bridge.AGENT_SESSIONS
+        old_ocr = kb_ocr.ocr_image_bytes
+        try:
+            from gantry.session_store import SessionStore
+            bridge.AGENT_SESSIONS = SessionStore(tmp / "agent.db")
+            bridge.AGENT_SESSIONS.create("s1", "看看这张图", str(tmp), "kimi-coding")
+            img = tmp / "shot.png"
+            img.write_bytes(b"not-a-real-image")
+            kb_ocr.ocr_image_bytes = lambda data: "怡乐宝玩具屋\n场地大升级"
+            note = bridge.warn_provider_cannot_attach(
+                "s1", "kimi-coding/kimi-for-coding", [img])
+            self.assertIn("怡乐宝玩具屋", note)
+            self.assertIn("不可信", note)
+            steps = bridge.AGENT_SESSIONS.steps("s1") or []
+            self.assertEqual(steps[-1].get("tool"), "attach_image")
+            self.assertEqual(steps[-1].get("status"), "warning")
+            self.assertEqual(steps[-1].get("result", {}).get("ocr_ok"), 1)
+        finally:
+            kb_ocr.ocr_image_bytes = old_ocr
+            bridge.AGENT_SESSIONS = saved
+
+
+class ProviderVisionTests(unittest.TestCase):
+    """Kimi Coding 的 Anthropic 端点支持 base64 image block，不能只走 OCR。"""
+
+    def test_vision_content_builds_image_block(self):
+        from gantry import bridge  # noqa: F401  (initialize import order)
+        from gantry import provider as provider_mod
+        tmp = Path(tempfile.mkdtemp())
+        img = tmp / "shot.jpg"
+        img.write_bytes(b"\xff\xd8\xff\xd9")
+        blocks = provider_mod._vision_content("看这张图", [img])
+        self.assertIsInstance(blocks, list)
+        self.assertEqual(blocks[0], {"type": "text", "text": "看这张图"})
+        self.assertTrue(blocks[1]["image_url"]["url"].startswith("data:image/jpeg;base64,"))
+
+    def test_anthropic_body_converts_image_url(self):
+        from gantry.providers import ApiProvider
+        body = ApiProvider._anthropic_body("m", [{
+            "role": "user",
+            "content": [{"type": "text", "text": "hi"},
+                        {"type": "image_url",
+                         "image_url": {"url": "data:image/jpeg;base64,QUJD"}}],
+        }], 100, False)
+        content = body["messages"][0]["content"]
+        self.assertEqual(content[0], {"type": "text", "text": "hi"})
+        self.assertEqual(content[1], {"type": "image", "source": {
+            "type": "base64", "media_type": "image/jpeg", "data": "QUJD"}})
+
+    def test_kimi_preset_declares_vision(self):
+        from gantry.providers import ApiProvider
+        p = ApiProvider("kimi-coding", {"api": "anthropic"})
+        self.assertTrue(p.vision)
+
 
 class UploadWaitTests(unittest.TestCase):
     def test_waits_longer_than_two_seconds(self):

@@ -11,10 +11,40 @@ AGENT_SESSIONS / runtime_update / remember_initial_prompt），保证测试 rebi
 from __future__ import annotations
 
 import asyncio
+import base64
+import hashlib
+import mimetypes
 import time
+from pathlib import Path
 
 from . import bridge as b
 from .interrupts import _await_interruptible, clear_interrupt
+
+
+def _vision_content(prompt: str, image_paths: list | None) -> str | list[dict]:
+    """把本地图片附件转成 OpenAI 风格的 content blocks。
+
+    Kimi Coding 的 Anthropic 适配层会再把 image_url 转成 Anthropic 的
+    base64 image block；普通文本提供商仍拿到纯字符串。
+    """
+    paths = [Path(p) for p in (image_paths or []) if p]
+    if not paths:
+        return prompt
+    blocks: list[dict] = [{"type": "text", "text": prompt}]
+    for path in paths:
+        try:
+            data = path.read_bytes()
+        except Exception:
+            continue
+        mime = mimetypes.guess_type(path.name)[0] or "image/jpeg"
+        if not mime.startswith("image/"):
+            mime = "image/jpeg"
+        blocks.append({
+            "type": "image_url",
+            "image_url": {"url": f"data:{mime};base64," + base64.b64encode(data).decode()},
+        })
+    return blocks if len(blocks) > 1 else prompt
+
 
 # API 提供商的协议强化：网页 Copilot 对 JSON 协议遵循度高，但 DeepSeek/Kimi
 # 等聊天模型爱在动作外面加解释或输出两段 JSON（撞严格防线烧回合）。
@@ -142,7 +172,8 @@ def sync_provider_history_message(sid: str, old: str, new: str | None) -> bool:
     return False
 
 
-async def provider_turn(sid: str, model_id: str, prompt: str, force_new: bool = False) -> str:
+async def provider_turn(sid: str, model_id: str, prompt: str, force_new: bool = False,
+                        image_paths: list | None = None) -> str:
     """API 提供商的 Agent 回合：带会话历史的 system 协议约束 + 累积对话。
 
     与浏览器版的关键差异：提供商每回合都是独立 HTTP 调用，必须把历史一起
@@ -158,7 +189,8 @@ async def provider_turn(sid: str, model_id: str, prompt: str, force_new: bool = 
     if force_new or sid not in _PROVIDER_AGENT_HISTORY:
         _PROVIDER_AGENT_HISTORY[sid] = [{"role": "system", "content": _PROVIDER_PROTOCOL}]
     hist = _PROVIDER_AGENT_HISTORY[sid]
-    hist.append({"role": "user", "content": prompt})
+    content = _vision_content(prompt, image_paths)
+    hist.append({"role": "user", "content": content})
     _trim_provider_history(hist)
     _repair_provider_history(hist)
     b.remember_initial_prompt(sid, prompt)
@@ -238,17 +270,25 @@ async def provider_turn(sid: str, model_id: str, prompt: str, force_new: bool = 
     return answer
 
 
-async def provider_session_chat(sid: str, content: str, model_id: str) -> dict:
+async def provider_session_chat(sid: str, content: str, model_id: str,
+                                image_paths: list | None = None) -> dict:
     """API 提供商的普通对话：用 Session 的消息记录作上下文，写回双方消息。
 
     调用方（continue_session_message）已写入本次 user 消息；新任务由
-    plain_completions 先建 Session 再调本函数。
+    plain_completions 先建 Session 再调本函数。image_paths 只在当前回合
+    附加到最近一条 user 消息，历史消息不保存图片。
     """
     async with _PROVIDER_LOCKS.setdefault(sid, asyncio.Lock()):
         pm = b.providers_mod.split_provider_model(model_id)
         provider = b.PROVIDERS[pm[0]]
         history = [{"role": m["role"], "content": m["content"]}
                    for m in b.AGENT_SESSIONS.messages(sid)]
+        if image_paths and history:
+            for i in range(len(history) - 1, -1, -1):
+                if history[i].get("role") == "user":
+                    history[i]["content"] = _vision_content(
+                        str(history[i].get("content") or content), image_paths)
+                    break
         b.runtime_update(sid, phase="api_sending", detail=f"正在调用 {pm[0]} API",
                          prompt_preview=content, answer_preview="")
         try:

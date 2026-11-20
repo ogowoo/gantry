@@ -14,6 +14,18 @@
 ### Fixed
 - 
 
+## [0.11.0-beta.28] - 2026-11-20
+
+### Fixed
+- API 提供商（Kimi/DeepSeek 等）收到图片附件时不再只记录“请切到 Copilot”：
+  自动用本地 RapidOCR 识别图片文字，把 OCR 结果作为**不可信素材**注入
+  Agent/普通对话提示词。图片里的文字不会被当作指令执行。
+- OCR 失败时仍保留明确的 `attach_image` error 步骤和 Copilot 提示。
+- 普通对话（非 Agent）的 provider 图片消息也走同一 OCR 回退。
+
+### Tests
+- `tests/test_image_attach.py` 增加 OCR 回退注入与步骤记录测试。
+
 ## [0.11.0-beta.27] - 2026-11-20
 
 ### Changed

@@ -78,6 +78,7 @@ PRESETS: dict[str, dict[str, Any]] = {
         "models": ["k3", "k3-256k", "kimi-for-coding", "kimi-for-coding-highspeed"],
         "max_tokens": 8192,
         "json_mode": "off",          # Anthropic 无 response_format，靠提示词约束
+        "vision": True,              # /v1/messages 接受 base64 image block
         "description": "Kimi Coding（Anthropic Messages 协议）",
     },
     "kimi": {
@@ -180,6 +181,10 @@ class ApiProvider:
         self.json_mode = str(cfg.get("json_mode", "auto")).lower()
         # 协议类型：openai（默认，/chat/completions）或 anthropic（/v1/messages）
         self.api = str(cfg.get("api", "openai")).lower()
+        # 是否支持图片输入（OpenAI image_url / Anthropic image block）。
+        # Kimi Coding 的 Anthropic 端点实测接收 base64 image block。
+        raw_vision = cfg.get("vision")
+        self.vision = bool(raw_vision) if raw_vision is not None else (self.api == "anthropic")
         # 0 = **不发 max_tokens**（让服务端用自己的默认值；有的网关不认这个字段）。
         # 注意不能用 `or 8192`：那样 0 会被当成"没配"，永远发 8192。
         raw_max = cfg.get("max_tokens", 8192)
@@ -282,13 +287,43 @@ class ApiProvider:
         return {"response_format": {"type": "json_object"}}
 
     @staticmethod
+    def _anthropic_content(content: Any) -> Any:
+        """OpenAI content blocks → Anthropic blocks（保留纯文本原样）。"""
+        if isinstance(content, str) or content is None:
+            return content or ""
+        if not isinstance(content, list):
+            return str(content)
+        out: list[dict[str, Any]] = []
+        for block in content:
+            if not isinstance(block, dict):
+                out.append({"type": "text", "text": str(block)})
+                continue
+            btype = str(block.get("type") or "")
+            if btype == "text":
+                out.append({"type": "text", "text": str(block.get("text") or "")})
+            elif btype == "image_url":
+                image = block.get("image_url") or {}
+                url = str(image.get("url") or "")
+                if url.startswith("data:"):
+                    header, _, data = url.partition(",")
+                    media = header[5:].split(";", 1)[0] or "image/jpeg"
+                    out.append({"type": "image", "source": {
+                        "type": "base64", "media_type": media, "data": data}})
+                elif url:
+                    out.append({"type": "image", "source": {"type": "url", "url": url}})
+            else:
+                out.append(block)
+        return out or ""
+
+    @staticmethod
     def _anthropic_body(model: str, messages: list[dict[str, Any]],
                         max_tokens: int, stream: bool,
                         tools: list[dict[str, Any]] | None = None,
                         tool_choice: Any = None) -> dict[str, Any]:
         """OpenAI 风格的 messages → Anthropic Messages 请求体。"""
         system_parts = [m.get("content") or "" for m in messages if m.get("role") == "system"]
-        conv = [{"role": m.get("role"), "content": m.get("content") or ""}
+        conv = [{"role": m.get("role"),
+                 "content": ApiProvider._anthropic_content(m.get("content") or "")}
                 for m in messages if m.get("role") in ("user", "assistant")]
         body: dict[str, Any] = {"model": model, "max_tokens": max_tokens,
                                 "messages": conv or [{"role": "user", "content": ""}]}
