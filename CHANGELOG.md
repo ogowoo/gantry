@@ -14,6 +14,13 @@
 ### Fixed
 - 
 
+## [0.11.0-beta.31] - 2026-11-20
+
+### Added
+- `image_generate` / `POST api/generate` 增加 `negative_prompt`，DashScope
+  直传 `parameters.negative_prompt`；用于压制文字、水印、边框等生成噪声。
+- DashScope 实测：Key 更新后文生图成功（1024×1440，PNG，约 13 秒）。
+
 ## [0.11.0-beta.30] - 2026-11-20
 
 ### Added

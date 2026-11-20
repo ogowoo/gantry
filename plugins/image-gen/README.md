@@ -14,7 +14,7 @@ providers/
 ## 工具
 
 ```text
-image_generate(prompt, size="1024*1024", n=1, backend="", model="")
+image_generate(prompt, size="1024*1024", n=1, backend="", model="", negative_prompt="")
 ```
 
 输出保存到当前工作区 `generated/`，返回：
@@ -49,3 +49,9 @@ asset_import(project_id="poster", source="generated/...png", role="background")
 ```
 
 Provider 下载与解码都会校验 20 MB 上限，并由 Pillow 验证图片可读。
+
+DashScope 额外支持 `negative_prompt`，用于压掉文字、水印和边框，例如：
+
+```text
+negative_prompt="文字，字母，数字，水印，logo，二维码，画框，白边"
+```

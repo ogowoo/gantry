@@ -48,7 +48,8 @@ def _save_image(ctx, name: str, data: bytes) -> str:
     return target.relative_to(root).as_posix()
 
 
-async def generate(ctx, prompt, size="1024*1024", n=1, backend="", model=""):
+async def generate(ctx, prompt, size="1024*1024", n=1, backend="", model="",
+                   negative_prompt=""):
     prompt = str(prompt or "").strip()
     if not prompt:
         raise RuntimeError("prompt 不能为空")
@@ -57,7 +58,8 @@ async def generate(ctx, prompt, size="1024*1024", n=1, backend="", model=""):
     req = ImageRequest(prompt=prompt,
                        size=str(size or cfg.get("size") or "1024*1024"),
                        n=max(1, min(4, int(n or 1))),
-                       model=str(model or cfg.get("model") or ""))
+                       model=str(model or cfg.get("model") or ""),
+                       negative_prompt=str(negative_prompt or ""))
     result = await router.generate(req, backend=str(backend or cfg.get("backend") or "auto"))
     stamp = time.strftime("%Y%m%d")
     files: list[str] = []
@@ -83,10 +85,11 @@ async def generate(ctx, prompt, size="1024*1024", n=1, backend="", model=""):
 
 def setup(ctx):
     async def _tool(prompt: str, size: str = "", n: int = 1,
-                    backend: str = "", model: str = ""):
+                    backend: str = "", model: str = "", negative_prompt: str = ""):
         try:
             return await generate(ctx, prompt, size or ctx.config.get("size", "1024*1024"),
-                                  n, backend=backend, model=model)
+                                  n, backend=backend, model=model,
+                                  negative_prompt=negative_prompt)
         except Exception as exc:
             return {"error": str(exc)[:600],
                     "backend": backend or ctx.config.get("backend", "auto"),
@@ -96,7 +99,8 @@ def setup(ctx):
         "image_generate", _tool,
         "文生图：按提示词生成图片并保存到工作区 generated/（返回相对路径）",
         {"prompt": "画面描述", "size": "尺寸，默认 1024*1024", "n": "张数，默认 1",
-         "backend": "auto|dashscope|openai", "model": "可选模型名"})
+         "backend": "auto|dashscope|openai", "model": "可选模型名",
+         "negative_prompt": "可选负向提示词，例如 text, letters, watermark"})
 
     async def _api(request):
         try:
@@ -108,7 +112,8 @@ def setup(ctx):
                                   body.get("size") or ctx.config.get("size", "1024*1024"),
                                   body.get("n") or 1,
                                   backend=body.get("backend") or "",
-                                  model=body.get("model") or "")
+                                  model=body.get("model") or "",
+                                  negative_prompt=body.get("negative_prompt") or "")
         except Exception as exc:
             return {"error": str(exc)[:600],
                     "backend": body.get("backend") or ctx.config.get("backend", "auto"),

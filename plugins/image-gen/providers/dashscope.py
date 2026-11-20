@@ -45,6 +45,8 @@ class DashScopeProvider(ImageProvider):
                 "input": {"prompt": request.prompt},
                 "parameters": {"size": request.size.replace("x", "*"),
                                "n": max(1, min(4, int(request.n)))}}
+        if request.negative_prompt:
+            body["parameters"]["negative_prompt"] = request.negative_prompt
         images: list[GeneratedImage] = []
         try:
             async with httpx.AsyncClient(timeout=60, follow_redirects=True) as client:

@@ -25,6 +25,7 @@ class ImageRequest:
     n: int = 1
     model: str = ""
     quality: str = "standard"
+    negative_prompt: str = ""
     output_format: str = "png"
 
 
