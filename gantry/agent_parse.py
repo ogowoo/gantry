@@ -358,11 +358,50 @@ class ParseMixin:
             i = j
         return "".join(out)
 
+    @staticmethod
+    def _close_truncated_object(text: str) -> str:
+        """给"只少收尾括号"的动作补括号。
+
+        Kimi 在长 PowerShell 命令里多次返回完整字符串，但少一个最终 `}`，
+        导致 JSON 解析失败、动作被当成 invalid_action（task-mwofhy14 的
+        30+ 步都是这个形态）。只在**字符串已经闭合**且缺 1~3 个对象括号时
+        修复；截断在字符串内部、尾随解释文字或括号严重不平衡时不碰。
+        """
+        s = str(text or "").strip()
+        if not s.startswith("{"):
+            return text
+        in_str = False
+        escaped = False
+        depth = 0
+        for ch in s:
+            if in_str:
+                if escaped:
+                    escaped = False
+                elif ch == "\\":
+                    escaped = True
+                elif ch == '"':
+                    in_str = False
+                continue
+            if ch == '"':
+                in_str = True
+            elif ch == "{":
+                depth += 1
+            elif ch == "}":
+                depth -= 1
+                if depth < 0:
+                    return text
+        if in_str or escaped or depth <= 0 or depth > 3:
+            return text
+        return s + ("}" * depth)
+
     @classmethod
     def _parse(cls, text: str) -> dict[str, Any]:
         # 先修两类"模型写法合法但 JSON 不认"的毛病，再解析：
         #   ① 非法转义（\' 、\( 这些）；
         #   ② 字符串值里没转义的 "（如 type==="bool"）。
+        # 另修 Kimi 等长命令常出现的"外层对象少最后 }"：只在字符串已闭合、
+        # 缺 1~3 个收尾括号时补，绝不把真的截断在字符串中间的 JSON 当完整动作。
+        text = cls._close_truncated_object(text or "")
         text = cls._repair_json_escapes(text or "")
         text = cls._escape_inner_quotes(text)
         candidates = list(cls._objects(text))

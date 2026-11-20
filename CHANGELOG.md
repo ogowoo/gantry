@@ -14,6 +14,22 @@
 ### Fixed
 - 
 
+## [0.11.0-beta.32] - 2026-11-20
+
+### Fixed
+- Agent JSON 解析增加安全补全：当模型只缺 1~3 个对象收尾 `}`、且字符串
+  已完整闭合时，自动补齐后重试。修复 task-mwofhy14 中 Kimi 连续 30+ 步
+  “动作内容完整、仅少最后一个 `}`”导致任务卡死的问题；字符串内部截断
+  或括号严重不平衡时不修补。
+
+### Added
+- `scripts/law_download.py`：国家法律法规数据库官方下载脚本。
+  - Playwright 页面上下文调用 `/law-search/search/list`、`flfgDetails`、
+    `download/pc`，绕过 SPA/WAF 的接口壳；
+  - 从官方签名 OSS URL 下载 PDF，校验 `%PDF-`；
+  - 保存 `index.json` 和每份法规的 `meta.json`。
+- 实测下载《中华人民共和国民法典》PDF：1,205,952 bytes / 176 页。
+
 ## [0.11.0-beta.31] - 2026-11-20
 
 ### Added

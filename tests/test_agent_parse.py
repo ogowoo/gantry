@@ -12,6 +12,18 @@ from gantry.agent import AgentRunner
 
 
 class ParseTests(unittest.TestCase):
+    def test_missing_outer_brace_is_repaired(self):
+        raw = ('{"type":"tool","tool":"pwsh","arguments":{"command":'
+               '"curl https://example.com -o laws/page1.json"},'
+               '"reason":"下载法规列表"}')  # 故意少最后外层 }
+        a = AgentRunner._parse(raw)
+        self.assertEqual(a["tool"], "pwsh")
+        self.assertIn("page1.json", a["arguments"]["command"])
+
+    def test_truncated_inside_string_is_not_repaired(self):
+        raw = '{"type":"tool","tool":"write_text","arguments":{"content":"还没结束'
+        self.assertEqual(AgentRunner._close_truncated_object(raw), raw)
+
     def test_plain_tool_action(self):
         a = AgentRunner._parse('{"type":"tool","tool":"read_text","arguments":{"path":"a.py"}}')
         self.assertEqual(a["tool"], "read_text")
