@@ -7,6 +7,7 @@
   "contributes": {
     "tools": [
       "design_create",
+      "asset_import",
       "design_modify",
       "design_render",
       "design_preview",

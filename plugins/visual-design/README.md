@@ -15,14 +15,15 @@ Gantry 的 2D 平面设计插件：HTML/CSS/SVG 项目，独立 Chromium 渲染�
 .\.venv\Scripts\python.exe -m pip install -r plugins\visual-design\requirements.txt
 ```
 
-## 六个工具
+## 工具
 
 ```text
 design_create  创建 visual-projects/<id>/ 项目
+asset_import   把工作区图片导入项目 assets/ 并登记元数据
 design_modify  修改 source/index.html 或 index.svg
 design_render  渲染 PNG（独立 Chromium）
 design_preview 生成预览 PNG
-design_inspect 检查尺寸/源文件/输出
+design_inspect 检查尺寸/源文件/资产/输出
 design_export  导出 PNG/JPG/SVG（本阶段不含 PDF）
 ```
 
@@ -32,13 +33,28 @@ design_export  导出 PNG/JPG/SVG（本阶段不含 PDF）
 <workspace>/visual-projects/<project_id>/
 ├── brief.md
 ├── design-spec.json
+├── canvas.json              # 中间格式：canvas/layers/assets 的基础结构
 ├── source/index.html
 ├── source/index.svg
 ├── assets/
+│   ├── index.json           # asset_id / 尺寸 / sha256 / 来源 / version
+│   └── ...
 ├── renders/
 ├── output/
 └── history/
 ```
+
+## 与 image-gen 配合
+
+```text
+image_generate(prompt=...)
+  → generated/xxx.png
+asset_import(project_id=..., source="generated/xxx.png", role="background")
+  → assets/asset_xxx.png + assets/index.json
+design_modify(...引用 assets/...)
+```
+
+`canvas.json` 目前是基础结构：画布、空 layers、资产 ID 列表；真正的图层合成引擎后续再扩展。
 
 ## 限制与安全
 

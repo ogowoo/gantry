@@ -56,6 +56,19 @@ def _load_renderer():
 _RENDERER = _load_renderer()
 
 
+def _load_assets():
+    path = Path(__file__).resolve().parent / "asset_manager.py"
+    spec = importlib.util.spec_from_file_location("gantry_visual_assets", path)
+    if spec is None or spec.loader is None:
+        raise DesignError("PLUGIN_BROKEN", "asset_manager.py 无法加载")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+_ASSETS = _load_assets()
+
+
 # ── 当前任务工作区 ─────────────────────────────────────────────────────────
 
 def _registry(ctx: Any):
@@ -214,6 +227,30 @@ def _read_spec(project: Path) -> dict[str, Any]:
     return spec
 
 
+def _read_canvas(project: Path) -> dict[str, Any]:
+    path = project / "canvas.json"
+    if not path.is_file():
+        return {"version": 1, "project_id": project.name,
+                "canvas": {"width": 0, "height": 0, "background": "#ffffff"},
+                "layers": [], "assets": [], "updated_at": ""}
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except Exception as exc:
+        raise DesignError("CANVAS_INVALID", f"canvas.json 读取失败: {exc}") from exc
+    if not isinstance(data, dict):
+        raise DesignError("CANVAS_INVALID", "canvas.json 必须是对象")
+    data.setdefault("version", 1)
+    data.setdefault("layers", [])
+    data.setdefault("assets", [])
+    return data
+
+
+def _write_canvas(project: Path, canvas: dict[str, Any]) -> None:
+    canvas["updated_at"] = time.strftime("%Y-%m-%dT%H:%M:%S%z")
+    _atomic_write(project / "canvas.json",
+                  (json.dumps(canvas, ensure_ascii=False, indent=2) + "\n").encode("utf-8"))
+
+
 def _update_spec(project: Path, **changes: Any) -> dict[str, Any]:
     spec = _read_spec(project)
     spec.update(changes)
@@ -249,6 +286,7 @@ async def design_create(ctx: Any, project_id: str = "", title: str = "",
         "render": {"engine": "chromium", "device_scale_factor": 1,
                    "timeout_seconds": 30, "block_network": True},
         "sources": {"html": "source/index.html", "svg": "source/index.svg"},
+        "canvas_file": "canvas.json",
         "style": style,
         "created_at": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
         "updated_at": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
@@ -256,6 +294,19 @@ async def design_create(ctx: Any, project_id: str = "", title: str = "",
     _atomic_write(project / "brief.md", (brief or f"# {title}\n").encode("utf-8"))
     _atomic_write(project / "design-spec.json",
                   (json.dumps(spec, ensure_ascii=False, indent=2) + "\n").encode("utf-8"))
+    canvas = {
+        "version": 1,
+        "project_id": pid,
+        "title": title,
+        "canvas": {"width": width, "height": height, "background": "#ffffff"},
+        "layers": [],
+        "assets": [],
+        "updated_at": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
+    }
+    _write_canvas(project, canvas)
+    _atomic_write(project / "assets" / "index.json",
+                  (json.dumps({"version": 1, "assets": []}, ensure_ascii=False,
+                              indent=2) + "\n").encode("utf-8"))
     safe_title = html.escape(title)
     html_src = f"""<!doctype html>
 <html lang="zh-CN"><head><meta charset="utf-8">
@@ -276,8 +327,9 @@ h1{{font-size:{max(36, min(width, height) // 8)}px;color:#243746;margin:0}}
     _atomic_write(project / "source" / "index.svg", svg_src.encode("utf-8"))
     return {"ok": True, "project_id": pid,
             "project": project.relative_to(_workspace(ctx)).as_posix(),
-            "spec": spec,
-            "sources": ["source/index.html", "source/index.svg"]}
+            "spec": spec, "canvas": canvas,
+            "sources": ["source/index.html", "source/index.svg"],
+            "assets": []}
 
 
 def _source_for(project: Path, target: str) -> Path:
@@ -297,6 +349,25 @@ def _source_for(project: Path, target: str) -> Path:
     except ValueError as exc:
         raise DesignError("PATH_ESCAPE", "源文件路径越界") from exc
     return path
+
+
+async def asset_import(ctx: Any, project_id: str, source: str,
+                       name: str = "", role: str = "") -> dict[str, Any]:
+    """把工作区图片复制进项目 assets/，登记尺寸/哈希/来源/版本。"""
+    _guard_write(ctx)
+    project = _project(ctx, project_id)
+    try:
+        record = _ASSETS.import_asset(project, _workspace(ctx), source, name=name, role=role)
+    except _ASSETS.AssetError as exc:
+        raise DesignError("ASSET_INVALID", str(exc)) from exc
+    canvas = _read_canvas(project)
+    assets = canvas.setdefault("assets", [])
+    if record["id"] not in assets:
+        assets.append(record["id"])
+    _write_canvas(project, canvas)
+    return {"ok": True, "project_id": project_id, "asset": record,
+            "asset_id": record["id"], "path": record["path"],
+            "reused": bool(record.get("reused"))}
 
 
 async def design_modify(ctx: Any, project_id: str, target: str = "html",
@@ -333,6 +404,7 @@ async def design_modify(ctx: Any, project_id: str, target: str = "html",
         raise DesignError("HISTORY_FAILED", f"保存历史失败: {exc}") from exc
     _atomic_write(source, new_text.encode("utf-8"))
     _update_spec(project)
+    _write_canvas(project, _read_canvas(project))
     return {"ok": True, "project_id": project_id, "target": target,
             "source": source.relative_to(project).as_posix(),
             "bytes": source.stat().st_size,
@@ -408,6 +480,16 @@ async def design_inspect(ctx: Any, project_id: str) -> dict[str, Any]:
     project = _project(ctx, project_id)
     spec = _read_spec(project)
     issues: list[str] = []
+    try:
+        canvas = _read_canvas(project)
+    except DesignError as exc:
+        canvas = {}
+        issues.append(str(exc))
+    try:
+        assets = list((_ASSETS.load_index(project).get("assets") or []))
+    except _ASSETS.AssetError as exc:
+        assets = []
+        issues.append(str(exc))
     sources = []
     for target, rel in (("html", "source/index.html"), ("svg", "source/index.svg")):
         try:
@@ -440,6 +522,7 @@ async def design_inspect(ctx: Any, project_id: str) -> dict[str, Any]:
             except _RENDERER.RenderError as exc:
                 issues.append(f"{p.name}: {exc}")
     return {"ok": not issues, "project_id": project_id, "spec": spec,
+            "canvas": canvas, "assets": assets,
             "sources": sources, "renders": renders, "outputs": outputs,
             "issues": issues}
 
@@ -510,6 +593,11 @@ def setup(ctx: Any) -> None:
          "brief": "optional brief, <=20000 chars",
          "style": "editorial|playful|minimal"})
     ctx.register_tool(
+        "asset_import", lambda **kw: asset_import(ctx, **kw),
+        "Import a workspace image into a design project's assets/ and register metadata",
+        {"project_id": "project slug", "source": "workspace-relative image path",
+         "name": "optional filename", "role": "optional role, e.g. background"})
+    ctx.register_tool(
         "design_modify", lambda **kw: design_modify(ctx, **kw),
         "Modify the editable HTML or SVG source of a design project",
         {"project_id": "project slug", "target": "html|svg",
@@ -536,7 +624,7 @@ def setup(ctx: Any) -> None:
         {"project_id": "project slug", "format": "png|jpg|svg",
          "filename": "safe output filename", "source": "html|svg render",
          "overwrite": "bool, default false"})
-    ctx.log("visual-design 已就绪（六工具，HTML/SVG 渲染）")
+    ctx.log("visual-design 已就绪（6 个设计工具 + asset_import）")
 
 
 def teardown(ctx: Any) -> None:

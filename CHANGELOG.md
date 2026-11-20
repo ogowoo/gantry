@@ -14,6 +14,24 @@
 ### Fixed
 - 
 
+## [0.11.0-beta.30] - 2026-11-20
+
+### Added
+- image-gen 抽出统一 Provider 层：
+  - `providers/base.py`：请求/结果/图片校验（20 MB + Pillow 解码）；
+  - `providers/openai.py`、`providers/dashscope.py`；
+  - `providers/router.py`：auto 的 balanced/quality/cost 路由和回退；
+  - 旧 `image_generate` 工具与 `POST api/generate` 保持兼容。
+- visual-design 增加 `asset_import`：
+  - 把工作区图片导入项目 `assets/`；
+  - 登记 asset_id / 尺寸 / sha256 / 来源 / role / version；
+  - 同步到 `canvas.json` 的 assets 列表。
+- 项目新增 `canvas.json` 基础结构（canvas / layers / assets），
+  `design-spec.json` 指向 `canvas_file`；`design_inspect` 返回 canvas 与 assets。
+
+### Tests
+- 新增 Provider 路由、图片校验、`image_generate` 兼容、资产导入/canvas 测试。
+
 ## [0.11.0-beta.29] - 2026-11-20
 
 ### Added

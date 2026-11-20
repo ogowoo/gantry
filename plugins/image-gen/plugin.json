@@ -25,7 +25,9 @@
     "config": {
       "backend": "auto",
       "size": "1024*1024",
-      "model": ""
+      "model": "",
+      "auto_strategy": "balanced",
+      "allow_fallback": true
     },
     "allow_uninstall": true
   }

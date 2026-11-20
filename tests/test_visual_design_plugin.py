@@ -40,6 +40,33 @@ class VisualDesignPluginTests(unittest.IsolatedAsyncioTestCase):
             "brief": "测试",
         })
 
+    async def test_canvas_and_asset_import(self):
+        from PIL import Image
+        p = await self._project("资产测试", 320, 240)
+        root = self.ws / p["project"]
+        self.assertTrue((root / "canvas.json").is_file())
+        self.assertTrue((root / "assets" / "index.json").is_file())
+        gen = self.ws / "generated"
+        gen.mkdir()
+        img = gen / "scene.png"
+        Image.new("RGB", (64, 48), (20, 120, 200)).save(img)
+        r = await self.registry.execute("asset_import", {
+            "project_id": p["project_id"], "source": "generated/scene.png",
+            "role": "background"})
+        self.assertTrue(r["ok"])
+        self.assertTrue((root / r["path"]).is_file())
+        index = json.loads((root / "assets" / "index.json").read_text(encoding="utf-8"))
+        self.assertEqual(index["assets"][0]["width"], 64)
+        self.assertEqual(index["assets"][0]["height"], 48)
+        canvas = json.loads((root / "canvas.json").read_text(encoding="utf-8"))
+        self.assertIn(r["asset_id"], canvas["assets"])
+        inspect = await self.registry.execute("design_inspect", {"project_id": p["project_id"]})
+        self.assertTrue(inspect["canvas"])
+        self.assertEqual(len(inspect["assets"]), 1)
+        with self.assertRaises(Exception):
+            await self.registry.execute("asset_import", {
+                "project_id": p["project_id"], "source": "../outside.png"})
+
     async def test_html_render_1920x1080(self):
         p = await self._project("中文宣传海报", 1920, 1080)
         r = await self.registry.execute("design_render", {
@@ -84,7 +111,7 @@ class VisualDesignPluginTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(svg["path"].endswith("design.svg"))
 
     async def test_six_tools_registered(self):
-        names = {"design_create", "design_modify", "design_render",
+        names = {"design_create", "asset_import", "design_modify", "design_render",
                  "design_preview", "design_inspect", "design_export"}
         self.assertTrue(names.issubset(set(self.registry._tools)))
 

@@ -5,12 +5,13 @@ description: 用 visual-design 插件完成 2D 设计：创建项目、编辑 HT
 
 # visual-design 插件
 
-Gantry 的 `visual-design` 插件提供六个工具。它使用独立 Chromium 渲染，不依赖 GIMP/Photoshop。
+Gantry 的 `visual-design` 插件提供七个工具。它使用独立 Chromium 渲染，不依赖 GIMP/Photoshop。
 
 ## 工作流
 
 ```text
 design_create
+  → asset_import（可选：导入 image_generate 的生成图）
   → design_modify（改 source/index.html 或 index.svg）
   → design_render
   → design_inspect
@@ -25,13 +26,25 @@ design_create
 visual-projects/<project_id>/
 ├── brief.md
 ├── design-spec.json
+├── canvas.json              # canvas/layers/assets 基础结构
 ├── source/index.html
 ├── source/index.svg
-├── assets/
+├── assets/index.json
 ├── renders/
 ├── output/
 └── history/
 ```
+
+## 与 image-gen 配合
+
+```text
+image_generate(prompt="...")
+  → generated/xxx.png
+asset_import(project_id="...", source="generated/xxx.png", role="background")
+  → assets/asset_xxx.png + assets/index.json
+```
+
+`canvas.json` 目前只建立画布、空 layers 和资产 ID 列表；图层级编辑是后续能力，不要把它当作已完成的可视化编辑器。
 
 ## 规则
 
