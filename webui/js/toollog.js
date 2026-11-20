@@ -207,6 +207,7 @@ function renderMessages(messages,opts){
    数据来自后端快照原像 diff（不依赖 git）；任务跑完（completed/failed/cancelled）
    由 runtime 状态触发一次拉取。运行中不显示，避免数字一直跳。 */
 let lastChanges=null, changesSid='', changesState='', changesExpanded=false;
+let lastAutoPreviewKey='';
 const CHANGE_DONE=['completed','failed','cancelled','expired'];
 const CHG_LABEL={added:['A','新增'],modified:['M','修改'],deleted:['D','删除'],dir:['DIR','目录']};
 function maybeLoadChanges(state){
@@ -224,7 +225,7 @@ async function loadChanges(sid,state){
   lastChanges=d;changesSid=sid;changesState=String(state||'');
   renderChangesCard();
  }catch(e){}}
-function clearChanges(){lastChanges=null;changesSid='';changesState='';
+function clearChanges(){lastChanges=null;changesSid='';changesState='';lastAutoPreviewKey='';
  const c=document.getElementById('changesCard');if(c)c.remove()}
 function renderChangesCard(){
  const box=document.getElementById('chatlog');if(!box)return;
@@ -260,6 +261,18 @@ function renderChangesCard(){
  card.querySelectorAll('[data-diff]').forEach(el=>{el.onclick=()=>openChangeDiff(el.dataset.diff)});
  card.querySelectorAll('[data-preview]').forEach(el=>{
    el.onclick=(e)=>{e.stopPropagation();try{window.openPreview&&window.openPreview(el.dataset.preview)}catch(_){}}});
+ // 任务完成且登记了交付物时，首次自动打开第一条预览（用户关掉后同一任务不再弹）。
+ // 只在面板当前关闭时做，避免覆盖用户正在看的文件。
+ try{
+   const panel=document.getElementById('previewPanel');
+   if(deliv.length&&panel&&panel.hidden&&window.openPreview){
+     const key=String(changesSid)+'|'+String(deliv[0].path||'');
+     if(key!==lastAutoPreviewKey){
+       lastAutoPreviewKey=key;
+       setTimeout(()=>{try{window.openPreview(deliv[0].path)}catch(_){}},220);
+     }
+   }
+ }catch(_){}
  const mb=card.querySelector('.chg-more');
  if(mb)mb.onclick=()=>{changesExpanded=!changesExpanded;renderChangesCard()};
 }
