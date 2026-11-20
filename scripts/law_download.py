@@ -33,50 +33,87 @@ USER_AGENT = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
 MAX_PDF_BYTES = 100 * 1024 * 1024
 
 
+def _reload(page) -> None:
+    """WAF challenge/限流后重新加载官网，让页面重新拿 cookie。"""
+    page.wait_for_timeout(3000)
+    try:
+        page.goto(BASE + "/", wait_until="domcontentloaded", timeout=60000)
+        page.wait_for_timeout(6000)
+    except Exception:
+        pass
+
+
 def _safe_name(text: str, limit: int = 90) -> str:
     text = re.sub(r'[<>:"/\\|?*\x00-\x1f]+', "_", str(text or "")).strip(" .")
     return (text or "law")[:limit]
 
 
 def _listed_rows(page, body: dict[str, Any]) -> list[dict[str, Any]]:
-    data = page.evaluate("""async (body) => {
-      const r = await fetch('/law-search/search/list', {
-        method: 'POST', headers: {'Content-Type':'application/json'},
-        body: JSON.stringify(body)
-      });
-      return await r.json();
-    }""", body)
-    if int(data.get("code") or 0) != 200:
-        raise RuntimeError(f"搜索结果异常: {str(data)[:400]}")
-    return list(data.get("rows") or [])
+    last: Exception | None = None
+    for attempt in range(3):
+        try:
+            data = page.evaluate("""async (body) => {
+              const r = await fetch('/law-search/search/list', {
+                method: 'POST', headers: {'Content-Type':'application/json'},
+                body: JSON.stringify(body)
+              });
+              return await r.json();
+            }""", body)
+            if int(data.get("code") or 0) != 200:
+                raise RuntimeError(f"搜索结果异常: {str(data)[:400]}")
+            return list(data.get("rows") or [])
+        except Exception as exc:
+            last = exc
+            if attempt >= 2:
+                break
+            _reload(page)
+    raise RuntimeError(f"搜索结果连续失败: {last}")
 
 
 def _detail(page, bbbs: str) -> dict[str, Any]:
-    data = page.evaluate("""async (bbbs) => {
-      const u = '/law-search/search/flfgDetails?bbbs=' + encodeURIComponent(bbbs);
-      const r = await fetch(u, {headers: {'Accept':'application/json'}});
-      return {status: r.status, body: await r.json()};
-    }""", bbbs)
-    body = data.get("body") or {}
-    if data.get("status") != 200 or int(body.get("code") or 0) != 200:
-        raise RuntimeError(f"详情接口失败 {bbbs}: {str(body)[:400]}")
-    return dict(body.get("data") or {})
+    last: Exception | None = None
+    for attempt in range(3):
+        try:
+            data = page.evaluate("""async (bbbs) => {
+              const u = '/law-search/search/flfgDetails?bbbs=' + encodeURIComponent(bbbs);
+              const r = await fetch(u, {headers: {'Accept':'application/json'}});
+              return {status: r.status, body: await r.json()};
+            }""", bbbs)
+            body = data.get("body") or {}
+            if data.get("status") != 200 or int(body.get("code") or 0) != 200:
+                raise RuntimeError(f"详情接口失败 {bbbs}: {str(body)[:400]}")
+            return dict(body.get("data") or {})
+        except Exception as exc:
+            last = exc
+            if attempt >= 2:
+                break
+            _reload(page)
+    raise RuntimeError(f"详情连续失败 {bbbs}: {last}")
 
 
 def _download_url(page, bbbs: str, fmt: str = "pdf") -> str:
-    data = page.evaluate("""async ({bbbs, fmt}) => {
-      const u = '/law-search/download/pc?' + new URLSearchParams({
-        format: fmt, bbbs: bbbs, fileId: ''
-      });
-      const r = await fetch(u);
-      return await r.json();
-    }""", {"bbbs": bbbs, "fmt": fmt})
-    if int(data.get("code") or 0) != 200:
-        raise RuntimeError(f"下载链接失败 {bbbs}: {str(data)[:400]}")
-    url = str((data.get("data") or {}).get("url") or "")
-    if not url.startswith("https://"):
-        raise RuntimeError(f"下载链接不可用: {url[:200]}")
-    return url
+    last: Exception | None = None
+    for attempt in range(3):
+        try:
+            data = page.evaluate("""async ({bbbs, fmt}) => {
+              const u = '/law-search/download/pc?' + new URLSearchParams({
+                format: fmt, bbbs: bbbs, fileId: ''
+              });
+              const r = await fetch(u);
+              return await r.json();
+            }""", {"bbbs": bbbs, "fmt": fmt})
+            if int(data.get("code") or 0) != 200:
+                raise RuntimeError(f"下载链接失败 {bbbs}: {str(data)[:400]}")
+            url = str((data.get("data") or {}).get("url") or "")
+            if not url.startswith("https://"):
+                raise RuntimeError(f"下载链接不可用: {url[:200]}")
+            return url
+        except Exception as exc:
+            last = exc
+            if attempt >= 2:
+                break
+            _reload(page)
+    raise RuntimeError(f"下载链接连续失败 {bbbs}: {last}")
 
 
 def download_law(page, row: dict[str, Any], out_dir: Path, fmt: str = "pdf") -> dict[str, Any]:
@@ -113,6 +150,29 @@ def download_law(page, row: dict[str, Any], out_dir: Path, fmt: str = "pdf") -> 
     stem = _safe_name(f"{title}_{date}".strip("_"))
     target = out_dir / f"{stem}.{actual_fmt}"
     meta_path = out_dir / f"{stem}.meta.json"
+    if target.is_file() and target.stat().st_size > 0:
+        # 文件已存在（可能是上一次中断留下的），直接复用，避免覆盖时被
+        # Defender/旧进程短暂锁住而反复 WinError 32。
+        try:
+            old_meta = json.loads(meta_path.read_text(encoding="utf-8"))
+        except Exception:
+            old_meta = {}
+        old_meta.update(meta)
+        old_meta["file"] = target.name
+        old_meta["bytes"] = target.stat().st_size
+        old_meta["reused"] = True
+        if fmt == "pdf" and target.suffix.lower() == ".pdf":
+            with target.open("rb") as fh:
+                if fh.read(5) != b"%PDF-":
+                    target.unlink(missing_ok=True)
+                else:
+                    return old_meta
+        elif fmt == "pdf" and target.suffix.lower() == ".docx":
+            with target.open("rb") as fh:
+                if fh.read(2) == b"PK":
+                    return old_meta
+        else:
+            return old_meta
     url = _download_url(page, bbbs, actual_fmt)
     with httpx.stream("GET", url, timeout=120, follow_redirects=True,
                       headers={"User-Agent": USER_AGENT}) as response:
@@ -189,8 +249,8 @@ def main() -> int:
         browser = p.chromium.launch(headless=True)
         page = browser.new_page(viewport={"width": 1280, "height": 900},
                                 user_agent=USER_AGENT)
-        page.goto(BASE + "/", wait_until="networkidle", timeout=60000)
-        page.wait_for_timeout(800)
+        page.goto(BASE + "/", wait_until="domcontentloaded", timeout=60000)
+        page.wait_for_timeout(8000)
         for page_no in range(1, max(1, args.pages) + 1):
             body = {
                 "searchRange": 1, "sxrq": [], "gbrq": [], "searchType": 2,
