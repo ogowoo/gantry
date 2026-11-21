@@ -30,6 +30,7 @@
     "workspace_roots": [],
     "session_store": "data/agent.db",
     "max_total_steps": 1000,
+    "excel_read_timeout_seconds": 60,
     "max_steps_per_conversation": 80,
     "max_conversation_rollovers": 25,
     "context_token_budget": 80000,

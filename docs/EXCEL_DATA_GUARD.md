@@ -72,6 +72,9 @@ Gantry 处理不规范 Excel 时，`max_row` / `max_column` / UsedRange 可能�
 
 - `total_rows` 使用真实行数，不再使用超大 `max_row`；
 - 返回 `declared_range`、`detected_range`、`anomalies`、`confidence`；
+- `region=N` 只读指定数据区域，避免把不连续区域混在一起；
+- `excel_read_timeout_seconds`（默认 60 秒）保护读取；
+- `excel_validate(expect_headers=...)` 可检查关键表头；
 - 探测失败时回退原有有界读取，不会静默丢失文件。
 
 ### `excel_validate`
@@ -80,7 +83,8 @@ Gantry 处理不规范 Excel 时，`max_row` / `max_column` / UsedRange 可能�
 
 - 文件可读；
 - 探测范围有效；
-- 实际行数是否达到 `expect_rows`。
+- 实际行数是否达到 `expect_rows`；
+- 关键表头是否包含 `expect_headers`。
 
 ### Agent 行为
 
@@ -100,6 +104,7 @@ Gantry 处理不规范 Excel 时，`max_row` / `max_column` / UsedRange 可能�
   仍由 openpyxl 读取；
 - 探测有预算，超限会返回 `scan_truncated` 和较低置信度，不会假装完整；
 - 分块读取有检查点，但没有进程级内存上限；超大真实数据仍建议 chunk；
+- 读取有 `excel_read_timeout_seconds` 外层超时，但超时线程不能强制终止（Python 限制）；
 - 不自动修改原始工作簿；
 - 检查点按“文件路径 + sheet + 文件大小/mtime”隔离，不跨文件复用。
 

@@ -591,11 +591,11 @@ class ToolsCoreMixin:
             items.append({"name": "run_python", "description": "运行短 Python 计算；禁止用于修改项目文件", "arguments": {"code": "短 Python 代码"}})
         if self.allow_office:
             items += [
-                {"name": "read_excel", "description": "读取 Excel 工作表内容；先 excel_inspect，不要依赖 max_row/max_column；本工具会自动用真实数据范围保护读取；不要假设第一行是表头", "arguments": {"path": "相对路径", "sheet": "工作表名，默认全部", "max_rows": "每表最多行数，默认 200", "max_cols": "每表最多列数，默认 300，最大 1000", "safe": "默认 true：先探测真实范围再读"}},
+                {"name": "read_excel", "description": "读取 Excel 工作表内容；先 excel_inspect，不要依赖 max_row/max_column；本工具会自动用真实数据范围保护读取；不要假设第一行是表头", "arguments": {"path": "相对路径", "sheet": "工作表名，默认全部", "max_rows": "每表最多行数，默认 200", "max_cols": "每表最多列数，默认 300，最大 1000", "safe": "默认 true：先探测真实范围再读", "region": "数据区域序号，0=整个检测范围，默认 0"}},
                 {"name": "excel_inspect", "description": "探测 Excel 结构：真实数据范围、膨胀的 UsedRange、表头、数据区域、空行空列、合并单元格、隐藏行列、公式空结果；只读、不修改文件", "arguments": {"path": "相对路径", "sheet": "工作表名，默认全部", "max_cells": "扫描单元格预算，默认 200000", "max_rows": "扫描行预算，默认 200000", "max_seconds": "扫描时间预算，默认 8 秒"}},
                 {"name": "excel_preview", "description": "Excel 预览：表头、前几行、数据区域和异常；大表先看它再决定范围", "arguments": {"path": "相对路径", "sheet": "工作表名", "max_rows": "预览行数，默认 5"}},
                 {"name": "excel_read_chunk", "description": "Excel 分块读取并保存检查点；适合大表，按 chunk_rows 续跑，不一次读完整表", "arguments": {"path": "相对路径", "sheet": "工作表名", "chunk_rows": "每块行数，默认 500", "resume": "默认 true，从上次检查点继续", "reset": "默认 false，true=从头开始", "region": "数据区域序号，默认 1"}},
-                {"name": "excel_validate", "description": "验证 Excel 处理结果：文件可打开、范围/行数是否符合预期", "arguments": {"path": "相对路径", "sheet": "工作表名", "expect_rows": "期望至少多少行，0=不检查"}},
+                {"name": "excel_validate", "description": "验证 Excel 处理结果：文件可打开、范围/行数/关键表头是否符合预期", "arguments": {"path": "相对路径", "sheet": "工作表名", "expect_rows": "期望至少多少行，0=不检查", "expect_headers": "期望表头，数组或逗号分隔"}},
                 {"name": "write_excel", "description": "向 Excel 写入二维行数据（不存在则创建）", "arguments": {"path": "相对路径", "sheet": "工作表名，默认当前表", "rows": "二维数组", "start_cell": "起始单元格，默认 A1"}},
                 {"name": "read_docx", "description": "提取 Word 文档段落与表格文本", "arguments": {"path": "相对路径"}},
                 {"name": "write_docx", "description": "创建或追加 Word 文档段落", "arguments": {"path": "相对路径", "paragraphs": "字符串数组", "mode": "append 或 overwrite，默认 append"}},

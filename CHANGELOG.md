@@ -14,6 +14,18 @@
 ### Fixed
 - 
 
+## [0.11.0-beta.46] - 2026-11-21
+
+### Added
+- Excel 区域选择：`read_excel(region=N)` 只读指定数据区域；
+- `excel_validate(expect_headers=...)` 检查关键表头；
+- `excel_read_timeout_seconds`（默认 60 秒）读取超时保护；
+- `.xls` 明确提示“另存为 .xlsx/.xlsm”，不再落入 openpyxl 的含混错误。
+
+### Tests
+- 多区域分别读取、表头验证、超时相关路径；
+- 全量回归 1874 tests，OK (skipped=2)。
+
 ## [0.11.0-beta.45] - 2026-11-21
 
 ### Added
