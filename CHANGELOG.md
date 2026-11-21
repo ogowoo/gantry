@@ -14,6 +14,19 @@
 ### Fixed
 - 
 
+## [0.11.0-beta.42] - 2026-11-21
+
+### Added
+- 明确工具执行约束：用户指令里出现“调用/执行/使用 task_run/subagent”时，
+  final 前必须有成功的对应工具调用；`task_run` 还要求 completed > 0。
+- `required_tool_guard`：只说不做时拒绝 final，连续两次失败后 `required_tool_blocked`。
+- `task_run` / `subagent` / `subagent_many` 计入 productive action，不再被 noop guard 误拦。
+
+### Tests
+- 新增 required tool guard 测试；
+- 全量回归 1864 tests，OK (skipped=2)。
+- `task-run-subagent` 复测通过（94.3s，8 步）。
+
 ## [0.11.0-beta.41] - 2026-11-21
 
 ### Added

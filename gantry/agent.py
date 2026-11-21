@@ -70,7 +70,7 @@ AGENT_ACTION_SCHEMA: dict[str, Any] = {
 }
 
 
-_PRODUCTIVE_TOOLS = ("write_text", "write_text_b64", "append_text", "append_text_b64", "replace_text", "apply_patch", "exec", "pwsh", "copilot_file", "create_goal", "write_office", "edit_office", "send_outlook", "post_web", "subagent_many", "create_skill", "self_write_text_b64", "self_replace_text", "self_append_text_b64")
+_PRODUCTIVE_TOOLS = ("write_text", "write_text_b64", "append_text", "append_text_b64", "replace_text", "apply_patch", "exec", "pwsh", "copilot_file", "create_goal", "write_office", "edit_office", "send_outlook", "post_web", "subagent_many", "subagent", "task_run", "create_skill", "self_write_text_b64", "self_replace_text", "self_append_text_b64")
 
 
 class AgentPaused(Exception):
@@ -262,6 +262,40 @@ class AgentRunner(PromptMixin, ParseMixin, TextMixin):
                           f"开始第 {goal['rounds']}/{max_rounds} 轮；请继续推进目标，"
                           "只有确认目标已完成时才返回 final（否则会自动续轮）",
                 "error": ""}
+
+    @staticmethod
+    def _explicit_required_tools(text: str) -> list[str]:
+        """从用户指令里提取“明确要求调用”的工具名。
+
+        只认明确的调用动词 + 工具名，避免普通提到工具名就误拦 final：
+        - 调用/执行/使用/use/call/invoke task_run
+        - 用 subagent_many / subagent 执行
+        否定句（不要调用 X）不要求。
+        """
+        s = str(text or "")
+        low = s.lower()
+        found: list[str] = []
+        for tool in ("task_run", "subagent_many", "subagent"):
+            pat = rf"(调用|执行|使用|用|call|invoke|run|use)\s*[`\"']?{re.escape(tool)}\b"
+            for m in re.finditer(pat, low):
+                start = max(0, m.start() - 8)
+                if re.search(r"(不要|别|禁止|不得|do not|don't)\s*$", low[start:m.start()]):
+                    continue
+                found.append(tool)
+                break
+        return found
+
+    def _required_tool_satisfied(self, tool: str, steps: list[dict[str, Any]]) -> bool:
+        for step in steps:
+            if step.get("tool") != tool or step.get("status") != "ok":
+                continue
+            if tool == "task_run":
+                res = step.get("result")
+                if isinstance(res, dict) and int(res.get("completed") or 0) <= 0:
+                    continue
+                return True
+            return True
+        return False
 
     def _gate_message(self, strikes: int, auto: dict | None) -> str:
         """验证门拒绝消息：必须报出**逐字可照抄**的工具名与参数。
@@ -508,11 +542,14 @@ class AgentRunner(PromptMixin, ParseMixin, TextMixin):
         self._read_only_intent = any(w in _latest_ins.lower() for w in (
             "只读", "不要修改", "不要创建", "不要写入", "不得修改", "不得创建",
             "read-only", "readonly", "do not modify", "do not create", "don't modify"))
+        self._required_tools = self._explicit_required_tools(_latest_ins)
+        required_tool_strikes = 0
         # "动手"类工具：成功执行即视为真的产生了产出/改动（读取、验证类不算）。
         _action_tools = {"write_text", "append_text", "write_text_b64", "append_text_b64",
                          "replace_text", "make_directory", "copy_path", "move_path",
                          "delete_path", "run_python", "write_excel", "write_docx",
                          "outlook_send", "copilot_file", "skill_create", "memory_write",
+                         "subagent", "subagent_many", "task_run",
                          "self_write_text_b64", "self_append_text_b64", "self_replace_text"}
 
         def _did_action() -> bool:
@@ -1004,6 +1041,34 @@ class AgentRunner(PromptMixin, ParseMixin, TextMixin):
                                      last_error=_pre['error'])
                     break
                 if str(sub.get("type")) == "final":
+                    # ── 明确要求的工具调用 ──
+                    # 优先于 noop_guard：用户说“调用 task_run 执行”时，模型先回
+                    # “我打算执行”不能被 noop 提示吞掉而绕过真正执行检查。
+                    if self._required_tools:
+                        missing = [t for t in self._required_tools
+                                   if not self._required_tool_satisfied(t, all_steps)]
+                        if missing:
+                            required_tool_strikes += 1
+                            guard = {"step": total + 1, "status": "required_tool_guard",
+                                     "error": ("用户明确要求调用 "
+                                               + ", ".join(missing)
+                                               + "；当前没有成功的对应工具调用，拒绝 final。"
+                                               "请实际执行该工具并验证结果后再 final。"),
+                                     "required_tools": list(self._required_tools)}
+                            if required_tool_strikes >= 2:
+                                guard["status"] = "required_tool_blocked"
+                                guard["error"] += " 已停止自动重试，避免只说不做。"
+                                history.append(guard); all_steps.append(guard); self.step_saver(guard)
+                                self.state_saver(state="failed", total_steps=total + 1,
+                                                 recent_steps=history[-self.keep_recent:],
+                                                 last_error=guard["error"])
+                                return AgentResult(guard["error"], all_steps)
+                            history.append(guard); all_steps.append(guard); self.step_saver(guard)
+                            total += 1
+                            self.state_saver(total_steps=total,
+                                             recent_steps=history[-self.keep_recent:],
+                                             last_error=guard["error"])
+                            continue
                     if _needs_action and not _did_action() and noop_strikes < 2:
                         noop_strikes += 1
                         if _tried_action():
