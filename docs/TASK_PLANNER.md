@@ -16,6 +16,7 @@ AgentRunner 继续负责“取动作 → 执行工具 → 记录步骤”。
   "priority": 0,
   "executor": "main|subagent",
   "assignee": "",
+  "model": "optional per-task subagent model",
   "depends_on": ["another-task-id"],
   "input": {},
   "outputs": [{"path": "report.md"}],

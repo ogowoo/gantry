@@ -536,7 +536,7 @@ class _Extra:
                           retry_count: int | None = None,
                           max_retries: int | None = None,
                           executor: str = "", assignee: str = "",
-                          priority: int | None = None,
+                          model: str = "", priority: int | None = None,
                           title: str = "", description: str = "",
                           depends_on: list[Any] | None = None,
                           task_input: Any = None,
@@ -559,6 +559,8 @@ class _Extra:
             changes["executor"] = executor
         if assignee:
             changes["assignee"] = assignee
+        if model:
+            changes["model"] = model
         if title:
             changes["title"] = title
         if description:
@@ -569,6 +571,31 @@ class _Extra:
         except TaskPlanError as exc:
             raise ExtraToolError(str(exc)) from exc
         return self._project_plan(plan)
+
+    async def task_run(self, plan_id: str = "", model: str = "",
+                       max_concurrency: int = 0, timeout_seconds: float = 0,
+                       max_steps: int = 0) -> dict[str, Any]:
+        """按任务图调度 subagent ready 任务，并审查产物/返工。"""
+        if self.subagent_fn is None:
+            raise ExtraToolError("当前通道不支持子代理，无法执行任务图")
+        store = self._task_store()
+        plan = store.get_plan(self._sid(), plan_id)
+        if not plan:
+            raise ExtraToolError("当前会话没有任务计划；先用 task_plan 建立")
+        from .orchestrator import run_plan
+
+        cap = int(max_concurrency or self.config.get("task_run_max_concurrency", 4) or 4)
+        timeout = float(timeout_seconds or self.config.get("task_run_timeout_seconds", 600) or 600)
+        try:
+            out = await run_plan(
+                store, self._sid(), self.subagent_fn, model=model,
+                max_concurrency=cap, timeout_seconds=timeout,
+                max_steps=self._steps(max_steps),
+                workspace=self._active_reg().root)
+        except TaskPlanError as exc:
+            raise ExtraToolError(str(exc)) from exc
+        self._project_plan(store.get_plan(self._sid(), plan_id) or plan)
+        return out
 
     async def task_cancel(self, task_id: str = "", plan_id: str = "") -> dict[str, Any]:
         """取消一个任务或整个计划（已完成任务不会被取消）。"""
@@ -779,7 +806,9 @@ class _Extra:
                         return {"index": idx, "task": task[:120], "ok": not err,
                                 "agent_id": out.get("agent_id"), "steps": out.get("steps"),
                                 "content": out.get("content") or "",
-                                **({"error": err} if err else {})}
+                                **({"error": err} if err else {}),
+                                **({"verification": out["verification"]}
+                                   if out.get("verification") else {})}
                     except Exception as exc:              # noqa: BLE001 单项失败要能继续
                         return {"index": idx, "task": task[:120], "ok": False,
                                 "error": f"{type(exc).__name__}: {exc}"}
@@ -793,7 +822,9 @@ class _Extra:
                     results.append({"index": idx, "task": task[:120], "ok": not err,
                                     "agent_id": out.get("agent_id"), "steps": out.get("steps"),
                                     "content": out.get("content") or "",
-                                    **({"error": err} if err else {})})
+                                    **({"error": err} if err else {}),
+                                    **({"verification": out["verification"]}
+                                       if out.get("verification") else {})})
                 except Exception as exc:                      # noqa: BLE001 单项失败要能继续
                     results.append({"index": idx, "task": task[:120], "ok": False,
                                     "error": f"{type(exc).__name__}: {exc}"})
@@ -933,7 +964,7 @@ _GROUPS: dict[str, tuple[str, ...]] = {
     "web": ("web_fetch",),
     "shell": ("pwsh", "job_list", "job_output", "job_kill"),
     "plan": ("todo_write", "present", "task_plan", "task_read", "task_update",
-             "task_cancel", "task_resume", "task_replan"),
+             "task_run", "task_cancel", "task_resume", "task_replan"),
     "vision": ("read_image",),
     "ask": ("ask_user_question",),
     "goal": ("create_goal", "get_goal", "update_goal"),
@@ -972,7 +1003,8 @@ _DESCRIPTIONS: dict[str, tuple[str, dict[str, Any]]] = {
                      "outputs": "产物数组（路径/元数据）", "acceptance": "验收条件数组",
                      "failure_reason": "失败原因", "retry_count": "重试次数（可选）",
                      "max_retries": "最大重试次数", "executor": "main|subagent",
-                     "assignee": "执行者/子代理 id", "priority": "优先级（越大越先）",
+                     "assignee": "执行者/子代理 id", "model": "该任务的子代理模型（可选；空=task_run 的 model）",
+                     "priority": "优先级（越大越先）",
                      "title": "标题", "description": "描述", "depends_on": "依赖任务 ID 数组",
                      "task_input": "任务输入（任意 JSON）", "plan_id": "计划 ID（可选）"}),
     "task_cancel": ("取消一个任务或整个计划；取消任务会让下游 blocked，已完成任务不受影响",
@@ -983,6 +1015,13 @@ _DESCRIPTIONS: dict[str, tuple[str, dict[str, Any]]] = {
                     "已完成任务不重做",
                     {"updates": "数组；每项 {task_id, depends_on?, title?, ...} 或 {task_id, remove:true}",
                      "plan_id": "计划 ID（可选）"}),
+    "task_run": ("按任务图自动调度 executor=subagent 的 ready 任务：按依赖/优先级、并发和"
+                 "产物冲突执行，审查实际产物，失败按 max_retries 返工并写入任务历史。"
+                 "executor=main 的任务留给主 Agent，会出现在 needs_main。",
+                 {"plan_id": "计划 ID（可选）", "model": "子代理模型（可选）",
+                  "max_concurrency": "最大并发，默认 agent.task_run_max_concurrency 或 4",
+                  "timeout_seconds": "单任务超时，默认 600",
+                  "max_steps": "每个子任务步数上限（默认 agent.subagent_max_steps）"}),
     "read_image": ("读取图片元数据（格式/尺寸/大小）；analyze=true 时交给 Copilot 视觉描述",
                    {"path": "图片相对路径", "question": "要问 Copilot 的问题（可选）",
                     "analyze": "是否调用视觉分析，默认 true"}),

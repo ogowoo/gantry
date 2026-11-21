@@ -14,6 +14,28 @@
 ### Fixed
 - 
 
+## [0.11.0-beta.35] - 2026-11-21
+
+### Added
+- Batch 2 Agent Orchestrator：
+  - 新增 `gantry/orchestrator.py`：按 TaskStore 的 ready/依赖/优先级调度
+    `executor=subagent` 任务，复用 `subagents.run_subagent`；
+  - 支持并发上限、单任务超时、产物路径冲突保护、失败下游阻塞；
+  - 支持按 `max_retries` 返工，返工原因写入任务历史；
+  - `executor=main` 的任务返回 `needs_main`，不交给子 Agent；
+  - 任务可声明自己的子 Agent `model`。
+- 新增 `gantry/task_verify.py`：最小产物审查（文件存在/非空/内容、
+  final_contains、tests_pass/syntax_pass）；没有机器可验证条件时明确
+  `verified=False`，不把文本声称当验证。
+- 子 Agent 结果新增真实 `verification` 证据（来自时间线里的
+  validate_python / run_unittest 成功步骤），不依赖它自称完成。
+- 新工具 `task_run`，并加入规划提示词、中英工具描述/参数。
+- 文档：`docs/TASK_ORCHESTRATOR.md`，补充 Task Planner 的 per-task model。
+
+### Tests
+- 新增 orchestrator/产物审查/子 Agent 证据测试；
+- 全量回归 1821 tests，OK (skipped=2)。
+
 ## [0.11.0-beta.34] - 2026-11-21
 
 ### Added

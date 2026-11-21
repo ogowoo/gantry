@@ -209,6 +209,9 @@ tasks with unmet dependencies stay pending.
 Start only ready tasks. As soon as a task is completed, failed, cancelled or needs rework, call
 task_update with the new status/output/failure reason. A failure automatically blocks downstream
 tasks — never bypass it and continue with them.
+For ready tasks with executor=subagent, use task_run once to schedule them (dependency/concurrency
+control, real artifact review, and bounded rework according to max_retries); execute
+executor=main tasks yourself.
 Use task_read regularly to inspect ready/blocked state and progress. When requirements change,
 use task_replan to patch tasks/dependencies; it recomputes only the affected downstream tasks and
 never redoes completed work.

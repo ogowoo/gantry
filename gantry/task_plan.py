@@ -44,6 +44,7 @@ CREATE TABLE IF NOT EXISTS task_items (
   priority INTEGER NOT NULL DEFAULT 0,
   executor TEXT NOT NULL DEFAULT 'main',
   assignee TEXT NOT NULL DEFAULT '',
+  model TEXT NOT NULL DEFAULT '',
   depends_on TEXT NOT NULL DEFAULT '[]',
   input TEXT NOT NULL DEFAULT 'null',
   outputs TEXT NOT NULL DEFAULT '[]',
@@ -181,6 +182,7 @@ def normalize_tasks(raw_tasks: Iterable[Any], *, plan_id: str = "") -> list[dict
             "priority": int(raw.get("priority") or 0),
             "executor": _norm_executor(raw.get("executor")),
             "assignee": str(raw.get("assignee") or "")[:200],
+            "model": str(raw.get("model") or "")[:200],
             "depends_on": deps,
             "input": raw.get("input"),
             "outputs": list(raw.get("outputs") or []),
@@ -337,6 +339,9 @@ class TaskStore:
     def _init(self) -> None:
         with self._connect() as con:
             con.executescript(SCHEMA)
+            cols = {str(r["name"]) for r in con.execute("PRAGMA table_info(task_items)")}
+            if "model" not in cols:
+                con.execute("ALTER TABLE task_items ADD COLUMN model TEXT NOT NULL DEFAULT ''")
 
     @staticmethod
     def _task_from_row(row: sqlite3.Row) -> dict[str, Any]:
@@ -348,6 +353,7 @@ class TaskStore:
             "priority": int(row["priority"]),
             "executor": str(row["executor"]),
             "assignee": str(row["assignee"]),
+            "model": str(row["model"]) if "model" in row.keys() else "",
             "depends_on": _jload(row["depends_on"], []),
             "input": _jload(row["input"], None),
             "outputs": _jload(row["outputs"], []),
@@ -396,11 +402,12 @@ class TaskStore:
         for i, task in enumerate(plan["tasks"]):
             con.execute(
                 "INSERT INTO task_items(plan_id,task_id,ordinal,title,description,status,priority,"
-                "executor,assignee,depends_on,input,outputs,history,acceptance,failure_reason,"
-                "retry_count,max_retries,created,updated) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                "executor,assignee,model,depends_on,input,outputs,history,acceptance,failure_reason,"
+                "retry_count,max_retries,created,updated) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (plan["plan_id"], task["id"], i, task["title"], task.get("description") or "",
                  task.get("status") or "pending", int(task.get("priority") or 0),
                  task.get("executor") or "main", task.get("assignee") or "",
+                 task.get("model") or "",
                  _jdump(task.get("depends_on") or []), _jdump(task.get("input")),
                  _jdump(task.get("outputs") or []), _jdump(task.get("history") or []),
                  _jdump(task.get("acceptance") or []), task.get("failure_reason") or "",
@@ -493,7 +500,7 @@ class TaskStore:
                         raise TaskPlanError("任务不能依赖自己")
                     deps.append(dep_id)
                 task["depends_on"] = sorted(set(deps))
-            for key in ("title", "description", "priority", "executor", "assignee",
+            for key in ("title", "description", "priority", "executor", "assignee", "model",
                         "input", "outputs", "acceptance", "failure_reason", "retry_count",
                         "max_retries"):
                 if key in changes and changes[key] is not None:
@@ -505,7 +512,7 @@ class TaskStore:
                         task[key] = list(changes[key] or [])
                     elif key == "acceptance":
                         task[key] = list(changes[key] or [])
-                    elif key in ("title", "description", "assignee"):
+                    elif key in ("title", "description", "assignee", "model"):
                         task[key] = str(changes[key] or "")
                     else:
                         task[key] = changes[key]
@@ -549,6 +556,24 @@ class TaskStore:
                 "SELECT plan_id FROM task_plans WHERE session_id=? ORDER BY updated DESC LIMIT 1",
                 (session_id,)).fetchone()
         return str(row["plan_id"]) if row else ""
+
+    def note(self, session_id: str, task_id: str, event: str, detail: str = "",
+             *, plan_id: str = "") -> dict[str, Any]:
+        """追加一条审查/编排历史，不改变任务状态。"""
+        with self._connect() as con:
+            pid = self._find_plan_id(con, str(session_id or ""), plan_id)
+            plan = self._load(con, pid)
+            if not plan:
+                raise TaskPlanError("当前会话没有任务计划")
+            task = _by_id(plan["tasks"]).get(str(task_id))
+            if not task:
+                raise TaskPlanError(f"没有任务 {task_id}")
+            task.setdefault("history", []).append(
+                {"time": _now(), "event": str(event or "note")[:80],
+                 "detail": str(detail or "")[:2000]})
+            task["updated"] = _now()
+            self._write_plan(con, plan)
+            return self._load(con, pid) or plan
 
     @staticmethod
     def _block_downstream(tasks: list[dict[str, Any]], task_id: str) -> None:
@@ -674,7 +699,7 @@ class TaskStore:
                             raise TaskPlanError("任务不能依赖自己")
                         deps.append(dep_id)
                     task["depends_on"] = sorted(set(deps))
-                for key in ("title", "description", "priority", "executor", "assignee",
+                for key in ("title", "description", "priority", "executor", "assignee", "model",
                             "acceptance", "input", "outputs"):
                     if key in patch and patch[key] is not None:
                         task[key] = patch[key]

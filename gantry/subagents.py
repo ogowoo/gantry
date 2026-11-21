@@ -16,6 +16,7 @@ from __future__ import annotations
 import asyncio
 import time
 import uuid
+from typing import Any
 
 from . import bridge as b
 
@@ -25,6 +26,23 @@ _SUBAGENT_MAX_DEPTH = 1          # 防递归：子代理不能再开子代理
 # "不能再创建子代理"，只有重启才恢复。这里按"子会话是否仍在跑 + TTL"自愈。
 _SUBAGENT_ACTIVE: dict[str, float] = {}
 _SUBAGENT_STALE_SECONDS = 1800
+
+
+def _verification_from_steps(steps: list[dict]) -> dict[str, Any]:
+    """从子 Agent 时间线提取真实验证证据（供父 Agent 审查，不是听它自称）。"""
+    syntax = tests = False
+    for step in steps or []:
+        if str(step.get("status")) != "ok":
+            continue
+        tool = str(step.get("tool") or "")
+        result = step.get("result")
+        if not isinstance(result, dict) or not result.get("passed"):
+            continue
+        if tool == "validate_python":
+            syntax = True
+        elif tool == "run_unittest":
+            tests = True
+    return {"syntax_passed": syntax, "tests_passed": tests}
 
 
 def subagent_depth() -> int:
@@ -188,7 +206,8 @@ async def _drive_child(child_sid: str, task: str, model_id: str, max_steps: int,
             b.AGENT_SESSIONS.patch(child_sid, state="completed")
             return {"agent_id": child_sid, "description": (description or task)[:120],
                     "content": result.content, "steps": len(result.steps),
-                    "model": model_id, "error": None}
+                    "model": model_id, "error": None,
+                    "verification": _verification_from_steps(result.steps)}
         except Exception as exc:
             b.AGENT_SESSIONS.patch(child_sid, state="failed", last_error=str(exc))
             return {"agent_id": child_sid, "description": (description or task)[:120],

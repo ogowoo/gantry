@@ -72,6 +72,24 @@ class TaskToolTests(unittest.TestCase):
             [{"task_id": "b", "title": "B", "depends_on": ["a"]}]))
         self.assertEqual([t["id"] for t in plan["tasks"]], ["a", "b"])
 
+    def test_task_run_dispatches_and_reviews_subagent(self):
+        root = Path(self.tmp.name)
+
+        async def fake(task, description, model, max_steps):
+            (root / "out.txt").write_text("artifact", encoding="utf-8")
+            return {"content": "done", "agent_id": "sub-1"}
+
+        self.impl.subagent_fn = fake
+        asyncio.run(self.impl.task_plan("g", [{
+            "id": "a", "title": "A", "executor": "subagent",
+            "outputs": [{"path": "out.txt"}],
+            "max_retries": 0,
+        }]))
+        out = asyncio.run(self.impl.task_run())
+        self.assertEqual(out["completed"], 1)
+        self.assertEqual(out["verified"], 1)
+        self.assertTrue((root / "out.txt").is_file())
+
 
 if __name__ == "__main__":
     unittest.main()
