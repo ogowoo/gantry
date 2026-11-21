@@ -200,6 +200,20 @@ is new).
 Sub-agents cannot see this conversation, so the task text must be self-contained: goal, paths,
 acceptance criteria, and what to return. Sub-agents may not spawn further sub-agents (depth limit
 1) and inherit the current workspace and session-level approvals.""",
+    "task_plan": """\
+Task graph (complex tasks):
+For complex work (three or more sub-goals, multiple files, or ordered dependencies), create a
+persistent task graph first with task_plan(goal, tasks). Give every task at least id, title,
+depends_on, executor and acceptance; outputs are strongly recommended. Root tasks become ready;
+tasks with unmet dependencies stay pending.
+Start only ready tasks. As soon as a task is completed, failed, cancelled or needs rework, call
+task_update with the new status/output/failure reason. A failure automatically blocks downstream
+tasks — never bypass it and continue with them.
+Use task_read regularly to inspect ready/blocked state and progress. When requirements change,
+use task_replan to patch tasks/dependencies; it recomputes only the affected downstream tasks and
+never redoes completed work.
+Do not build a task graph for simple work that takes only a few steps and has no dependencies —
+just do it.""",
     "deliverable": """\
 Deliverable wording: after a produced file (report / checklist / script) is written to the
 workspace, state in your answer that **it already exists locally** — give the workspace-relative
