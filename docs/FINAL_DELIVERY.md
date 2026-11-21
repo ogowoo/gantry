@@ -26,6 +26,8 @@
 - `excel_inspect`：不信任 UsedRange，流式识别真实范围与异常；
 - `read_excel(safe=true)`：使用 detected_range，避免按百万行 max_row 读取；
 - `excel_validate`：检查输出文件可读、范围和行数；
+- 表头/数据区域识别、needs_confirmation；
+- excel_preview + excel_read_chunk 检查点续跑；
 - 扫描预算与 truncated/confidence，不假装完整；
 - 详见 `docs/EXCEL_DATA_GUARD.md`。
 
@@ -54,7 +56,7 @@
 最终全量：
 
 ```text
-Ran 1872 tests...
+Ran 1874 tests...
 OK (skipped=2)
 ```
 
