@@ -21,6 +21,14 @@
 - `gantry/error_taxonomy.py`：网络/超时/限流/权限/参数/业务/内部错误
 - `gantry/security.py`：风险分级、审批建议、不可信内容规则、配置审计
 
+## 2.5 Excel Data Guard（本轮新增）
+
+- `excel_inspect`：不信任 UsedRange，流式识别真实范围与异常；
+- `read_excel(safe=true)`：使用 detected_range，避免按百万行 max_row 读取；
+- `excel_validate`：检查输出文件可读、范围和行数；
+- 扫描预算与 truncated/confidence，不假装完整；
+- 详见 `docs/EXCEL_DATA_GUARD.md`。
+
 ## 3. 主要兼容性
 
 - 未重写 `AgentRunner.run()`；旧 API/工具名/插件接口保持可用。
@@ -46,7 +54,7 @@
 最终全量：
 
 ```text
-Ran 1866 tests...
+Ran 1872 tests...
 OK (skipped=2)
 ```
 

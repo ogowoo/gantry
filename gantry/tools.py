@@ -68,7 +68,8 @@ TOOL_GROUPS: dict[str, tuple[str, ...]] = {
              "copilot_file"),
     "delete": ("delete_path",),
     "python": ("run_python",),
-    "office": ("read_excel", "write_excel", "read_docx", "write_docx", "read_pptx", "read_pdf"),
+    "office": ("read_excel", "write_excel", "excel_inspect", "excel_validate",
+               "read_docx", "write_docx", "read_pptx", "read_pdf"),
     "outlook": ("outlook_unread", "outlook_read", "outlook_search", "outlook_send"),
     # copilot 组只剩"上传文件给 Copilot 分析"，关键字围绕附件/图片
     "copilot": ("copilot_attach",),
@@ -319,6 +320,8 @@ class ToolsCoreMixin:
             "memory_forget": self.memory_forget,
             "read_excel": self.read_excel,
             "write_excel": self.write_excel,
+            "excel_inspect": self.excel_inspect,
+            "excel_validate": self.excel_validate,
             "read_docx": self.read_docx,
             "write_docx": self.write_docx,
             "read_pptx": self.read_pptx,
@@ -585,7 +588,9 @@ class ToolsCoreMixin:
             items.append({"name": "run_python", "description": "运行短 Python 计算；禁止用于修改项目文件", "arguments": {"code": "短 Python 代码"}})
         if self.allow_office:
             items += [
-                {"name": "read_excel", "description": "读取 Excel 工作表内容；不要假设第一行是表头，建议先 max_rows=15/max_cols=200 探测，再按目标列读取；尾随空列会裁掉", "arguments": {"path": "相对路径", "sheet": "工作表名，默认全部", "max_rows": "每表最多行数，默认 200", "max_cols": "每表最多列数，默认 300，最大 1000"}},
+                {"name": "read_excel", "description": "读取 Excel 工作表内容；先 excel_inspect，不要依赖 max_row/max_column；本工具会自动用真实数据范围保护读取；不要假设第一行是表头", "arguments": {"path": "相对路径", "sheet": "工作表名，默认全部", "max_rows": "每表最多行数，默认 200", "max_cols": "每表最多列数，默认 300，最大 1000", "safe": "默认 true：先探测真实范围再读"}},
+                {"name": "excel_inspect", "description": "探测 Excel 结构：真实数据范围、膨胀的 UsedRange、空行空列、合并单元格、隐藏行列、公式空结果；只读、不修改文件", "arguments": {"path": "相对路径", "sheet": "工作表名，默认全部", "max_cells": "扫描单元格预算，默认 200000", "max_rows": "扫描行预算，默认 200000", "max_seconds": "扫描时间预算，默认 8 秒"}},
+                {"name": "excel_validate", "description": "验证 Excel 处理结果：文件可打开、范围/行数是否符合预期", "arguments": {"path": "相对路径", "sheet": "工作表名", "expect_rows": "期望至少多少行，0=不检查"}},
                 {"name": "write_excel", "description": "向 Excel 写入二维行数据（不存在则创建）", "arguments": {"path": "相对路径", "sheet": "工作表名，默认当前表", "rows": "二维数组", "start_cell": "起始单元格，默认 A1"}},
                 {"name": "read_docx", "description": "提取 Word 文档段落与表格文本", "arguments": {"path": "相对路径"}},
                 {"name": "write_docx", "description": "创建或追加 Word 文档段落", "arguments": {"path": "相对路径", "paragraphs": "字符串数组", "mode": "append 或 overwrite，默认 append"}},

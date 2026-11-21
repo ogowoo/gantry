@@ -14,6 +14,23 @@
 ### Fixed
 - 
 
+## [0.11.0-beta.44] - 2026-11-21
+
+### Added
+- Excel Data Guard：
+  - `excel_inspect` 流式解析 xlsx，识别真实数据范围、膨胀 UsedRange、
+    空公式、合并单元格、隐藏行列、数据空洞和稀疏列；
+  - 扫描预算 `max_cells` / `max_rows` / `max_seconds`，超限返回 truncated + 低置信度；
+  - `read_excel(safe=true)` 使用 detected_range 读取，`total_rows` 不再信任 max_row；
+  - `excel_validate` 验证输出文件可读、范围和期望行数；
+  - Agent 提示词增加 Excel 先 inspect、再 read、再 validate 的规则；
+  - 文档 `docs/EXCEL_DATA_GUARD.md`。
+
+### Tests
+- 新增异常 Excel 测试集：500 行数据声明 XFD1048576、正常文件、空 Sheet、多 Sheet、
+  安全读取、结果验证；
+- 全量回归 1872 tests，OK (skipped=2)。
+
 ## [0.11.0-beta.43] - 2026-11-21
 
 ### Fixed
