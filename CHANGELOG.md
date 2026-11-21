@@ -14,6 +14,25 @@
 ### Fixed
 - 
 
+## [0.11.0-beta.41] - 2026-11-21
+
+### Added
+- 只读任务 Agent 层强约束：用户明确“只读/不要修改/不要创建”时，
+  `MUTATING_TOOLS` 直接记为 `read_only_guard`，不会落盘。
+- 任务图最终验收门 `verify_task_plan`：主 Agent / 子 Agent final 前检查
+  未完成任务和已完成任务的 outputs/acceptance；连续 3 次拒绝后 failed。
+- 提供商单回合硬超时 `agent.provider_turn_timeout_seconds`（默认 120 秒），
+  避免“连接不断开但永不返回”的 0 步假死。
+
+### Benchmark
+- 完整 30 条跑完：28/30 通过（93.33%），验收率 98.52%；
+- `read-analyze`、`debug-test`、只读任务均已通过；
+- 剩余 `task-run-subagent`（模型只给出口头步骤）、`final-markdown`
+  （180 秒 0 步 Provider 卡住）。
+
+### Tests
+- 全量回归 1862 tests，OK (skipped=2)。
+
 ## [0.11.0-beta.40] - 2026-11-21
 
 ### Added

@@ -14,6 +14,7 @@ from fastapi import HTTPException
 
 from . import bridge as b
 from .brand import MARKER_AGENT, MARKER_TURN, env
+from .task_gate import verify_task_plan
 
 
 async def wait_agent_answer(previous: str = "", pause_check=None, interrupt_check=None,
@@ -572,7 +573,10 @@ async def run_agent(req: b.AgentRequest, attach_paths: list | None = None):
                         step_finish=lambda no, st='done': (
                             b.AGENT_SESSIONS.finish_step(sid, _conv_index(sid), no, st),
                             b.runtime_update(sid, phase="thinking", detail=f"第 {no} 步已完成（{st}）")),
-                        approval_check=lambda tool,h: b.AGENT_SESSIONS.take_approval(sid, tool, h))
+                        approval_check=lambda tool,h: b.AGENT_SESSIONS.take_approval(sid, tool, h),
+                        final_gate=lambda content: verify_task_plan(
+                            sid, T.root, content,
+                            allow_commands=bool(b.AGENT_CFG.get("task_gate_allow_commands", False))))
         try:
             b.PLUGINS.emit("session_start", session_id=sid, task=effective_task, model=req.model)
             # 按 todo 自动派子代理（默认关：config.agent.auto_team_enabled）。

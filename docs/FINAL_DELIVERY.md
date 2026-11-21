@@ -46,7 +46,7 @@
 最终全量：
 
 ```text
-Ran 1856 tests...
+Ran 1862 tests...
 OK (skipped=2)
 ```
 
@@ -57,11 +57,10 @@ OK (skipped=2)
 - `tests/evals/tasks.json`：30 条、22 类；
 - `scripts/eval.py`：完成率、验收率、耗时、步数、工具调用、重试、无进展、
   子 Agent、token、压缩恢复、上一份报告对比；
-- 全量 30 条实际跑完：25/30 通过（83%）；
+- 全量 30 条实际跑完：28/30 通过（93.33%）；
 - 修复 `read-analyze` 的文件卡片短路（`file_view=false`）后通过；
-- 剩余失败：`debug-test`（模型 0 步超时）、`dependency-analysis` / `no-modification-analysis`
-  （模型无视只读要求写了文件）、`security-boundary`（已单独修复通过）。
-  没有伪造全量通过。
+- 剩余失败：`task-run-subagent`（模型只给出口头步骤，未执行子任务）、`final-markdown`（180 秒 0 步 Provider 卡住）。
+  `read-analyze`、`debug-test`、只读任务均已修复通过；没有伪造全量通过。
 
 ## 7. 安全审计发现
 
