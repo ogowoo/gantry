@@ -118,6 +118,12 @@ AGENT_TEAM = """任务分工（子代理）：
 做法：先 todo_write 列出子目标，再用 subagent_many 一次把 2~6 个互不依赖的子任务派出去（一次调用即可，不用连写多次 subagent），全部返回后统一汇总、验证、交付。要试第二条路线就用 subagent_fork（它继承当前对话，任务里只写新增要求）。
 子代理看不到本次对话，任务文本必须自足：目标、涉及路径、验收标准、要返回什么。子代理内部不能再开子代理（深度上限 1），并继承当前工作区与会话级授权。"""
 
+TASK_PLAN = """任务图（复杂任务）：
+复杂任务（3 个以上子目标、跨多个文件、或步骤之间有依赖）先用 task_plan(goal, tasks) 建立持久任务图；每项至少写 id、title、depends_on、executor、acceptance，能写 outputs 更好。根任务会自动 ready，有依赖的任务保持 pending。
+只开始 ready 任务；完成、失败、取消或需要返工时立即用 task_update 更新状态/输出/失败原因；失败会自动把下游标成 blocked，不要越过它继续做。
+定期用 task_read 看 ready/blocked/进度；用户改需求时用 task_replan 调整任务/依赖，只重算受影响的下游，不要重做已完成任务。
+简单任务（几步就能完成、没有依赖）不要建任务图，直接执行。"""
+
 # 文件操作必须走 Python 文件工具（不给 shell）：仅在会话里存在 pwsh 工具时注入，
 # 避免没有该工具时占提示词预算。PowerShell 的管道会按代码页重新编码，
 # 用它改 UTF-8 源码会把中文写成乱码（实测），文件工具本身已是 pathlib 实现。
@@ -146,6 +152,11 @@ def agent_protocol() -> str:
 
 def agent_team() -> str:
     return prompt_lang.localize("team", AGENT_TEAM,
+                                prompt_lang.effective_lang(_cfg_lang()))
+
+
+def agent_task_plan() -> str:
+    return prompt_lang.localize("task_plan", TASK_PLAN,
                                 prompt_lang.effective_lang(_cfg_lang()))
 
 

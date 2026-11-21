@@ -47,6 +47,7 @@ from pathlib import Path
 from typing import Any, Awaitable, Callable
 
 from .subproc import hidden_kwargs
+from .task_plan import TaskPlanError, TaskStore
 
 try:  # httpx 是 FastAPI 的既有依赖；缺失时 web 组降级为 urllib
     import httpx
@@ -108,7 +109,8 @@ class _Extra:
                  workflow_fn: Callable[..., Awaitable[dict]] | None = None,
                  subagent_send_fn: Callable[..., Awaitable[dict]] | None = None,
                  subagent_fork_fn: Callable[..., Awaitable[dict]] | None = None,
-                 subagent_list_fn: Callable[..., Awaitable[dict]] | None = None) -> None:
+                 subagent_list_fn: Callable[..., Awaitable[dict]] | None = None,
+                 task_store: TaskStore | None = None) -> None:
         self.reg = registry
         self.config = config or {}
         self.vision_fn = vision_fn
@@ -132,6 +134,8 @@ class _Extra:
         # 按会话隔离（原先全局共享：两个会话并发会互相看到对方的清单）
         self._todos: dict[str, list[dict[str, Any]]] = {}
         self._deliverables: dict[str, list[dict[str, Any]]] = {}
+        # 任务图存储：默认 data/tasks.db；测试/嵌入方可以注入独立路径。
+        self._task_store_obj = task_store
         self._pending_questions: dict[str, dict[str, Any]] = {}
 
     def _active_reg(self):
@@ -490,6 +494,107 @@ class _Extra:
         return {"todos": clean, "count": len(clean),
                 "pending": sum(1 for t in clean if t["status"] != "completed")}
 
+    def _task_store(self) -> TaskStore:
+        if self._task_store_obj is None:
+            raw = str(self.config.get("task_db_path") or "").strip()
+            path = Path(raw).expanduser() if raw else (
+                Path(__file__).resolve().parent.parent / "data" / "tasks.db")
+            self._task_store_obj = TaskStore(path)
+        return self._task_store_obj
+
+    def _project_plan(self, plan: dict[str, Any]) -> dict[str, Any]:
+        """把任务图投影到现有 todo 面板；任务图本身仍是权威数据。"""
+        status_map = {"completed": "completed", "running": "in_progress"}
+        todos = [{"content": f"[{t['id']}] {t['title']}"[:200],
+                  "status": status_map.get(str(t.get("status")), "pending")}
+                 for t in plan.get("tasks") or []]
+        self._todos[self._sid()] = todos
+        self._save_state(todos=todos)
+        return plan
+
+    async def task_plan(self, goal: str = "", tasks: list[Any] | None = None,
+                        title: str = "", replace: bool = False) -> dict[str, Any]:
+        """建立持久任务图（复杂任务用；简单任务不必建）。"""
+        try:
+            plan = self._task_store().create_plan(
+                self._sid(), tasks or [], goal=goal, title=title, replace=bool(replace))
+        except TaskPlanError as exc:
+            raise ExtraToolError(str(exc)) from exc
+        return self._project_plan(plan)
+
+    async def task_read(self, plan_id: str = "") -> dict[str, Any]:
+        """读取当前会话的任务图、进度和 ready 任务。"""
+        plan = self._task_store().get_plan(self._sid(), plan_id)
+        if not plan:
+            raise ExtraToolError("当前会话没有任务计划；先用 task_plan 建立")
+        return plan
+
+    async def task_update(self, task_id: str, status: str = "", *,
+                          outputs: list[Any] | None = None,
+                          acceptance: list[Any] | None = None,
+                          failure_reason: str = "",
+                          retry_count: int | None = None,
+                          max_retries: int | None = None,
+                          executor: str = "", assignee: str = "",
+                          priority: int | None = None,
+                          title: str = "", description: str = "",
+                          depends_on: list[Any] | None = None,
+                          task_input: Any = None,
+                          plan_id: str = "") -> dict[str, Any]:
+        """更新单个任务；完成/失败会按依赖自动调整下游 ready/blocked。"""
+        changes: dict[str, Any] = {
+            "outputs": outputs, "acceptance": acceptance,
+            "retry_count": retry_count, "max_retries": max_retries,
+            "priority": priority, "depends_on": depends_on,
+            "task_input": task_input,
+        }
+        changes = {k: v for k, v in changes.items() if v is not None}
+        if "task_input" in changes:
+            changes["input"] = changes.pop("task_input")
+        if status:
+            changes["status"] = status
+        if failure_reason:
+            changes["failure_reason"] = failure_reason
+        if executor:
+            changes["executor"] = executor
+        if assignee:
+            changes["assignee"] = assignee
+        if title:
+            changes["title"] = title
+        if description:
+            changes["description"] = description
+        try:
+            plan = self._task_store().update_task(
+                self._sid(), str(task_id or "").strip(), plan_id=plan_id, **changes)
+        except TaskPlanError as exc:
+            raise ExtraToolError(str(exc)) from exc
+        return self._project_plan(plan)
+
+    async def task_cancel(self, task_id: str = "", plan_id: str = "") -> dict[str, Any]:
+        """取消一个任务或整个计划（已完成任务不会被取消）。"""
+        try:
+            plan = self._task_store().cancel(self._sid(), task_id=task_id, plan_id=plan_id)
+        except TaskPlanError as exc:
+            raise ExtraToolError(str(exc)) from exc
+        return self._project_plan(plan)
+
+    async def task_resume(self, task_id: str = "", plan_id: str = "") -> dict[str, Any]:
+        """恢复失败/取消/阻塞的任务，或恢复已取消的计划。"""
+        try:
+            plan = self._task_store().resume(self._sid(), task_id=task_id, plan_id=plan_id)
+        except TaskPlanError as exc:
+            raise ExtraToolError(str(exc)) from exc
+        return self._project_plan(plan)
+
+    async def task_replan(self, updates: list[dict[str, Any]] | None = None,
+                          plan_id: str = "") -> dict[str, Any]:
+        """按补丁调整任务图，只重算受影响下游；不会重做已完成任务。"""
+        try:
+            plan = self._task_store().replan(self._sid(), updates or [], plan_id=plan_id)
+        except TaskPlanError as exc:
+            raise ExtraToolError(str(exc)) from exc
+        return self._project_plan(plan)
+
     async def present(self, files: list[Any]) -> dict[str, Any]:
         """声明交付物（最多 4 个；只记录，不复制文件）。"""
         if not isinstance(files, list):
@@ -827,7 +932,8 @@ _GROUPS: dict[str, tuple[str, ...]] = {
     "search": ("grep",),
     "web": ("web_fetch",),
     "shell": ("pwsh", "job_list", "job_output", "job_kill"),
-    "plan": ("todo_write", "present"),
+    "plan": ("todo_write", "present", "task_plan", "task_read", "task_update",
+             "task_cancel", "task_resume", "task_replan"),
     "vision": ("read_image",),
     "ask": ("ask_user_question",),
     "goal": ("create_goal", "get_goal", "update_goal"),
@@ -853,6 +959,30 @@ _DESCRIPTIONS: dict[str, tuple[str, dict[str, Any]]] = {
     "present": ("声明交付物（最多 4 个文件）。只登记供界面展示：文件本来就在本地工作区，"
                 "不会复制或上传，回答里要说「已生成到 <工作区相对路径>」，不要说「可下载」",
                 {"files": "数组；每项 {path, description}"}),
+    "task_plan": ("建立持久任务图（复杂任务用；最多 50 项）。每个任务可写 id、title、description、"
+                  "status、priority、executor、depends_on、input、outputs、acceptance、"
+                  "max_retries；根任务自动 ready，有依赖的任务 pending。简单任务不必建。",
+                  {"goal": "总目标", "tasks": "任务数组；每项至少 {id?, title, depends_on?}",
+                   "title": "计划标题（可选）", "replace": "已有活动计划时是否替换（默认 false）"}),
+    "task_read": ("读取当前任务图、ready 任务、进度和每个任务的输出/失败原因",
+                  {"plan_id": "计划 ID（可选，默认当前会话最新活动计划）"}),
+    "task_update": ("更新任务状态/输出/验收条件/依赖。完成或失败会按依赖自动调整下游 "
+                    "ready/blocked；重试次数在 status=failed 时累计。",
+                    {"task_id": "任务 ID", "status": "pending|ready|running|blocked|completed|failed|cancelled",
+                     "outputs": "产物数组（路径/元数据）", "acceptance": "验收条件数组",
+                     "failure_reason": "失败原因", "retry_count": "重试次数（可选）",
+                     "max_retries": "最大重试次数", "executor": "main|subagent",
+                     "assignee": "执行者/子代理 id", "priority": "优先级（越大越先）",
+                     "title": "标题", "description": "描述", "depends_on": "依赖任务 ID 数组",
+                     "task_input": "任务输入（任意 JSON）", "plan_id": "计划 ID（可选）"}),
+    "task_cancel": ("取消一个任务或整个计划；取消任务会让下游 blocked，已完成任务不受影响",
+                    {"task_id": "任务 ID（省略=取消计划）", "plan_id": "计划 ID（可选）"}),
+    "task_resume": ("恢复失败/取消/阻塞的任务，或恢复已取消的计划",
+                    {"task_id": "任务 ID（省略=恢复计划）", "plan_id": "计划 ID（可选）"}),
+    "task_replan": ("用补丁调整任务图（改依赖/标题/验收/新增任务），只重算受影响下游，"
+                    "已完成任务不重做",
+                    {"updates": "数组；每项 {task_id, depends_on?, title?, ...} 或 {task_id, remove:true}",
+                     "plan_id": "计划 ID（可选）"}),
     "read_image": ("读取图片元数据（格式/尺寸/大小）；analyze=true 时交给 Copilot 视觉描述",
                    {"path": "图片相对路径", "question": "要问 Copilot 的问题（可选）",
                     "analyze": "是否调用视觉分析，默认 true"}),
@@ -900,7 +1030,8 @@ def register_extra_tools(registry: Any, config: dict[str, Any] | None = None,
                          workflow_fn: Callable[..., Awaitable[dict]] | None = None,
                          subagent_send_fn: Callable[..., Awaitable[dict]] | None = None,
                          subagent_fork_fn: Callable[..., Awaitable[dict]] | None = None,
-                         subagent_list_fn: Callable[..., Awaitable[dict]] | None = None
+                         subagent_list_fn: Callable[..., Awaitable[dict]] | None = None,
+                         task_store: TaskStore | None = None
                          ) -> "_Extra":
     """把扩展工具注册到 ToolRegistry；返回实现对象（桥接层可读 todos/deliverables）。
 
@@ -912,7 +1043,7 @@ def register_extra_tools(registry: Any, config: dict[str, Any] | None = None,
                   session_getter=session_getter,
                   subagent_fn=subagent_fn, ralph_fn=ralph_fn, workflow_fn=workflow_fn,
                   subagent_send_fn=subagent_send_fn, subagent_fork_fn=subagent_fork_fn,
-                  subagent_list_fn=subagent_list_fn)
+                  subagent_list_fn=subagent_list_fn, task_store=task_store)
     groups = cfg.get("tools_extra") if isinstance(cfg.get("tools_extra"), dict) else {}
     enabled: set[str] = set()
     for group, names in _GROUPS.items():

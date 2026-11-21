@@ -14,6 +14,23 @@
 ### Fixed
 - 
 
+## [0.11.0-beta.34] - 2026-11-21
+
+### Added
+- Batch 1 Task Planner：
+  - 新增 `gantry/task_plan.py`：Task 模型、依赖/循环/ready/下游传播、SQLite
+    `task_plans` + `task_items` 持久化；
+  - 新增 `task_plan/task_read/task_update/task_cancel/task_resume/task_replan`
+    工具，默认写入 `data/tasks.db`，并投影到现有 todo 面板；
+  - 复杂任务提示词规则；简单任务不强制建图；
+  - `task_replan` 只重算受影响下游，已完成任务不重做；
+  - 新增中英工具描述/参数，保持英文提示词无中文。
+- 文档：`docs/TASK_PLANNER.md`。
+
+### Tests
+- 新增 Task 图、工具、提示词、AgentRunner 循环测试；
+- 全量回归 1802 tests，OK (skipped=2)。
+
 ## [0.11.0-beta.33] - 2026-11-20
 
 ### Changed
