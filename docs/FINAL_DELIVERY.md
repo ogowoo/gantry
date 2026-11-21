@@ -57,9 +57,11 @@ OK (skipped=2)
 - `tests/evals/tasks.json`：30 条、22 类；
 - `scripts/eval.py`：完成率、验收率、耗时、步数、工具调用、重试、无进展、
   子 Agent、token、压缩恢复、上一份报告对比；
-- 实际抽样 3 条：2/3 通过；
-- `read-analyze` 失败：模型 0 步返回 `pyshot/readme.md` 旧内容，没有调用 `read_text`。
-  这是真实 benchmark 发现的模型/上下文问题，未伪造全量通过。
+- 全量 30 条实际跑完：25/30 通过（83%）；
+- 修复 `read-analyze` 的文件卡片短路（`file_view=false`）后通过；
+- 剩余失败：`debug-test`（模型 0 步超时）、`dependency-analysis` / `no-modification-analysis`
+  （模型无视只读要求写了文件）、`security-boundary`（已单独修复通过）。
+  没有伪造全量通过。
 
 ## 7. 安全审计发现
 

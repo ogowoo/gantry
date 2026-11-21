@@ -258,14 +258,26 @@ def main() -> int:
             # 清理上一轮评测留下的产物：否则后续任务的 run_unittest 会踩到脏文件
             # （实测 gate-limit 因 tests/test_eval_mod.py 引用已删除的 eval_mod 而
             #  花 10+ 步去补模块，步数从 4 涨到 21，纯属评测卫生问题）。
-            patterns = ("eval_*", "tests/test_eval_*", "tests/eval_*", ".spill")
+            patterns = ("eval_*", "tests/test_eval_*", "tests/eval_*", ".spill",
+                        "version_answer.md")
             for pat in patterns:
                 for old in WS.glob(pat):
                     try:
                         if old.is_file():
                             old.unlink()
+                        elif old.is_dir():
+                            import shutil as _shutil
+                            _shutil.rmtree(old, ignore_errors=True)
                     except Exception:
                         pass
+            for rel, content in (t.get("setup_files") or {}).items():
+                try:
+                    target = (WS / str(rel)).resolve()
+                    target.relative_to(WS.resolve())
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    target.write_text(str(content), encoding="utf-8")
+                except Exception as exc:
+                    print(f"[SETUP-WARN] {t['id']} {rel}: {exc}")
             tdir = WS / "tests"
             try:
                 if tdir.is_dir() and not any(tdir.iterdir()):
@@ -283,8 +295,9 @@ def main() -> int:
             try:
                 r = c.post("/v1/agent/completions", json={
                     "model": model, "session_id": sid, "stream": False,
+                    "file_view": False,
                     "messages": [{"role": "user", "content": t["task"]}]},
-                    timeout=args.task_timeout)
+                    timeout=float(t.get("timeout") or args.task_timeout))
                 d = r.json() if r.status_code == 200 else {}
                 if r.status_code in (409, 503):
                     d["_blocked"] = f"HTTP {r.status_code}: {r.text[:120]}"
