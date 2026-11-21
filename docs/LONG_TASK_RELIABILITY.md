@@ -46,6 +46,8 @@ AgentRunner 的工具错误步骤现在记录：
 
 - 用户明确说“只读/不要修改/不要创建文件”时，Agent 层直接拒绝 `MUTATING_TOOLS`，
   不再依赖模型自觉；被拒动作记为 `read_only_guard`，不会落盘。
+- 明确要求 `task_run` / `subagent` 时，final 前必须有成功的对应调用；
+  `task_run` 还要求 completed > 0，防止“只给步骤、不执行”。
 - 有活动任务图时，主 Agent 返回 final 前会执行 `verify_task_plan`：
   - 未完成任务直接拒绝；
   - 已完成任务的 outputs/acceptance 必须通过确定性检查；
