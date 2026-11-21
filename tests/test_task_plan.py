@@ -155,6 +155,32 @@ class StoreTests(unittest.TestCase):
         self.assertEqual(plan["status"], "completed")
         self.assertEqual(plan_progress(plan["tasks"])["completed"], 2)
 
+    def test_recover_safe_running_task(self):
+        self._make()
+        self.store.update_task("s1", "scan", status="running")
+        plan = self.store.recover("s1")
+        self.assertIn("scan", plan["recovered"])
+        self.assertEqual(plan["tasks"][0]["status"], "ready")
+
+    def test_recover_unsafe_running_task_requires_manual(self):
+        self.store.create_plan("s1", [
+            {"id": "pay", "title": "外部副作用", "safe_retry": False},
+            {"id": "after", "title": "后续", "depends_on": ["pay"]},
+        ])
+        self.store.update_task("s1", "pay", status="running")
+        plan = self.store.recover("s1")
+        self.assertEqual(plan["tasks"][0]["status"], "failed")
+        self.assertEqual(plan["tasks"][1]["status"], "blocked")
+        self.assertIn("不可安全重试", plan["tasks"][0]["failure_reason"])
+
+    def test_summary_keeps_goal_progress_and_acceptance(self):
+        self._make()
+        summary = self.store.summary("s1")
+        self.assertEqual(summary["goal"], "修复项目")
+        self.assertEqual(summary["progress"]["total"], 2)
+        self.assertEqual(summary["ready"], ["scan"])
+        self.assertEqual(summary["tasks"][1]["acceptance"], ["tests pass"])
+
 
 if __name__ == "__main__":
     unittest.main()

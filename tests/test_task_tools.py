@@ -44,6 +44,8 @@ class TaskToolTests(unittest.TestCase):
         self.assertEqual(plan["ready"], ["scan"])
         self.assertEqual(self.state["todos"][0]["content"], "[scan] 扫描")
         self.assertEqual(len(self.state["todos"]), 2)
+        self.assertEqual(self.state["task_summary"]["progress"]["total"], 2)
+        self.assertEqual(self.state["task_summary"]["ready"], ["scan"])
 
     def test_update_and_read(self):
         asyncio.run(self.impl.task_plan("g", [{"id": "a", "title": "A"}]))
@@ -65,6 +67,13 @@ class TaskToolTests(unittest.TestCase):
         resumed = asyncio.run(self.impl.task_resume())
         self.assertEqual(resumed["status"], "active")
         self.assertEqual(resumed["tasks"][0]["status"], "ready")
+
+    def test_recover_running_task(self):
+        asyncio.run(self.impl.task_plan("g", [{"id": "a", "title": "A"}]))
+        asyncio.run(self.impl.task_update("a", status="running"))
+        recovered = asyncio.run(self.impl.task_recover())
+        self.assertIn("a", recovered["recovered"])
+        self.assertEqual(recovered["tasks"][0]["status"], "ready")
 
     def test_replan(self):
         asyncio.run(self.impl.task_plan("g", [{"id": "a", "title": "A"}]))

@@ -45,6 +45,8 @@ CREATE TABLE IF NOT EXISTS task_items (
   executor TEXT NOT NULL DEFAULT 'main',
   assignee TEXT NOT NULL DEFAULT '',
   model TEXT NOT NULL DEFAULT '',
+  safe_retry INTEGER NOT NULL DEFAULT 1,
+  risk TEXT NOT NULL DEFAULT 'low',
   depends_on TEXT NOT NULL DEFAULT '[]',
   input TEXT NOT NULL DEFAULT 'null',
   outputs TEXT NOT NULL DEFAULT '[]',
@@ -183,6 +185,8 @@ def normalize_tasks(raw_tasks: Iterable[Any], *, plan_id: str = "") -> list[dict
             "executor": _norm_executor(raw.get("executor")),
             "assignee": str(raw.get("assignee") or "")[:200],
             "model": str(raw.get("model") or "")[:200],
+            "safe_retry": bool(raw.get("safe_retry", True)),
+            "risk": str(raw.get("risk") or "low").strip().lower(),
             "depends_on": deps,
             "input": raw.get("input"),
             "outputs": list(raw.get("outputs") or []),
@@ -211,6 +215,8 @@ def validate_tasks(tasks: list[dict[str, Any]]) -> None:
             raise TaskPlanError(f"任务 ID 无效: {tid!r}")
         _norm_status(task.get("status"))
         _norm_executor(task.get("executor"))
+        if str(task.get("risk") or "low").lower() not in ("low", "medium", "high", "critical"):
+            raise TaskPlanError(f"任务 {tid} risk 必须是 low/medium/high/critical")
         for dep in task.get("depends_on") or []:
             if str(dep) not in ids:
                 raise TaskPlanError(f"任务 {tid} 的依赖不存在: {dep!r}")
@@ -342,6 +348,10 @@ class TaskStore:
             cols = {str(r["name"]) for r in con.execute("PRAGMA table_info(task_items)")}
             if "model" not in cols:
                 con.execute("ALTER TABLE task_items ADD COLUMN model TEXT NOT NULL DEFAULT ''")
+            if "safe_retry" not in cols:
+                con.execute("ALTER TABLE task_items ADD COLUMN safe_retry INTEGER NOT NULL DEFAULT 1")
+            if "risk" not in cols:
+                con.execute("ALTER TABLE task_items ADD COLUMN risk TEXT NOT NULL DEFAULT 'low'")
 
     @staticmethod
     def _task_from_row(row: sqlite3.Row) -> dict[str, Any]:
@@ -354,6 +364,8 @@ class TaskStore:
             "executor": str(row["executor"]),
             "assignee": str(row["assignee"]),
             "model": str(row["model"]) if "model" in row.keys() else "",
+            "safe_retry": bool(row["safe_retry"]) if "safe_retry" in row.keys() else True,
+            "risk": str(row["risk"]) if "risk" in row.keys() else "low",
             "depends_on": _jload(row["depends_on"], []),
             "input": _jload(row["input"], None),
             "outputs": _jload(row["outputs"], []),
@@ -402,12 +414,13 @@ class TaskStore:
         for i, task in enumerate(plan["tasks"]):
             con.execute(
                 "INSERT INTO task_items(plan_id,task_id,ordinal,title,description,status,priority,"
-                "executor,assignee,model,depends_on,input,outputs,history,acceptance,failure_reason,"
-                "retry_count,max_retries,created,updated) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                "executor,assignee,model,safe_retry,risk,depends_on,input,outputs,history,acceptance,failure_reason,"
+                "retry_count,max_retries,created,updated) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (plan["plan_id"], task["id"], i, task["title"], task.get("description") or "",
                  task.get("status") or "pending", int(task.get("priority") or 0),
                  task.get("executor") or "main", task.get("assignee") or "",
-                 task.get("model") or "",
+                 task.get("model") or "", 1 if task.get("safe_retry", True) else 0,
+                 task.get("risk") or "low",
                  _jdump(task.get("depends_on") or []), _jdump(task.get("input")),
                  _jdump(task.get("outputs") or []), _jdump(task.get("history") or []),
                  _jdump(task.get("acceptance") or []), task.get("failure_reason") or "",
@@ -469,6 +482,32 @@ class TaskStore:
                     (sid,)).fetchone()
             return self._load(con, str(row["plan_id"])) if row else None
 
+    def summary(self, session_id: str = "", plan_id: str = "") -> dict[str, Any]:
+        """压缩/续跑用的紧凑任务图摘要（不复制完整 outputs/历史）。"""
+        plan = self.get_plan(session_id, plan_id)
+        if not plan:
+            return {}
+        tasks = []
+        for t in plan.get("tasks") or []:
+            tasks.append({
+                "id": t.get("id"), "title": t.get("title"),
+                "status": t.get("status"),
+                "risk": t.get("risk") or "low",
+                "depends_on": list(t.get("depends_on") or []),
+                "acceptance": list(t.get("acceptance") or [])[:3],
+                "outputs": [str(x.get("path") if isinstance(x, dict) else x)
+                            for x in (t.get("outputs") or [])][:5],
+                "failure_reason": str(t.get("failure_reason") or "")[:300],
+            })
+        return {
+            "plan_id": plan.get("plan_id"), "status": plan.get("status"),
+            "goal": plan.get("goal"), "progress": plan.get("progress"),
+            "ready": list(plan.get("ready") or []),
+            "blocked": [t["id"] for t in tasks if t.get("status") == "blocked"],
+            "failed": [t["id"] for t in tasks if t.get("status") == "failed"],
+            "tasks": tasks[:50],
+        }
+
     def list_plans(self, session_id: str, limit: int = 20) -> list[dict[str, Any]]:
         with self._connect() as con:
             rows = con.execute(
@@ -501,13 +540,17 @@ class TaskStore:
                     deps.append(dep_id)
                 task["depends_on"] = sorted(set(deps))
             for key in ("title", "description", "priority", "executor", "assignee", "model",
-                        "input", "outputs", "acceptance", "failure_reason", "retry_count",
-                        "max_retries"):
+                        "safe_retry", "risk", "input", "outputs", "acceptance", "failure_reason",
+                        "retry_count", "max_retries"):
                 if key in changes and changes[key] is not None:
                     if key == "executor":
                         task[key] = _norm_executor(changes[key])
                     elif key in ("priority", "retry_count", "max_retries"):
                         task[key] = int(changes[key])
+                    elif key == "safe_retry":
+                        task[key] = bool(changes[key])
+                    elif key == "risk":
+                        task[key] = str(changes[key] or "low").lower()
                     elif key == "outputs":
                         task[key] = list(changes[key] or [])
                     elif key == "acceptance":
@@ -644,6 +687,47 @@ class TaskStore:
             self._write_plan(con, plan)
             return self._load(con, pid) or plan
 
+    def recover(self, session_id: str, *, plan_id: str = "") -> dict[str, Any]:
+        """恢复进程中断后遗留的 running 任务。
+
+        安全任务（safe_retry=true）回到 pending/ready；有副作用的不可安全重试任务
+        标记 failed，交给人工确认，绝不盲目重放。
+        """
+        with self._connect() as con:
+            pid = self._find_plan_id(con, str(session_id or ""), plan_id)
+            plan = self._load(con, pid)
+            if not plan:
+                raise TaskPlanError("当前会话没有任务计划")
+            now = _now()
+            recovered = []
+            for task in plan["tasks"]:
+                if task.get("status") != "running":
+                    continue
+                if task.get("safe_retry", True):
+                    task["status"] = "pending"
+                    task["updated"] = now
+                    task.setdefault("history", []).append(
+                        {"time": now, "event": "recovered", "status": "pending",
+                         "detail": "检测到中断时仍在 running，按安全任务恢复"})
+                else:
+                    task["status"] = "failed"
+                    task["failure_reason"] = "中断时仍在执行，且该任务不可安全重试，需人工确认"
+                    task["updated"] = now
+                    task.setdefault("history", []).append(
+                        {"time": now, "event": "recovery_unsafe", "status": "failed",
+                         "detail": task["failure_reason"]})
+                recovered.append(task["id"])
+            if recovered:
+                recompute_statuses(plan["tasks"], unblock=True)
+                if plan.get("status") == "cancelled":
+                    pass
+                else:
+                    plan["status"] = "active"
+                self._write_plan(con, plan)
+            out = self._load(con, pid) or plan
+            out["recovered"] = recovered
+            return out
+
     def replan(self, session_id: str, updates: list[dict[str, Any]], *,
                plan_id: str = "") -> dict[str, Any]:
         """用补丁调整任务图；只重算受影响下游，不重做已完成任务。"""
@@ -700,7 +784,7 @@ class TaskStore:
                         deps.append(dep_id)
                     task["depends_on"] = sorted(set(deps))
                 for key in ("title", "description", "priority", "executor", "assignee", "model",
-                            "acceptance", "input", "outputs"):
+                            "safe_retry", "risk", "acceptance", "input", "outputs"):
                     if key in patch and patch[key] is not None:
                         task[key] = patch[key]
                 task["updated"] = _now()

@@ -12,6 +12,7 @@ from typing import Any, Awaitable, Callable
 from .agent_parse import ParseMixin
 from .agent_prompt import PromptMixin
 from .agent_text import TextMixin
+from .error_taxonomy import classify_exception
 from .spans import set_recorder, span
 from .tools import ToolRegistry
 
@@ -335,6 +336,7 @@ class AgentRunner(PromptMixin, ParseMixin, TextMixin):
             "pending": list(state.get("pending") or []),
             "important_findings": findings[-30:],
             "errors": errors[-20:],
+            "task_plan": state.get("task_summary") or {},
             "last_successful_step": max([x.get("step", 0) for x in history if x.get("status") == "ok"] or [0]),
             "workspace": str(self.tools.root),
         }
@@ -381,12 +383,16 @@ class AgentRunner(PromptMixin, ParseMixin, TextMixin):
         done = sum(1 for t in todos if str((t or {}).get("status")) == "completed")
         left = [str((t or {}).get("content") or "")[:60] for t in todos
                 if str((t or {}).get("status")) != "completed"][:5]
+        plan = state.get("task_summary") or {}
         ledger = {
             "已读过的文件": read[-12:],
             "已列过的目录": listed[-8:],
             "已搜索过的范围": grepped[-6:],
             "已改过的文件": modified,
             "待办进度": (f"{done}/{len(todos)} 已完成" if todos else "（无待办清单）"),
+            "任务图": ({k: plan.get(k) for k in ("plan_id", "status", "progress", "ready",
+                                                "blocked", "failed") if plan.get(k) is not None}
+                       if plan else ""),
             "还没做完的事": left,
             "上次的错误": str(state.get("last_error") or "")[:200] or "（无）",
         }
@@ -397,6 +403,7 @@ class AgentRunner(PromptMixin, ParseMixin, TextMixin):
             "original_goal": task,
             "long_term_summary": summary,
             "already_looked_at": self._work_ledger(state, recent),
+            "task_plan": state.get("task_summary") or {},
             "recent_steps": [self.compact_value(x, 2500) for x in recent[-self.keep_recent:]],
             "current_workspace": str(self.tools.root),
             "total_steps": state.get("total_steps", 0),
@@ -1313,11 +1320,15 @@ class AgentRunner(PromptMixin, ParseMixin, TextMixin):
                         # 报错要说"下一步怎么办"：审计发现 116 条工具报错里 102 条
                         # 只描述了"不合法/不允许"，模型只能靠猜重试（常见于换会话后）。
                         _err = str(exc)
+                        _info = classify_exception(exc)
                         if not any(k in _err for k in ("下一步", "请", "改用", "试试", "建议")):
                             _err += (f"\n下一步：核对 {tool} 的参数（见工具描述）与路径是否存在；"
                                      "需要看现状就先用 read_text/list_directory，"
                                      "换个思路也可以（同类工具可互换）。")
-                        step.update({"status": "error", "error": _err})
+                        step.update({"status": "error", "error": _err,
+                                     "error_kind": _info.kind,
+                                     "retryable": _info.retryable,
+                                     "recovery": _info.action})
                         if tool in _action_tools:
                             self._action_tried = True
                 if step.get("status") == "ok":

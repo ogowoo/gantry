@@ -323,6 +323,9 @@ DESC_EN.update({
     'task_resume': 'Resume a failed/cancelled/blocked task, or resume a cancelled plan',
     'task_replan': ('Patch the task graph (dependencies/title/acceptance/new tasks) and recompute only '
                     'the affected downstream tasks; completed tasks are never redone'),
+    'task_recover': ('Recover tasks left running after an interruption: safe_retry=true returns to '
+                     'ready; tasks with external side effects become failed and need human '
+                     'confirmation; task_run calls this first'),
     'task_run': ('Run ready executor=subagent tasks from the task graph: dependency/priority ordering, '
                  'concurrency and output-path conflict control, real artifact review, bounded rework '
                  'with review feedback written to task history. executor=main tasks are left for the '
@@ -412,7 +415,8 @@ ARG_EN.update({
     'subagent_send.max_steps': 'Step cap',
     'todo_write.todos': 'Array of {content, status} where status is pending / in_progress / completed',
     'task_plan.goal': 'Overall goal',
-    'task_plan.tasks': 'Task array; each item needs at least {id?, title, depends_on?}',
+    'task_plan.tasks': ('Task array; each item needs at least {id?, title, depends_on?}; '
+                        'set safe_retry=false for tasks with external side effects'),
     'task_plan.title': 'Plan title (optional)',
     'task_plan.replace': 'Replace the existing active plan (default false)',
     'task_read.plan_id': 'Plan id (optional; defaults to the newest active plan of this session)',
@@ -423,6 +427,8 @@ ARG_EN.update({
     'task_update.failure_reason': 'Why the task failed',
     'task_update.retry_count': 'Retry count (optional)',
     'task_update.max_retries': 'Maximum retries',
+    'task_update.safe_retry': 'Safe to retry after interruption (false for external side effects)',
+    'task_update.risk': 'low / medium / high / critical (high/critical requires deterministic evidence)',
     'task_update.executor': 'main / subagent',
     'task_update.assignee': 'Executor or sub-agent id',
     'task_update.model': 'Per-task sub-agent model (empty uses task_run model)',
@@ -438,6 +444,7 @@ ARG_EN.update({
     'task_resume.plan_id': 'Plan id (optional)',
     'task_replan.updates': 'Array of patches: {task_id, depends_on?, title?, ...} or {task_id, remove:true}',
     'task_replan.plan_id': 'Plan id (optional)',
+    'task_recover.plan_id': 'Plan id (optional)',
     'task_run.plan_id': 'Plan id (optional)',
     'task_run.model': 'Sub-agent model (optional)',
     'task_run.max_concurrency': 'Max concurrency (defaults to agent.task_run_max_concurrency or 4)',

@@ -220,6 +220,7 @@ CREATE TABLE IF NOT EXISTS conv_stats (
                                 ("goal", "TEXT"), ("todos", "TEXT"),
                                 ("plan", "TEXT"),
                                 ("plan_mode", "INTEGER NOT NULL DEFAULT 0"),
+                                ("task_summary", "TEXT"),
                                 ("suspend_reason", "TEXT")):
                 try:
                     con.execute(f"ALTER TABLE sessions ADD COLUMN {_col} {_decl}")
@@ -233,7 +234,7 @@ CREATE TABLE IF NOT EXISTS conv_stats (
         item = dict(row)
         if not light:
             for key in ("conversation_urls", "summary", "recent_steps", "modified_files", "pending",
-                        "pending_steps", "approval_pending", "goal", "todos", "plan"):
+                        "pending_steps", "approval_pending", "goal", "todos", "plan", "task_summary"):
                 try: item[key] = json.loads(item[key] or "null")
                 except Exception: item[key] = [] if key in {"conversation_urls", "recent_steps", "pending", "pending_steps", "todos"} else None
         for key in ("cancel_requested", "archived", "compact_requested", "rollover_requested"):
@@ -401,13 +402,14 @@ CREATE TABLE IF NOT EXISTS conv_stats (
                    "rollover_requested","conv_tokens","conv_chars","gate_state",
                    "retry_resume_at","retry_attempt","rate_limited_since","initial_prompt",
             "pending_steps","approval_pending","tag","goal","todos","plan","plan_mode",
+            "task_summary",
             "parent_id","description","suspend_reason","last_view_file"}
         values = {k:v for k,v in values.items() if k in allowed}
         if "recent_steps" in values:
             values["recent_steps"] = _cap_value(values["recent_steps"])
         if "state" in values and values["state"] not in self.STATES: raise ValueError("invalid state")
         for key in ("conversation_urls","summary","recent_steps","modified_files","pending",
-                "pending_steps","approval_pending","goal","todos","plan"):
+                "pending_steps","approval_pending","goal","todos","plan","task_summary"):
             if key in values: values[key] = json.dumps(values[key], ensure_ascii=False)
         if "plan_mode" in values:
             values["plan_mode"] = int(bool(values["plan_mode"]))
