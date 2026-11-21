@@ -13,6 +13,7 @@ from .agent_parse import ParseMixin
 from .agent_prompt import PromptMixin
 from .agent_text import TextMixin
 from .error_taxonomy import classify_exception
+from .security import classify_tool_risk
 from .spans import set_recorder, span
 from .tools import ToolRegistry
 
@@ -1105,7 +1106,8 @@ class AgentRunner(PromptMixin, ParseMixin, TextMixin):
 
                 tool, arguments = sub.get("tool", ""), sub.get("arguments") or {}
                 step = {"step": total + 1, "tool": tool, "arguments": arguments,
-                        "reason": sub.get("reason", "")}
+                        "reason": sub.get("reason", ""),
+                        "risk": classify_tool_risk(str(tool), arguments)}
                 if batch_size > 1:
                     step["batch_of"] = batch_size
                 event = None
@@ -1229,7 +1231,7 @@ class AgentRunner(PromptMixin, ParseMixin, TextMixin):
                             continue
                         # ── 一次性审批门（fail-closed）：破坏性工具必须有本步专属的授权，授权用后即焚；
                         # 没有回调就视为不放行（绝不自动批准）——对应 DSH 的 allowed-once 语义。
-                        if self.tools.requires_approval(str(tool)):
+                        if self.tools.requires_approval_for(str(tool), arguments):
                             _granted = False
                             if self.approval_check:
                                 try:
@@ -1240,6 +1242,7 @@ class AgentRunner(PromptMixin, ParseMixin, TextMixin):
                                 _msg = ('工具 ' + str(tool) + ' 属于破坏性操作，需要用户一次性授权后才会执行；'
                                         '请让用户在本会话授权该操作，然后继续任务。')
                                 _st = {'step': total + 1, 'status': 'approval_required', 'tool': str(tool),
+                                       'risk': step.get('risk'),
                                        'reason': '破坏性工具未获一次性授权', 'error': _msg}
                                 history.append(_st); all_steps.append(_st); self.step_saver(_st)
                                 self.state_saver(recent_steps=history[-self.keep_recent:], last_error=_msg,

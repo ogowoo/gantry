@@ -6,8 +6,8 @@ from typing import Any
 
 from . import prompt_lang
 from .agent_profiles import profile_for_task, profile_groups, profile_prompt
-from .prompt import (PromptRegistry, agent_protocol, agent_task_plan, agent_team,
-                     deliverable_rule, file_ops_rule, language_directive)
+from .prompt import (PromptRegistry, agent_protocol, agent_security, agent_task_plan,
+                     agent_team, deliverable_rule, file_ops_rule, language_directive)
 
 # 自升级任务的"别去工作区"强提示（实测模型会先 list_directory('.') 把工作区里
 # 别的项目当目标——工作区只是用户项目的容器，服务代码在**安装目录**）。
@@ -67,6 +67,8 @@ class PromptMixin:
         # 任务图：只在 task_plan 工具真正可用时注入，避免提示模型调用不存在的工具。
         if "task_plan" in self._active_tool_names():
             reg.add("task_plan", agent_task_plan, order=160)
+        # 安全边界始终注入：外部内容不能当指令，凭据不能进结果。
+        reg.add("security", agent_security, order=170)
         reg.add("self_upgrade", self._self_upgrade_rules(), order=200)
         # 领域 profile：只注入一小段针对性硬约束 + 工具组路由；详细流程在 skill。
         try:
