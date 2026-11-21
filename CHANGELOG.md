@@ -14,6 +14,20 @@
 ### Fixed
 - 
 
+## [0.11.0-beta.47] - 2026-11-21
+
+### Added
+- Excel 子进程资源隔离：
+  - openpyxl 读取/预览/分块改在独立子进程执行；
+  - 超时直接 kill，不再等待无法取消的线程；
+  - Windows Job Object + 父进程内存看门狗，`excel_worker_memory_mb` 默认 512；
+  - POSIX 使用 RLIMIT_AS + 看门狗；
+  - `excel_use_worker=false` 可回退同进程模式。
+
+### Tests
+- 覆盖子进程超时 kill、`.xls` 明确拒绝、Excel 安全读取；
+- 全量回归 1876 tests，OK (skipped=2)。
+
 ## [0.11.0-beta.46] - 2026-11-21
 
 ### Added

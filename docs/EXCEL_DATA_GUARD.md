@@ -77,6 +77,17 @@ Gantry 处理不规范 Excel 时，`max_row` / `max_column` / UsedRange 可能�
 - `excel_validate(expect_headers=...)` 可检查关键表头；
 - 探测失败时回退原有有界读取，不会静默丢失文件。
 
+### 进程级资源保护
+
+`read_excel` / `excel_preview` / `excel_read_chunk` / `excel_inspect` 的 openpyxl
+读取在独立子进程中执行：
+
+- 超时直接 `kill` 子进程，不再等待忽略取消的线程；
+- Windows 通过 Job Object + 父进程内存看门狗限制 `excel_worker_memory_mb`（默认 512 MB）；
+- POSIX 通过 `RLIMIT_AS` + 看门狗限制；
+- 看门狗每 100ms 检查一次，超限即 kill 并返回明确错误；
+- `excel_use_worker=false` 可退回同进程读取（不推荐）。
+
 ### `excel_validate`
 
 重新打开输出文件，检查：
@@ -103,8 +114,8 @@ Gantry 处理不规范 Excel 时，`max_row` / `max_column` / UsedRange 可能�
 - XML 探测返回的是底层值（日期序列、公式缓存值可能保持原始形态），复杂格式/日期
   仍由 openpyxl 读取；
 - 探测有预算，超限会返回 `scan_truncated` 和较低置信度，不会假装完整；
-- 分块读取有检查点，但没有进程级内存上限；超大真实数据仍建议 chunk；
-- 读取有 `excel_read_timeout_seconds` 外层超时，但超时线程不能强制终止（Python 限制）；
+- 分块读取有检查点，openpyxl 读取已放到独立子进程，具备硬内存/超时保护；
+- 子进程内存上限由 Windows Job Object / POSIX RLIMIT_AS 实现；
 - 不自动修改原始工作簿；
 - 检查点按“文件路径 + sheet + 文件大小/mtime”隔离，不跨文件复用。
 
