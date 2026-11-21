@@ -23,7 +23,8 @@ AgentRunner 继续负责“取动作 → 执行工具 → 记录步骤”。
   "acceptance": ["report.md 存在"],
   "failure_reason": "",
   "retry_count": 0,
-  "max_retries": 1
+  "max_retries": 1,
+  "safe_retry": true
 }
 ```
 
@@ -31,6 +32,7 @@ AgentRunner 继续负责“取动作 → 执行工具 → 记录步骤”。
 - 有未完成依赖的任务 `pending`；
 - 前置失败/取消时，下游自动 `blocked`；
 - 完成/失败/取消会写入任务 `history`；
+- `safe_retry=false` 的任务在进程中断后不会自动重放，标记 failed 等人工确认；
 - `task_read` 返回 `ready` 列表和进度统计。
 
 ## 工具

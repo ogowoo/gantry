@@ -14,6 +14,23 @@
 ### Fixed
 - 
 
+## [0.11.0-beta.37] - 2026-11-21
+
+### Added
+- Batch 4 长任务可靠性：
+  - `task_recover` 与 `task_run` 自动恢复中断遗留的 running 任务；
+  - Task 增加 `safe_retry`：有外部副作用的不可安全重试任务恢复为 failed，不盲目重放；
+  - `task_summary` 持久化到 sessions，并进入压缩摘要、续跑提示和 work ledger；
+  - 新 `gantry/error_taxonomy.py`：network/timeout/rate_limit 可有限重试，
+    permission 停止，argument/business 修方案，internal 有限重试后停止；
+  - AgentRunner 工具错误步骤记录 error_kind/retryable/recovery；
+  - 编排器对 permission/argument 子 Agent 错误不再盲目返工。
+- 文档：`docs/LONG_TASK_RELIABILITY.md`。
+
+### Tests
+- 新增任务恢复、任务摘要持久化、错误分类、非可重试错误测试；
+- 全量回归 1843 tests，OK (skipped=2)。
+
 ## [0.11.0-beta.36] - 2026-11-21
 
 ### Added

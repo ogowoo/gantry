@@ -99,6 +99,20 @@ class OrchestratorTests(unittest.TestCase):
         self.assertEqual(counts, {"a": 1})
         self.assertEqual(out["failed"], 1)
 
+    def test_permission_error_is_not_retried(self):
+        self._plan([{"id": "a", "title": "A", "executor": "subagent",
+                     "max_retries": 3}])
+        counts = {"a": 0}
+
+        async def run(prompt, description, model, max_steps):
+            counts["a"] += 1
+            return {"error": "permission denied: sandbox", "content": ""}
+
+        out = asyncio.run(run_plan(self.store, "s1", run, workspace=self.root))
+        self.assertEqual(counts["a"], 1)
+        self.assertEqual(out["failed"], 1)
+        self.assertEqual(out["results"][0]["error_kind"], "permission")
+
     def test_rework_after_review_failure(self):
         self._plan([
             {"id": "a", "title": "A", "executor": "subagent", "max_retries": 1,

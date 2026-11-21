@@ -509,7 +509,8 @@ class _Extra:
                   "status": status_map.get(str(t.get("status")), "pending")}
                  for t in plan.get("tasks") or []]
         self._todos[self._sid()] = todos
-        self._save_state(todos=todos)
+        self._save_state(todos=todos,
+                         task_summary=self._task_store().summary(self._sid(), plan.get("plan_id")))
         return plan
 
     async def task_plan(self, goal: str = "", tasks: list[Any] | None = None,
@@ -535,6 +536,8 @@ class _Extra:
                           failure_reason: str = "",
                           retry_count: int | None = None,
                           max_retries: int | None = None,
+                          safe_retry: bool | None = None,
+                          risk: str = "",
                           executor: str = "", assignee: str = "",
                           model: str = "", priority: int | None = None,
                           title: str = "", description: str = "",
@@ -545,6 +548,7 @@ class _Extra:
         changes: dict[str, Any] = {
             "outputs": outputs, "acceptance": acceptance,
             "retry_count": retry_count, "max_retries": max_retries,
+            "safe_retry": safe_retry,
             "priority": priority, "depends_on": depends_on,
             "task_input": task_input,
         }
@@ -561,6 +565,8 @@ class _Extra:
             changes["assignee"] = assignee
         if model:
             changes["model"] = model
+        if risk:
+            changes["risk"] = risk
         if title:
             changes["title"] = title
         if description:
@@ -583,6 +589,10 @@ class _Extra:
         plan = store.get_plan(self._sid(), plan_id)
         if not plan:
             raise ExtraToolError("当前会话没有任务计划；先用 task_plan 建立")
+        try:
+            plan = store.recover(self._sid(), plan_id=plan_id)
+        except TaskPlanError:
+            pass
         from .orchestrator import run_plan
 
         cap = int(max_concurrency or self.config.get("task_run_max_concurrency", 4) or 4)
@@ -599,6 +609,14 @@ class _Extra:
             raise ExtraToolError(str(exc)) from exc
         self._project_plan(store.get_plan(self._sid(), plan_id) or plan)
         return out
+
+    async def task_recover(self, plan_id: str = "") -> dict[str, Any]:
+        """恢复中断遗留的 running 任务；不可安全重试的标记 failed。"""
+        try:
+            plan = self._task_store().recover(self._sid(), plan_id=plan_id)
+        except TaskPlanError as exc:
+            raise ExtraToolError(str(exc)) from exc
+        return self._project_plan(plan)
 
     async def task_cancel(self, task_id: str = "", plan_id: str = "") -> dict[str, Any]:
         """取消一个任务或整个计划（已完成任务不会被取消）。"""
@@ -967,7 +985,7 @@ _GROUPS: dict[str, tuple[str, ...]] = {
     "web": ("web_fetch",),
     "shell": ("pwsh", "job_list", "job_output", "job_kill"),
     "plan": ("todo_write", "present", "task_plan", "task_read", "task_update",
-             "task_run", "task_cancel", "task_resume", "task_replan"),
+             "task_run", "task_cancel", "task_resume", "task_replan", "task_recover"),
     "vision": ("read_image",),
     "ask": ("ask_user_question",),
     "goal": ("create_goal", "get_goal", "update_goal"),
@@ -996,7 +1014,8 @@ _DESCRIPTIONS: dict[str, tuple[str, dict[str, Any]]] = {
     "task_plan": ("建立持久任务图（复杂任务用；最多 50 项）。每个任务可写 id、title、description、"
                   "status、priority、executor、depends_on、input、outputs、acceptance、"
                   "max_retries；根任务自动 ready，有依赖的任务 pending。简单任务不必建。",
-                  {"goal": "总目标", "tasks": "任务数组；每项至少 {id?, title, depends_on?}",
+                  {"goal": "总目标", "tasks": "任务数组；每项至少 {id?, title, depends_on?}；"
+                   "有外部副作用的任务建议 safe_retry=false",
                    "title": "计划标题（可选）", "replace": "已有活动计划时是否替换（默认 false）"}),
     "task_read": ("读取当前任务图、ready 任务、进度和每个任务的输出/失败原因",
                   {"plan_id": "计划 ID（可选，默认当前会话最新活动计划）"}),
@@ -1005,7 +1024,10 @@ _DESCRIPTIONS: dict[str, tuple[str, dict[str, Any]]] = {
                     {"task_id": "任务 ID", "status": "pending|ready|running|blocked|completed|failed|cancelled",
                      "outputs": "产物数组（路径/元数据）", "acceptance": "验收条件数组",
                      "failure_reason": "失败原因", "retry_count": "重试次数（可选）",
-                     "max_retries": "最大重试次数", "executor": "main|subagent",
+                     "max_retries": "最大重试次数",
+                     "safe_retry": "中断后是否可安全重试（有外部副作用的任务设 false）",
+                     "risk": "low|medium|high|critical（高/严重风险必须有确定性验收证据）",
+                     "executor": "main|subagent",
                      "assignee": "执行者/子代理 id", "model": "该任务的子代理模型（可选；空=task_run 的 model）",
                      "priority": "优先级（越大越先）",
                      "title": "标题", "description": "描述", "depends_on": "依赖任务 ID 数组",
@@ -1018,6 +1040,9 @@ _DESCRIPTIONS: dict[str, tuple[str, dict[str, Any]]] = {
                     "已完成任务不重做",
                     {"updates": "数组；每项 {task_id, depends_on?, title?, ...} 或 {task_id, remove:true}",
                      "plan_id": "计划 ID（可选）"}),
+    "task_recover": ("恢复中断后仍为 running 的任务：safe_retry=true 回到 ready，"
+                     "有外部副作用的任务标 failed 等人工确认；task_run 会自动先调用。",
+                     {"plan_id": "计划 ID（可选）"}),
     "task_run": ("按任务图自动调度 executor=subagent 的 ready 任务：按依赖/优先级、并发和"
                  "产物冲突执行，审查实际产物，失败按 max_retries 返工并写入任务历史。"
                  "executor=main 的任务留给主 Agent，会出现在 needs_main。",

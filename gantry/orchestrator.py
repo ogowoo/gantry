@@ -21,6 +21,7 @@ from typing import Any, Awaitable, Callable
 
 from .task_plan import TaskStore, TaskPlanError
 from .task_verify import independent_review, review_task
+from .error_taxonomy import classify_text
 
 RunSubagent = Callable[[str, str, str, int], Awaitable[dict[str, Any]]]
 ReviewFn = Callable[[dict[str, Any], dict[str, Any], Path], dict[str, Any]]
@@ -99,6 +100,7 @@ def _result_record(task: dict[str, Any], status: str, started: float,
         "content": str((result or {}).get("content") or "")[:4000],
         "review": review or {},
         "error": error[:2000],
+        "error_kind": classify_text(error).kind if error else "",
     }
 
 
@@ -222,7 +224,9 @@ async def run_plan(store: TaskStore, session_id: str, run_subagent: RunSubagent,
                 current = (store.get_plan(sid) or {}).get("tasks") or []
                 mine = next((x for x in current if x["id"] == task["id"]), None)
                 retries = int((mine or {}).get("retry_count") or 0)
-                if retries <= int(task.get("max_retries") or 0):
+                err_text = str(result.get("error") or "")
+                can_retry = (not err_text) or classify_text(err_text).retryable
+                if can_retry and retries <= int(task.get("max_retries") or 0):
                     store.resume(sid, task_id=task["id"])
                     store.note(sid, task["id"], "rework", reason)
                     return _result_record(task, "retrying", started,
