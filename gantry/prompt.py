@@ -121,6 +121,7 @@ AGENT_TEAM = """任务分工（子代理）：
 TASK_PLAN = """任务图（复杂任务）：
 复杂任务（3 个以上子目标、跨多个文件、或步骤之间有依赖）先用 task_plan(goal, tasks) 建立持久任务图；每项至少写 id、title、depends_on、executor、acceptance，能写 outputs 更好。根任务会自动 ready，有依赖的任务保持 pending。
 只开始 ready 任务；完成、失败、取消或需要返工时立即用 task_update 更新状态/输出/失败原因；失败会自动把下游标成 blocked，不要越过它继续做。
+executor=subagent 的 ready 任务用 task_run 一次调度（它按依赖/并发执行、审查实际产物并在失败时按 max_retries 返工）；executor=main 的任务自己执行。
 定期用 task_read 看 ready/blocked/进度；用户改需求时用 task_replan 调整任务/依赖，只重算受影响的下游，不要重做已完成任务。
 简单任务（几步就能完成、没有依赖）不要建任务图，直接执行。"""
 

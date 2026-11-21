@@ -323,6 +323,10 @@ DESC_EN.update({
     'task_resume': 'Resume a failed/cancelled/blocked task, or resume a cancelled plan',
     'task_replan': ('Patch the task graph (dependencies/title/acceptance/new tasks) and recompute only '
                     'the affected downstream tasks; completed tasks are never redone'),
+    'task_run': ('Run ready executor=subagent tasks from the task graph: dependency/priority ordering, '
+                 'concurrency and output-path conflict control, real artifact review, bounded rework '
+                 'with review feedback written to task history. executor=main tasks are left for the '
+                 'main agent and returned in needs_main'),
     'update_goal': 'Update goal state: complete / blocked / pause / resume / edit',
     'web_fetch': 'Fetch an HTTP(S) URL as plain text (HTML tags stripped; private addresses refused by default)',
     'workflow': 'Orchestrate several sub-agents in phases (sequential within a phase; API provider models can run in parallel)',
@@ -421,6 +425,7 @@ ARG_EN.update({
     'task_update.max_retries': 'Maximum retries',
     'task_update.executor': 'main / subagent',
     'task_update.assignee': 'Executor or sub-agent id',
+    'task_update.model': 'Per-task sub-agent model (empty uses task_run model)',
     'task_update.priority': 'Priority (higher runs first)',
     'task_update.title': 'Title',
     'task_update.description': 'Description',
@@ -433,6 +438,11 @@ ARG_EN.update({
     'task_resume.plan_id': 'Plan id (optional)',
     'task_replan.updates': 'Array of patches: {task_id, depends_on?, title?, ...} or {task_id, remove:true}',
     'task_replan.plan_id': 'Plan id (optional)',
+    'task_run.plan_id': 'Plan id (optional)',
+    'task_run.model': 'Sub-agent model (optional)',
+    'task_run.max_concurrency': 'Max concurrency (defaults to agent.task_run_max_concurrency or 4)',
+    'task_run.timeout_seconds': 'Per-task timeout in seconds (default 600)',
+    'task_run.max_steps': 'Step cap per sub-agent (defaults to agent.subagent_max_steps)',
     'update_goal.action': 'complete / blocked / pause / resume / edit',
     'update_goal.objective': 'New goal (only with action=edit)',
     'web_fetch.url': 'HTTP(S) URL',
