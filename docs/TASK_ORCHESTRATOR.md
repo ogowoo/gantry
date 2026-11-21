@@ -31,7 +31,8 @@ Batch 3 会扩展命令、API、格式和组合条件。
 ## 工具
 
 ```text
-task_run(plan_id?, model?, max_concurrency?, timeout_seconds?, max_steps?)
+task_run(plan_id?, model?, max_concurrency?, timeout_seconds?, max_steps?,
+         allow_commands?, independent?)
 ```
 
 `task_run` 返回：
@@ -43,6 +44,9 @@ results[]（task_id、attempts、review、agent_id、content、error）
 ```
 
 `needs_main` 非空时，主 Agent 继续执行这些任务，然后再次 `task_update` / `task_run`。
+
+`allow_commands=true` 允许验收执行命令/测试/API（默认关闭）；`independent=true`
+会在确定性检查通过后再派一个只读验证 Agent 交叉核对。独立验证不能推翻确定性失败。
 
 ## 配置
 

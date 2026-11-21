@@ -14,6 +14,23 @@
 ### Fixed
 - 
 
+## [0.11.0-beta.36] - 2026-11-21
+
+### Added
+- Batch 3 Verification & Benchmark：
+  - 扩展 `gantry/task_verify.py`：文件、格式、命令、unittest、API、all_of/any_of/not
+    组合条件；命令/API 必须显式 `allow_commands`；高风险任务缺少确定性证据直接失败；
+  - 独立验证 Agent `independent_review`；它只补充/否定，不能推翻确定性失败；
+  - `task_run` 增加 `allow_commands` / `independent`；
+  - `tests/evals/tasks.json` 扩展到 30 条、22 个类别；
+  - `scripts/eval.py` 增加完成率/验收率/耗时/步数/重试/无进展/子 Agent/token/
+    压缩恢复指标、上一份报告对比，并修复 API token 未带导致 0 步假失败；
+- 文档：`docs/VERIFICATION_BENCHMARK.md`。
+
+### Tests
+- 新增验收引擎、指标、Benchmark 结构测试；
+- 全量回归 1833 tests，OK (skipped=2)。
+
 ## [0.11.0-beta.35] - 2026-11-21
 
 ### Added

@@ -36,6 +36,16 @@ REPORT_DIR = BASE / "data" / "evals"
 API = os.environ.get("CBP_API", "http://127.0.0.1:8765")
 
 
+def _api_token() -> str:
+    token = os.environ.get("CBP_TOKEN") or os.environ.get("GANTRY_API_TOKEN") or ""
+    if token:
+        return token.strip()
+    try:
+        return (BASE / "data" / "api_token").read_text(encoding="utf-8").strip()
+    except Exception:
+        return ""
+
+
 def check_task(task: dict, steps: list[dict], answer: str, memory_items: list[dict],
                sid: str = "") -> list[dict]:
     """逐条断言；返回 [{name, ok, detail}]。断言全部是确定性的，不引入 LLM judge。"""
@@ -58,13 +68,27 @@ def check_task(task: dict, steps: list[dict], answer: str, memory_items: list[di
         bad = [t for t in a["tools_forbidden"] if t in tools]
         add("tools_forbidden", not bad, f"出现了禁止工具 {bad}")
     if "max_steps" in a:
-        add("max_steps", len(steps) <= a["max_steps"], f"步数 {len(steps)} > {a['max_steps']}")
+        add("max_steps", len(steps) <= a["max_steps"],
+            f"步数 {len(steps)} <= {a['max_steps']}")
+    if "min_tools" in a:
+        add("min_tools", len(tools) >= int(a["min_tools"]), f"工具调用 {len(tools)}")
     if a.get("no_validation_gate"):
         n = sum(1 for s in statuses if s == "validation_gate")
         add("no_validation_gate", n == 0, f"验证门拦截 {n} 次（说明提前 final）")
     if a.get("batch_used"):
         b = [s.get("batch_of") for s in steps if s.get("batch_of")]
         add("batch_used", bool(b), "没有出现批量动作")
+    if a.get("task_planned"):
+        add("task_planned", "task_plan" in tools, "没有建立任务图")
+    if a.get("task_run_used"):
+        add("task_run_used", "task_run" in tools, "没有调用 task_run")
+    if "subagents_used_any" in a:
+        want = a["subagents_used_any"]
+        hit = [t for t in tools if t in want]
+        add("subagents_used_any", bool(hit), f"实际 {tools}")
+    if "max_no_progress" in a:
+        n = sum(1 for s in statuses if s in ("no_progress", "no_progress_warning"))
+        add("max_no_progress", n <= int(a["max_no_progress"]), f"无进展 {n} 次")
     for name in a.get("files_exist", []):
         p = WS / name
         add(f"file_exists:{name}", p.is_file(), str(p))
@@ -91,6 +115,59 @@ def check_task(task: dict, steps: list[dict], answer: str, memory_items: list[di
     return out
 
 
+def compute_metrics(results: list[dict]) -> dict:
+    """从逐任务结果汇总可比较指标；缺失的指标明确为 None，不伪造。"""
+    total = len(results)
+    passed = sum(1 for r in results if r.get("ok"))
+    checks = [c for r in results for c in (r.get("checks") or [])]
+    passed_checks = sum(1 for c in checks if c.get("ok"))
+    steps = sum(int(r.get("steps") or 0) for r in results)
+    tools = sum(len(r.get("tools") or []) for r in results)
+    seconds = sum(float(r.get("seconds") or 0) for r in results)
+    retries = sum(int(r.get("attempts") or 0) for r in results)
+    statuses = [s for r in results for s in (r.get("statuses") or [])]
+    no_progress = sum(1 for s in statuses if s in ("no_progress", "no_progress_warning"))
+    sub_calls = sum(int(r.get("subagent_calls") or 0) for r in results)
+    sub_ok = sum(int(r.get("subagent_ok") or 0) for r in results)
+    sub_rework = sum(int(r.get("subagent_rework") or 0) for r in results)
+    tokens = sum(int((r.get("usage") or {}).get("total_tokens") or 0) for r in results)
+    compacted = sum(1 for r in results if r.get("compacted"))
+    compacted_ok = sum(1 for r in results if r.get("compacted") and r.get("ok"))
+    return {
+        "tasks": total, "completed": passed,
+        "completion_rate": round(passed / total, 4) if total else 0.0,
+        "acceptance_checks": len(checks), "acceptance_passed": passed_checks,
+        "acceptance_rate": round(passed_checks / len(checks), 4) if checks else None,
+        "avg_seconds": round(seconds / total, 2) if total else 0.0,
+        "avg_steps": round(steps / total, 2) if total else 0.0,
+        "total_tools": tools, "avg_tools": round(tools / total, 2) if total else 0.0,
+        "avg_retries": round(retries / total, 2) if total else 0.0,
+        "no_progress": no_progress,
+        "subagent_calls": sub_calls, "subagent_success": sub_ok,
+        "subagent_success_rate": round(sub_ok / sub_calls, 4) if sub_calls else None,
+        "subagent_rework": sub_rework,
+        "subagent_rework_rate": round(sub_rework / sub_calls, 4) if sub_calls else None,
+        "total_tokens": tokens, "avg_tokens": round(tokens / total, 2) if total else 0.0,
+        "compacted_tasks": compacted, "compaction_recovery": compacted_ok,
+        "compaction_recovery_rate": round(compacted_ok / compacted, 4) if compacted else None,
+        "cost_usd": None,
+    }
+
+
+def _load_previous_report(directory: Path, current: Path) -> dict | None:
+    try:
+        reports = sorted((p for p in directory.glob("report-*.json") if p != current),
+                         key=lambda p: p.stat().st_mtime, reverse=True)
+    except Exception:
+        return None
+    if not reports:
+        return None
+    try:
+        return json.loads(reports[0].read_text(encoding="utf-8"))
+    except Exception:
+        return None
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--model", default=None, help="默认用服务端 config 的 default_model")
@@ -101,6 +178,8 @@ def main() -> int:
                     help="单条任务上限秒数，超时即取消该会话（默认 300）")
     ap.add_argument("--wait-idle", type=float, default=120,
                     help="每条任务前等待服务空闲的上限秒数")
+    ap.add_argument("--compare", action="store_true",
+                    help="与上一份 report 比较指标并输出 delta")
     ap.add_argument("--warmup-timeout", type=float, default=600,
                     help="首个 Copilot 任务前等待浏览器/Copilot 就绪的上限秒数（按需启动的首次代价，"
                          "不计入单任务超时）")
@@ -121,7 +200,8 @@ def main() -> int:
     failed = 0
     stamp = time.strftime("%Y%m%d-%H%M%S")
 
-    with httpx.Client(base_url=API, timeout=args.timeout) as c:
+    with httpx.Client(base_url=API, timeout=args.timeout,
+                      headers={"X-Gantry-Token": _api_token()} if _api_token() else {}) as c:
         health = c.get("/health").json()
         model = args.model or health.get("default_model") or "copilot-auto"
         print(f"评测模型: {model}  页面: {str(health.get('page_url'))[:60]}\n")
@@ -246,6 +326,18 @@ def main() -> int:
             if d.get("_blocked"):
                 checks.insert(0, {"name": "service_idle", "ok": False, "detail": d["_blocked"]})
                 ok = False
+            sub_calls = sub_ok = 0
+            statuses = [x.get("status") for x in steps]
+            for st in steps:
+                if st.get("tool") not in ("subagent", "subagent_many"):
+                    continue
+                r = st.get("result") or {}
+                if st.get("tool") == "subagent_many":
+                    sub_ok += int(r.get("succeeded") or 0)
+                    sub_calls += int(r.get("succeeded") or 0) + int(r.get("failed") or 0)
+                else:
+                    sub_calls += 1
+                    sub_ok += 1 if st.get("status") == "ok" else 0
             results.append({"id": t["id"], "ok": ok, "seconds": round(time.time() - t0, 1),
                             "steps": len(steps), "tools": [s.get("tool") for s in steps if s.get("tool")],
                             "final": (answer or "")[:400],
@@ -255,7 +347,14 @@ def main() -> int:
                                          for x in steps[-12:]],
                             "checks": checks, "error": d.get("_error") or d.get("_blocked"),
                             "events": hc.get("events"), "coverage_gaps": hc.get("coverage_gaps") or [],
-                            "legacy_no_events": bool(hc.get("legacy"))})
+                            "legacy_no_events": bool(hc.get("legacy")),
+                            "attempts": attempts.get(t["id"], 0),
+                            "statuses": statuses,
+                            "usage": d.get("usage") or {},
+                            "subagent_calls": sub_calls,
+                            "subagent_ok": sub_ok,
+                            "subagent_rework": 0,
+                            "compacted": bool(d.get("compacted") or d.get("compaction"))})
             if not ok and attempts.get(t["id"], 0) < int(t.get("retries") or 0):
                 attempts[t["id"]] = attempts.get(t["id"], 0) + 1
                 print(f"[RETRY] {t['id']} 第 {attempts[t['id']] + 1} 次尝试"
@@ -278,13 +377,36 @@ def main() -> int:
 
     stamp = time.strftime("%Y%m%d-%H%M%S")
     out = REPORT_DIR / f"report-{stamp}.json"
-    out.write_text(json.dumps({"model": model, "when": stamp, "results": results},
+    metrics = compute_metrics(results)
+    previous = _load_previous_report(REPORT_DIR, out) if args.compare else None
+    comparison = None
+    if previous and isinstance(previous.get("metrics"), dict):
+        before = previous["metrics"]
+        comparison = {}
+        for key, value in metrics.items():
+            old = before.get(key)
+            if isinstance(value, (int, float)) and isinstance(old, (int, float)):
+                comparison[key] = {"before": old, "after": value,
+                                   "delta": round(value - old, 4)}
+            else:
+                comparison[key] = {"before": old, "after": value, "delta": None}
+    out.write_text(json.dumps({"model": model, "when": stamp, "metrics": metrics,
+                               "comparison": comparison, "results": results},
                               ensure_ascii=False, indent=1), encoding="utf-8")
     no_events = sum(1 for r in results if r.get("legacy_no_events"))
     mism = sum(1 for r in results for c in r["checks"]
                if c["name"] == "projection_consistency" and not c["ok"])
     gaps = sum(1 for r in results if r.get("coverage_gaps"))
     print(f"\n汇总: {len(results) - failed}/{len(results)} 通过   报告: {out}")
+    print(f"指标: 完成率 {metrics['completion_rate']:.0%}  "
+          f"验收率 {metrics['acceptance_rate'] if metrics['acceptance_rate'] is not None else 'n/a'}  "
+          f"平均 {metrics['avg_seconds']}s/{metrics['avg_steps']} 步  "
+          f"重试 {metrics['avg_retries']} 无进展 {metrics['no_progress']}")
+    if comparison:
+        changed = [k for k, v in comparison.items() if v.get("delta") not in (None, 0)]
+        print("对比上一份报告: " + ("；".join(
+            f"{k} {comparison[k]['before']}→{comparison[k]['after']}" for k in changed[:8])
+            or "无变化"))
     print(f"事件核对: 投影≠列 {mism} 例，覆盖告警 {gaps} 例，无事件 {no_events} 例")
     return 1 if failed else 0
 

@@ -443,6 +443,8 @@ ARG_EN.update({
     'task_run.max_concurrency': 'Max concurrency (defaults to agent.task_run_max_concurrency or 4)',
     'task_run.timeout_seconds': 'Per-task timeout in seconds (default 600)',
     'task_run.max_steps': 'Step cap per sub-agent (defaults to agent.subagent_max_steps)',
+    'task_run.allow_commands': 'Allow acceptance command/test/API execution (default false)',
+    'task_run.independent': 'Add an independent verification agent cross-check (default false)',
     'update_goal.action': 'complete / blocked / pause / resume / edit',
     'update_goal.objective': 'New goal (only with action=edit)',
     'web_fetch.url': 'HTTP(S) URL',

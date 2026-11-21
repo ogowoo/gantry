@@ -20,7 +20,7 @@ from pathlib import Path
 from typing import Any, Awaitable, Callable
 
 from .task_plan import TaskStore, TaskPlanError
-from .task_verify import review_task
+from .task_verify import independent_review, review_task
 
 RunSubagent = Callable[[str, str, str, int], Awaitable[dict[str, Any]]]
 ReviewFn = Callable[[dict[str, Any], dict[str, Any], Path], dict[str, Any]]
@@ -106,6 +106,7 @@ async def run_plan(store: TaskStore, session_id: str, run_subagent: RunSubagent,
                    *, model: str = "", max_concurrency: int = 4,
                    timeout_seconds: float = 600, max_steps: int = 0,
                    workspace: str | Path = ".", review_fn: ReviewFn | None = None,
+                   allow_commands: bool = False, independent: bool = False,
                    ) -> dict[str, Any]:
     """执行任务图中的 subagent ready 任务，直到没有可执行项或计划被取消。"""
     sid = str(session_id or "").strip()
@@ -114,7 +115,6 @@ async def run_plan(store: TaskStore, session_id: str, run_subagent: RunSubagent,
     cap = max(1, min(int(max_concurrency or 4), 8))
     timeout = max(0.05, float(timeout_seconds or 600))
     workspace = Path(workspace).resolve()
-    review = review_fn or review_task
     results: list[dict[str, Any]] = []
     path_owner: dict[str, str] = {}
     initial = store.get_plan(sid) or {}
@@ -189,7 +189,16 @@ async def run_plan(store: TaskStore, session_id: str, run_subagent: RunSubagent,
             if not isinstance(result, dict):
                 result = {"error": "run_subagent 返回了非对象", "content": ""}
 
-            verdict = review(task, result, workspace)
+            if independent:
+                verdict = await independent_review(
+                    task, result, workspace, run_subagent,
+                    model=str(task.get("model") or model),
+                    allow_commands=allow_commands)
+            elif review_fn is not None:
+                verdict = review_fn(task, result, workspace)
+            else:
+                verdict = review_task(task, result, workspace,
+                                      allow_commands=allow_commands)
             if verdict.get("ok"):
                 for p in _paths(task):
                     path_owner[p] = str(task["id"])
