@@ -26,6 +26,31 @@ from . import editmatch
 from .tools import ToolError  # noqa: F401
 
 
+def _inspect_for_read(target: Path, sheet: str) -> dict[str, Any]:
+    from .excel_guard import inspect_workbook
+    return inspect_workbook(target, sheet, max_cells=200_000,
+                            max_rows=200_000, max_seconds=6.0)
+
+
+def _safe_bounds(g: dict[str, Any]) -> dict[str, int] | None:
+    """只有当探测给出明确实际范围时才替换 openpyxl 的 max_row/max_column。"""
+    if not g or g.get("error"):
+        return None
+    try:
+        start_row = int(g.get("min_row") or 0)
+        end_row = int(g.get("max_row") or 0)
+        start_col = int(g.get("min_col") or 0)
+        end_col = int(g.get("max_col") or 0)
+    except (TypeError, ValueError):
+        return None
+    if end_row <= 0 or end_col <= 0:
+        return None
+    if float(g.get("confidence") or 0) < 0.15:
+        return None
+    return {"start_row": max(1, start_row), "end_row": end_row,
+            "start_col": max(1, start_col), "end_col": end_col}
+
+
 class OfficeMixin:
     def _office_allowed(self):
         if not self.allow_office:
@@ -39,21 +64,73 @@ class OfficeMixin:
             raise ToolError(f"{name} 必须是整数")
 
     async def read_excel(self, path: str, sheet: str = "", max_rows: int = 200,
-                         max_cols: int = 300) -> dict[str, Any]:
+                         max_cols: int = 300, safe: bool = True) -> dict[str, Any]:
         self._office_allowed()
         target = self._path(path)
         if not target.is_file():
             raise ToolError(f"文件不存在: {path}")
         limit = max(1, min(self._int_arg(max_rows, 200, "max_rows"), 2000))
         columns = max(1, min(self._int_arg(max_cols, 300, "max_cols"), 1000))
-        # openpyxl 即使 read_only 也可能卡在超大 dimension 上；整体丢线程，
-        # 避免一次读表把事件循环（WebUI 轮询/任务状态）卡住。
-        out = await asyncio.to_thread(self._read_excel_sync, target, sheet, limit, columns)
+        report = None
+        if safe:
+            # 先探测真实范围；不能把 max_row/max_column 当数据边界。
+            report = await asyncio.to_thread(
+                _inspect_for_read, target, sheet)
+        out = await asyncio.to_thread(
+            self._read_excel_sync, target, sheet, limit, columns, report)
         return {"path": path, **out}
+
+    async def excel_inspect(self, path: str, sheet: str = "", max_cells: int = 200_000,
+                            max_rows: int = 200_000, max_seconds: float = 8.0) -> dict[str, Any]:
+        """只探测 Excel 结构，不读取整表：UsedRange 不可信时的第一道门。"""
+        self._office_allowed()
+        target = self._path(path)
+        if not target.is_file():
+            raise ToolError(f"文件不存在: {path}")
+        from .excel_guard import inspect_workbook
+        try:
+            budget = max(1_000, min(int(max_cells), 1_000_000))
+            rows_budget = max(1_000, min(int(max_rows), 1_000_000))
+            secs = max(0.5, min(float(max_seconds), 30.0))
+        except (TypeError, ValueError):
+            raise ToolError("max_cells/max_rows/max_seconds 必须是数字")
+        report = await asyncio.to_thread(
+            inspect_workbook, target, sheet, max_cells=budget, max_rows=rows_budget,
+            max_seconds=secs)
+        return {"path": path, **report}
+
+    async def excel_validate(self, path: str, sheet: str = "",
+                             expect_rows: int = 0) -> dict[str, Any]:
+        """处理结果验证：重新探测输出文件，确认可打开、范围和行数。"""
+        self._office_allowed()
+        target = self._path(path)
+        if not target.is_file():
+            raise ToolError(f"文件不存在: {path}")
+        from .excel_guard import inspect_workbook
+        report = await asyncio.to_thread(inspect_workbook, target, sheet,
+                                         max_cells=200_000, max_rows=200_000,
+                                         max_seconds=8.0)
+        sheets = report.get("sheets") or []
+        picked = next((s for s in sheets if not sheet or s.get("sheet") == sheet), None)
+        checks = []
+        if not report.get("ok"):
+            checks.append({"check": "openable", "ok": False,
+                           "detail": report.get("error") or "无法读取"})
+        else:
+            checks.append({"check": "openable", "ok": True, "detail": "可读取"})
+        if picked:
+            actual = int(picked.get("actual_rows") or 0)
+            if expect_rows:
+                checks.append({"check": "expected_rows", "ok": actual >= int(expect_rows),
+                               "detail": f"实际 {actual}，期望至少 {expect_rows}"})
+            checks.append({"check": "detected_range", "ok": bool(picked.get("detected_range")),
+                           "detail": picked.get("detected_range") or "无数据"})
+        return {"path": path, "ok": all(c["ok"] for c in checks),
+                "checks": checks, "report": report}
 
     @staticmethod
     def _read_excel_sync(target: Path, sheet: str, limit: int,
-                         columns: int) -> dict[str, Any]:
+                         columns: int, report: dict[str, Any] | None = None) -> dict[str, Any]:
         try:
             import openpyxl
         except ImportError:
@@ -62,26 +139,45 @@ class OfficeMixin:
         try:
             if sheet and sheet not in wb.sheetnames:
                 raise ToolError(f"工作表不存在: {sheet}，可用: {wb.sheetnames}")
+            guard_by_sheet = {s.get("sheet"): s for s in ((report or {}).get("sheets") or [])}
             out = {}
             for name in ([sheet] if sheet else wb.sheetnames):
                 ws = wb[name]
+                g = guard_by_sheet.get(name) or {}
+                guard = _safe_bounds(g)
                 rows = []
-                # 只取前 limit 行；total_rows 用 max_row 元数据，不再为了精确
-                # 计数把 5000+ 行全部扫一遍。尾部纯格式行可能让 max_row 偏大。
-                # max_col 必须限制：Tracker 的 max_column 是 16364（几个远端空样式
-                # 单元格造成），不限制会把 200 行 × 16364 列塞进工具结果。
-                for r in ws.iter_rows(max_row=limit, max_col=columns, values_only=True):
+                if guard:
+                    start_row = max(1, min(guard["start_row"], guard["end_row"]))
+                    end_row = min(guard["end_row"], start_row + limit - 1)
+                    max_col = max(1, min(columns, guard["end_col"]))
+                else:
+                    start_row, end_row, max_col = 1, limit, columns
+                # 只取真实范围的前 limit 行；max_col 限制：远端空样式列不读。
+                for r in ws.iter_rows(min_row=start_row, max_row=end_row,
+                                      max_col=max_col, values_only=True):
                     vals = ["" if c is None else str(c) for c in r]
                     while vals and vals[-1] == "":
                         vals.pop()
                     rows.append(vals)
-                total = int(ws.max_row or len(rows))
+                if guard:
+                    total = max(0, guard["end_row"] - guard["start_row"] + 1)
+                    total_cols = max(0, guard["end_col"] - guard["start_col"] + 1)
+                    truncated = guard["end_row"] > end_row
+                else:
+                    total = int(ws.max_row or len(rows))
+                    total_cols = int(ws.max_column or 0)
+                    truncated = total > limit
                 out[name] = {"rows": rows, "total_rows": total,
-                             "total_columns": int(ws.max_column or 0),
-                             "columns_read": columns,
+                             "total_columns": total_cols,
+                             "columns_read": max_col,
                              "used_columns_sample": max((len(x) for x in rows), default=0),
-                             "truncated": total > limit}
-            return {"sheets": out}
+                             "truncated": truncated,
+                             "declared_range": g.get("declared_range", ""),
+                             "detected_range": g.get("detected_range", ""),
+                             "anomalies": g.get("anomalies") or [],
+                             "confidence": g.get("confidence")}
+            return {"sheets": out,
+                    "inspection": (report or {})}
         finally:
             wb.close()
 
