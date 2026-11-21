@@ -19,6 +19,7 @@ import json
 import re
 import sqlite3
 import time
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -223,6 +224,23 @@ def _query_terms(query: str) -> list[str]:
     return out[:8]
 
 
+def _is_expired(hit: dict[str, Any]) -> bool:
+    """front-matter 里 expires/valid_until 已过期则过滤；无该字段表示长期有效。"""
+    meta = hit.get("meta") if isinstance(hit.get("meta"), dict) else {}
+    front = meta.get("front") if isinstance(meta.get("front"), dict) else meta
+    raw = front.get("expires") or front.get("valid_until") or front.get("expire_at")
+    if not raw:
+        return False
+    try:
+        if isinstance(raw, (int, float)):
+            return float(raw) <= time.time()
+        text = str(raw).strip().replace("Z", "+00:00")
+        dt = datetime.fromisoformat(text)
+        return dt.timestamp() <= time.time()
+    except Exception:
+        return False
+
+
 class KnowledgeBase:
     """`data/kb/**` 的全文索引。线程内使用；跨线程各自建实例即可（SQLite 自己会加锁）。"""
 
@@ -357,6 +375,7 @@ class KnowledgeBase:
         if not rows:
             rows = self._search_like(con, q, limit)
         hits = [self._row_to_hit(r) for r in rows]
+        hits = [h for h in hits if not _is_expired(h)]
         self._score(q, hits)
         hits.sort(key=lambda h: -h["score"])
         self._expand_parents(con, hits)

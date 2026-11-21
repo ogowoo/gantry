@@ -196,7 +196,9 @@ class PromptMixin:
             lines = ["可用技能（判断相关时用 skill_read 读取全文再执行；[项目] 优先于 [全局]）："]
             for s in skills:
                 scope = "项目" if s.get("scope") == "project" else "全局"
-                lines.append(f"- [{scope}] {s['name']}：{s['description']}（skill_read \"{s['name']}\"）")
+                mark = "已验证" if s.get("verified") else "未验证"
+                lines.append(f"- [{scope}] {s['name']}：{s['description']}"
+                             f"（{mark}；skill_read \"{s['name']}\"）")
             parts.append("\n".join(lines))
         # 长期记忆：按当前任务文本检索最相关的若干条（关键词匹配，零依赖）。
         # 只注入少量：记忆是可检索知识，不是每回合都要读的硬约定。
@@ -207,11 +209,14 @@ class PromptMixin:
                 scopes = ["global", getattr(self.tools, "memory_scope", "global")]
                 hits = mem.search(task_text, scopes, limit=5)
                 if hits:
-                    lines = ["相关长期记忆（来自以往任务，可能过时；与当前事实冲突时以当前为准，"
-                             "过时或错误的用 memory_forget 删除）："]
+                    lines = ["相关长期记忆（来自以往任务；verified 表示经过验证，unverified 可能过时；"
+                             "与当前事实冲突时以当前为准，过时或错误的用 memory_forget 删除）："]
                     for m in hits:
                         pin = "★" if m.get("pinned") else ""
-                        lines.append(f"- {pin}[{m.get('kind')}#{m['id']}] {m['text']}")
+                        mark = "verified" if m.get("verified") else "unverified"
+                        src = str(m.get("source") or m.get("source_session") or "")[:80]
+                        lines.append(f"- {pin}[{m.get('kind')}#{m['id']}|{mark}] {m['text']}"
+                                     + (f" (source: {src})" if src else ""))
                     lines.append("需要更多时用 memory_search 检索。")
                     parts.append("\n".join(lines))
         except Exception:

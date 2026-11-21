@@ -14,6 +14,23 @@
 ### Fixed
 - 
 
+## [0.11.0-beta.38] - 2026-11-21
+
+### Added
+- Batch 5 Memory / Knowledge / Skills：
+  - Memory 增加 verified/source/expires_at/confidence，迁移旧库；
+  - `memory_write` 支持 verified/source/ttl_days/confidence；`memory_search` 过滤过期、
+    按验证/新近度加权并返回来源；
+  - Agent 提示词显示 verified/unverified 与 source；
+  - Knowledge 支持 front-matter `expires` / `valid_until` 过期过滤，混合检索保留
+    source/updated；
+  - `skill_create` 增加 verified，SKILL.md front-matter 与 skill_list/提示词显示验证状态；
+  - 文档 `docs/MEMORY_KNOWLEDGE.md`。
+
+### Tests
+- 新增记忆时效/验证、知识库过期、技能验证测试；
+- 全量回归 1851 tests，OK (skipped=2)。
+
 ## [0.11.0-beta.37] - 2026-11-21
 
 ### Added
