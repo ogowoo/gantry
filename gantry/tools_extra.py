@@ -574,7 +574,8 @@ class _Extra:
 
     async def task_run(self, plan_id: str = "", model: str = "",
                        max_concurrency: int = 0, timeout_seconds: float = 0,
-                       max_steps: int = 0) -> dict[str, Any]:
+                       max_steps: int = 0, allow_commands: bool = False,
+                       independent: bool = False) -> dict[str, Any]:
         """按任务图调度 subagent ready 任务，并审查产物/返工。"""
         if self.subagent_fn is None:
             raise ExtraToolError("当前通道不支持子代理，无法执行任务图")
@@ -591,7 +592,9 @@ class _Extra:
                 store, self._sid(), self.subagent_fn, model=model,
                 max_concurrency=cap, timeout_seconds=timeout,
                 max_steps=self._steps(max_steps),
-                workspace=self._active_reg().root)
+                workspace=self._active_reg().root,
+                allow_commands=bool(allow_commands),
+                independent=bool(independent))
         except TaskPlanError as exc:
             raise ExtraToolError(str(exc)) from exc
         self._project_plan(store.get_plan(self._sid(), plan_id) or plan)
@@ -1021,7 +1024,9 @@ _DESCRIPTIONS: dict[str, tuple[str, dict[str, Any]]] = {
                  {"plan_id": "计划 ID（可选）", "model": "子代理模型（可选）",
                   "max_concurrency": "最大并发，默认 agent.task_run_max_concurrency 或 4",
                   "timeout_seconds": "单任务超时，默认 600",
-                  "max_steps": "每个子任务步数上限（默认 agent.subagent_max_steps）"}),
+                  "max_steps": "每个子任务步数上限（默认 agent.subagent_max_steps）",
+                  "allow_commands": "允许验收执行命令/测试/API，默认 false",
+                  "independent": "是否额外派独立验证 Agent 交叉检查，默认 false"}),
     "read_image": ("读取图片元数据（格式/尺寸/大小）；analyze=true 时交给 Copilot 视觉描述",
                    {"path": "图片相对路径", "question": "要问 Copilot 的问题（可选）",
                     "analyze": "是否调用视觉分析，默认 true"}),
