@@ -28,6 +28,7 @@
 - `excel_validate`：检查输出文件可读、范围和行数；
 - 表头/数据区域识别、needs_confirmation；
 - excel_preview + excel_read_chunk 检查点续跑；
+- Excel 读取独立子进程，超时 kill + 内存看门狗；
 - 扫描预算与 truncated/confidence，不假装完整；
 - 详见 `docs/EXCEL_DATA_GUARD.md`。
 
@@ -56,7 +57,7 @@
 最终全量：
 
 ```text
-Ran 1874 tests...
+Ran 1876 tests...
 OK (skipped=2)
 ```
 

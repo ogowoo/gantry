@@ -10,6 +10,7 @@ import difflib
 import hashlib
 import inspect
 import json
+import os
 import queue
 import re
 import shutil
@@ -91,6 +92,70 @@ class OfficeMixin:
         except (TypeError, ValueError):
             raise ToolError(f"{name} 必须是整数")
 
+    async def _excel_worker(self, payload: dict[str, Any], timeout: float) -> dict[str, Any]:
+        """在独立子进程里跑 openpyxl；超时可 kill，Windows Job 限制内存。"""
+        if not bool(self.config.get("excel_use_worker", True)):
+            raise RuntimeError("excel worker disabled")
+        from .process_guard import ProcessGuard, posix_preexec, resident_bytes
+        root = Path(__file__).resolve().parent.parent
+        env = dict(os.environ)
+        env["PYTHONPATH"] = str(root) + (os.pathsep + env["PYTHONPATH"]
+                                         if env.get("PYTHONPATH") else "")
+        cmd = [sys.executable, "-m", "gantry.excel_worker"]
+        preexec = posix_preexec(int(self.config.get("excel_worker_memory_mb", 512) or 512))
+        proc = await asyncio.create_subprocess_exec(
+            *cmd, stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE, cwd=str(root), env=env,
+            **({"preexec_fn": preexec} if preexec else {}))
+        guard = ProcessGuard(int(self.config.get("excel_worker_memory_mb", 512) or 512))
+        guard.assign(proc.pid)
+        limit_mb = int(self.config.get("excel_worker_memory_mb", 512) or 512)
+        mem_killed = False
+
+        async def _watch_memory():
+            nonlocal mem_killed
+            while proc.returncode is None:
+                if limit_mb > 0 and resident_bytes(proc.pid) > limit_mb * 1024 * 1024:
+                    mem_killed = True
+                    try:
+                        proc.kill()
+                    except Exception:
+                        pass
+                    return
+                await asyncio.sleep(0.1)
+
+        watcher = asyncio.create_task(_watch_memory())
+        try:
+            try:
+                out, err = await asyncio.wait_for(
+                    proc.communicate(json.dumps(payload).encode("utf-8")),
+                    timeout=max(0.1, timeout))
+            except asyncio.TimeoutError:
+                proc.kill()
+                await proc.wait()
+                raise ToolError(
+                    f"Excel 子进程超过 {int(timeout)} 秒，已强制终止；请缩小范围")
+        finally:
+            watcher.cancel()
+            try:
+                await watcher
+            except asyncio.CancelledError:
+                pass
+            guard.close()
+        if mem_killed:
+            raise ToolError(
+                f"Excel 子进程超过内存上限 {limit_mb} MB，已强制终止")
+        if proc.returncode != 0:
+            detail = (err or b"").decode("utf-8", "ignore")[-800:]
+            raise ToolError(f"Excel 子进程失败（exit {proc.returncode}）: {detail}")
+        try:
+            data = json.loads((out or b"").decode("utf-8", "ignore") or "{}")
+        except Exception as exc:
+            raise ToolError(f"Excel 子进程返回无效 JSON: {exc}")
+        if not data.get("ok"):
+            raise ToolError(str(data.get("error") or "Excel 子进程失败"))
+        return data.get("result") or {}
+
     async def excel_preview(self, path: str, sheet: str = "",
                             max_rows: int = 5) -> dict[str, Any]:
         """Excel 预览：真实范围 + 表头 + 前几行 + 数据区域。"""
@@ -98,6 +163,8 @@ class OfficeMixin:
         target = self._path(path)
         if not target.is_file():
             raise ToolError(f"文件不存在: {path}")
+        if target.suffix.lower() == ".xls":
+            raise ToolError("旧版 .xls 暂不支持；请先另存为 .xlsx 或 .xlsm")
         limit = max(1, min(self._int_arg(max_rows, 5, "max_rows"), 30))
         report = await asyncio.to_thread(_inspect_for_read, target, sheet)
         from .excel_guard import recommended_scan
@@ -106,9 +173,23 @@ class OfficeMixin:
             return {"path": path, "inspection": report, "rows": [],
                     "header": [], "regions": [], "warnings": ["没有识别到数据区域"]}
         end = min(guard["end_row"], guard["start_row"] + limit - 1)
-        rows = await asyncio.to_thread(
-            _read_range_sync, target, guard["sheet"], guard["start_row"], end,
-            min(1000, guard["end_col"]))
+        timeout = float(self.config.get("excel_read_timeout_seconds", 60) or 60)
+        try:
+            if bool(self.config.get("excel_use_worker", True)):
+                data = await self._excel_worker(
+                    {"action": "read_range", "path": str(target),
+                     "sheet": guard["sheet"], "start_row": guard["start_row"],
+                     "end_row": end, "max_col": min(1000, guard["end_col"]),
+                     "max_cols": 1000}, timeout)
+                rows = data.get("rows") or []
+            else:
+                rows = await asyncio.wait_for(
+                    asyncio.to_thread(_read_range_sync, target, guard["sheet"],
+                                      guard["start_row"], end,
+                                      min(1000, guard["end_col"])),
+                    timeout=max(1.0, timeout))
+        except asyncio.TimeoutError:
+            raise ToolError(f"Excel 预览超过 {int(timeout)} 秒，已停止")
         return {"path": path, "sheet": guard["sheet"],
                 "inspection": report, "detected_range": _range_str(guard),
                 "header": (guard.get("header") or {}).get("values") or [],
@@ -127,6 +208,8 @@ class OfficeMixin:
         target = self._path(path)
         if not target.is_file():
             raise ToolError(f"文件不存在: {path}")
+        if target.suffix.lower() == ".xls":
+            raise ToolError("旧版 .xls 暂不支持；请先另存为 .xlsx 或 .xlsm")
         size = max(1, min(self._int_arg(chunk_rows, 500, "chunk_rows"), 2000))
         report = await asyncio.to_thread(_inspect_for_read, target, sheet)
         from .excel_guard import recommended_scan
@@ -134,6 +217,8 @@ class OfficeMixin:
         if not guard or not guard.get("end_row"):
             raise ToolError("没有识别到可读取的数据区域；请先 excel_inspect")
         regions = guard.get("regions") or []
+        if region and (not regions or region > len(regions)):
+            raise ToolError(f"region={region} 超出范围，可用区域数: {len(regions)}")
         if region and 1 <= region <= len(regions):
             r = regions[region - 1]
             guard = dict(guard, start_row=int(r["start_row"]),
@@ -157,9 +242,21 @@ class OfficeMixin:
                     "total_rows": max(0, guard["end_row"] - start + 1),
                     "checkpoint": str(cp), "regions": regions}
         end = min(guard["end_row"], start + size - 1)
-        rows = await asyncio.to_thread(
-            _read_range_sync, target, guard["sheet"], start, end,
-            min(1000, guard["end_col"]))
+        timeout = float(self.config.get("excel_read_timeout_seconds", 60) or 60)
+        try:
+            if bool(self.config.get("excel_use_worker", True)):
+                data = await self._excel_worker(
+                    {"action": "read_range", "path": str(target),
+                     "sheet": guard["sheet"], "start_row": start, "end_row": end,
+                     "max_col": min(1000, guard["end_col"])}, timeout)
+                rows = data.get("rows") or []
+            else:
+                rows = await asyncio.wait_for(
+                    asyncio.to_thread(_read_range_sync, target, guard["sheet"], start, end,
+                                      min(1000, guard["end_col"])),
+                    timeout=max(1.0, timeout))
+        except asyncio.TimeoutError:
+            raise ToolError(f"Excel 分块读取超过 {int(timeout)} 秒，已停止；检查点未推进")
         processed += len(rows)
         done = end >= guard["end_row"]
         cp.parent.mkdir(parents=True, exist_ok=True)
@@ -190,20 +287,52 @@ class OfficeMixin:
         return base / f"{key}.json"
 
     async def read_excel(self, path: str, sheet: str = "", max_rows: int = 200,
-                         max_cols: int = 300, safe: bool = True) -> dict[str, Any]:
+                         max_cols: int = 300, safe: bool = True,
+                         region: int = 0) -> dict[str, Any]:
         self._office_allowed()
         target = self._path(path)
         if not target.is_file():
             raise ToolError(f"文件不存在: {path}")
+        if target.suffix.lower() == ".xls":
+            raise ToolError("旧版 .xls 暂不支持；请先另存为 .xlsx 或 .xlsm")
         limit = max(1, min(self._int_arg(max_rows, 200, "max_rows"), 2000))
         columns = max(1, min(self._int_arg(max_cols, 300, "max_cols"), 1000))
+        try:
+            region_n = max(0, int(region or 0))
+        except (TypeError, ValueError):
+            raise ToolError("region 必须是整数")
         report = None
+        timeout = float(self.config.get("excel_read_timeout_seconds", 60) or 60)
+        use_worker = bool(self.config.get("excel_use_worker", True))
         if safe:
-            # 先探测真实范围；不能把 max_row/max_column 当数据边界。
-            report = await asyncio.to_thread(
-                _inspect_for_read, target, sheet)
-        out = await asyncio.to_thread(
-            self._read_excel_sync, target, sheet, limit, columns, report)
+            if use_worker:
+                report = await self._excel_worker(
+                    {"action": "inspect", "path": str(target), "sheet": sheet,
+                     "max_cells": 200_000, "max_rows": 200_000,
+                     "max_seconds": min(8.0, timeout)}, timeout + 10)
+            else:
+                report = await asyncio.to_thread(_inspect_for_read, target, sheet)
+            if region_n:
+                picked = next((s for s in (report.get("sheets") or [])
+                               if not sheet or s.get("sheet") == sheet), None)
+                regions = (picked or {}).get("regions") or []
+                if region_n > len(regions):
+                    raise ToolError(f"region={region_n} 超出范围，可用区域数: {len(regions)}")
+        try:
+            if use_worker:
+                out = await self._excel_worker(
+                    {"action": "read_workbook", "path": str(target),
+                     "sheet": sheet, "limit": limit, "columns": columns,
+                     "report": report, "region": region_n}, timeout)
+            else:
+                out = await asyncio.wait_for(
+                    asyncio.to_thread(self._read_excel_sync, target, sheet, limit,
+                                      columns, report, region_n),
+                    timeout=max(1.0, timeout))
+        except asyncio.TimeoutError:
+            raise ToolError(
+                f"Excel 读取超过 {int(timeout)} 秒，已停止等待；请用 "
+                "excel_inspect/excel_read_chunk 缩小范围")
         return {"path": path, **out}
 
     async def excel_inspect(self, path: str, sheet: str = "", max_cells: int = 200_000,
@@ -220,22 +349,34 @@ class OfficeMixin:
             secs = max(0.5, min(float(max_seconds), 30.0))
         except (TypeError, ValueError):
             raise ToolError("max_cells/max_rows/max_seconds 必须是数字")
-        report = await asyncio.to_thread(
-            inspect_workbook, target, sheet, max_cells=budget, max_rows=rows_budget,
-            max_seconds=secs)
+        report = (await self._excel_worker(
+            {"action": "inspect", "path": str(target), "sheet": sheet,
+             "max_cells": budget, "max_rows": rows_budget,
+             "max_seconds": secs}, secs + 10)
+            if bool(self.config.get("excel_use_worker", True))
+            else await asyncio.to_thread(
+                inspect_workbook, target, sheet, max_cells=budget,
+                max_rows=rows_budget, max_seconds=secs))
         return {"path": path, **report}
 
     async def excel_validate(self, path: str, sheet: str = "",
-                             expect_rows: int = 0) -> dict[str, Any]:
+                             expect_rows: int = 0,
+                             expect_headers: list | str | None = None) -> dict[str, Any]:
         """处理结果验证：重新探测输出文件，确认可打开、范围和行数。"""
         self._office_allowed()
         target = self._path(path)
         if not target.is_file():
             raise ToolError(f"文件不存在: {path}")
         from .excel_guard import inspect_workbook
-        report = await asyncio.to_thread(inspect_workbook, target, sheet,
-                                         max_cells=200_000, max_rows=200_000,
-                                         max_seconds=8.0)
+        if bool(self.config.get("excel_use_worker", True)):
+            report = await self._excel_worker(
+                {"action": "inspect", "path": str(target), "sheet": sheet,
+                 "max_cells": 200_000, "max_rows": 200_000,
+                 "max_seconds": 8.0}, 30)
+        else:
+            report = await asyncio.to_thread(inspect_workbook, target, sheet,
+                                             max_cells=200_000, max_rows=200_000,
+                                             max_seconds=8.0)
         sheets = report.get("sheets") or []
         picked = next((s for s in sheets if not sheet or s.get("sheet") == sheet), None)
         checks = []
@@ -251,12 +392,22 @@ class OfficeMixin:
                                "detail": f"实际 {actual}，期望至少 {expect_rows}"})
             checks.append({"check": "detected_range", "ok": bool(picked.get("detected_range")),
                            "detail": picked.get("detected_range") or "无数据"})
+            if expect_headers:
+                wanted = ([str(x) for x in expect_headers]
+                          if isinstance(expect_headers, (list, tuple))
+                          else [x.strip() for x in str(expect_headers).split(",") if x.strip()])
+                actual = [str(x).strip() for x in
+                          ((picked.get("header") or {}).get("values") or [])]
+                missing = [h for h in wanted if h not in actual]
+                checks.append({"check": "expected_headers", "ok": not missing,
+                               "detail": f"缺少: {missing}" if missing else "表头齐全"})
         return {"path": path, "ok": all(c["ok"] for c in checks),
                 "checks": checks, "report": report}
 
     @staticmethod
     def _read_excel_sync(target: Path, sheet: str, limit: int,
-                         columns: int, report: dict[str, Any] | None = None) -> dict[str, Any]:
+                         columns: int, report: dict[str, Any] | None = None,
+                         region: int = 0) -> dict[str, Any]:
         try:
             import openpyxl
         except ImportError:
@@ -270,6 +421,14 @@ class OfficeMixin:
             for name in ([sheet] if sheet else wb.sheetnames):
                 ws = wb[name]
                 g = guard_by_sheet.get(name) or {}
+                if region and g.get("regions"):
+                    rs = g["regions"]
+                    if region <= len(rs):
+                        r = rs[region - 1]
+                        g = dict(g, min_row=int(r["start_row"]),
+                                 max_row=int(r["end_row"]),
+                                 min_col=int(r.get("min_col") or g.get("min_col") or 1),
+                                 max_col=int(r.get("max_col") or g.get("max_col") or 1))
                 guard = _safe_bounds(g)
                 rows = []
                 if guard:
