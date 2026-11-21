@@ -607,6 +607,9 @@ class AgentRequest(BaseModel):
     # False 时为普通对话模式：只在该 Session 绑定的 Copilot 会话里问答，
     # 不启动 Agent 工具循环。
     agent_mode: bool = True
+    # True（默认）时，"把文件读出来看看"可直接走本地文件卡片；评测/需要真实
+    # Agent 工具轨迹时传 false，避免短路掉 read_text。
+    file_view: bool = True
     # 粘贴的图片/截图附件（data URL），仅 Copilot 网页会话支持
     attachments: list[str] | None = None
     # 计划模式：本轮强制只读，模型产出方案后调用 exit_plan_mode 结束

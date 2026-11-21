@@ -14,6 +14,22 @@
 ### Fixed
 - 
 
+## [0.11.0-beta.40] - 2026-11-21
+
+### Added
+- `AgentRequest.file_view`（默认 true）：评测/需要真实工具轨迹时可设 false，
+  避免“读取文件”被本地文件卡片短路。
+- Benchmark fixture/setup_files 与目录清理；单任务 timeout 覆盖。
+- 30 条 Benchmark 全量实跑：25/30 通过，指标落盘。
+
+### Fixed
+- `read-analyze` 之前 0 步返回旧内容，根因是 file_view 短路；`file_view=false` 后通过。
+- `file-copy-move` 改为不触发破坏性 move 的 copy 场景。
+- final-markdown/ambiguous/安全边界的断言与 fixture 修正。
+
+### Tests
+- 全量回归 1856 tests，OK (skipped=2)。
+
 ## [0.11.0-beta.39] - 2026-11-21
 
 ### Added

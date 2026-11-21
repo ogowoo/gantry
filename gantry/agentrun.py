@@ -221,8 +221,9 @@ async def run_agent(req: b.AgentRequest, attach_paths: list | None = None):
         # 后续的新指令也当作"继续加载"（会话 task-mvn6jjrt 实测）。
         try:
             from .fileview import maybe_file_view, render_message
-            _fv = maybe_file_view(task, Path(workspace).resolve(),
-                                  last_path=str((existing or {}).get("last_view_file") or ""))
+            _fv = (maybe_file_view(task, Path(workspace).resolve(),
+                                   last_path=str((existing or {}).get("last_view_file") or ""))
+                   if getattr(req, "file_view", True) else None)
             if _fv and _fv.get("kind"):
                 if not existing:
                     existing = b.AGENT_SESSIONS.create(sid, task, str(workspace), req.model)

@@ -73,6 +73,9 @@ comparison:
 
 报告不再只看单测通过率；每条任务的 `checks` 是独立断言。
 
+评测请求使用 `file_view=false`，避免“读取文件”被本地文件卡片短路，确保 benchmark
+测的是真实 Agent 工具轨迹。
+
 ## 已知限制
 
 - `subagent_rework_rate` 依赖子 Agent 结果里的返工事件；普通 `subagent` 调用不提供，
