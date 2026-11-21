@@ -264,6 +264,29 @@ class AgentRunner(PromptMixin, ParseMixin, TextMixin):
                 "error": ""}
 
     @staticmethod
+    def _has_positive_action(text: str, words) -> bool:
+        """是否存在**未被否定**的动作词。
+
+        “不要创建文件/无需修改/do not write”只是只读约束，不能因为包含
+        “创建/修改”就触发 noop_guard 逼模型去动手（final-markdown 实测被
+        逼着跑无关测试，耗时从 10 秒涨到 180 秒）。
+        """
+        low = str(text or "").lower()
+        neg = r"(不要|别|禁止|不得|无需|不用|不需要|no need|do not|don't|without)\s*$"
+        for word in words:
+            w = str(word).lower()
+            start = 0
+            while True:
+                i = low.find(w, start)
+                if i < 0:
+                    break
+                prefix = low[max(0, i - 12):i]
+                if not re.search(neg, prefix):
+                    return True
+                start = i + len(w)
+        return False
+
+    @staticmethod
     def _explicit_required_tools(text: str) -> list[str]:
         """从用户指令里提取“明确要求调用”的工具名。
 
@@ -536,7 +559,7 @@ class AgentRunner(PromptMixin, ParseMixin, TextMixin):
                 _latest_ins = _latest_ins.rsplit("用户追加任务：", 1)[1]
         except Exception:
             pass
-        _needs_action = any(w in _latest_ins for w in _action_words)
+        _needs_action = self._has_positive_action(_latest_ins, _action_words)
         # 只读约束：用户明确说"只读/不要修改/不要创建文件"时，Agent 层直接拒绝
         # 变更类工具，不能只依赖模型自觉或默认沙箱。
         self._read_only_intent = any(w in _latest_ins.lower() for w in (
