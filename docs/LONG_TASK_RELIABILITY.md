@@ -26,7 +26,6 @@
 ## 错误分类
 
 `gantry/error_taxonomy.py`：
-
 | 类别 | 策略 |
 |---|---|
 | network / timeout / rate_limit | 有限重试 |
@@ -42,6 +41,17 @@ AgentRunner 的工具错误步骤现在记录：
 ```
 
 编排器对子 Agent 的 `permission/argument` 错误不再盲目返工。
+
+## 只读任务与最终验收门
+
+- 用户明确说“只读/不要修改/不要创建文件”时，Agent 层直接拒绝 `MUTATING_TOOLS`，
+  不再依赖模型自觉；被拒动作记为 `read_only_guard`，不会落盘。
+- 有活动任务图时，主 Agent 返回 final 前会执行 `verify_task_plan`：
+  - 未完成任务直接拒绝；
+  - 已完成任务的 outputs/acceptance 必须通过确定性检查；
+  - 连续 3 次拒绝后标记 failed，避免无限返工。
+- 提供商单回合硬超时 `agent.provider_turn_timeout_seconds`（默认 120 秒）：
+  防止连接不断开、永不返回导致的 0 步假死。
 
 ## 测试
 

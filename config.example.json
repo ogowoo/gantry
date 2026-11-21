@@ -116,6 +116,7 @@
     "approval_scope": "once",
     "subagent_parallel": 4,
     "subagent_max_steps": 80,
+    "provider_turn_timeout_seconds": 120,
     "copilot_windows": 1,
     "profile": "auto"
   },

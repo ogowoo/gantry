@@ -251,7 +251,17 @@ async def provider_turn(sid: str, model_id: str, prompt: str, force_new: bool = 
     try:
         # 强行插入指令时立即取消这次 HTTP 调用：提供商是无状态请求，取消即
         # "这轮没发生"，下一回合直接带上新指令重发，不用等它跑完。
-        answer = await _await_interruptible(sid, _call(), "调用提供商 API")
+        # 再加一层硬超时：Kimi 等提供商偶发"连接还在、永不出 chunk"，没有这层
+        # 会一直挂到评测/用户客户端超时，时间线里看起来像 0 步假死。
+        _hard_timeout = float(b.CFG.get("provider_turn_timeout_seconds", 120) or 0)
+        _call_task = _await_interruptible(sid, _call(), "调用提供商 API")
+        answer = (await asyncio.wait_for(_call_task, timeout=_hard_timeout)
+                  if _hard_timeout > 0 else await _call_task)
+    except asyncio.TimeoutError as exc:
+        _rollback_user()
+        raise b.CopilotRateLimited(
+            f"提供商 {pm[0]} 单回合超过 {int(_hard_timeout)} 秒未返回，按可重试超时处理",
+            window_seconds=0) from exc
     except b.providers_mod.ProviderUnavailable as exc:
         _rollback_user()
         # window_seconds=0：提供商走"下次重试"倒计时，不用 Copilot 网页实测的

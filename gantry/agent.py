@@ -15,7 +15,7 @@ from .agent_text import TextMixin
 from .error_taxonomy import classify_exception
 from .security import classify_tool_risk
 from .spans import set_recorder, span
-from .tools import ToolRegistry
+from .tools import MUTATING_TOOLS, ToolRegistry
 
 ChatFunction = Callable[[str, str, bool], Awaitable[str]]
 
@@ -186,7 +186,8 @@ class AgentRunner(PromptMixin, ParseMixin, TextMixin):
     # 该类唯一的构造函数是下方接收 config/state_getter 的版本。
     def __init__(self, tools: ToolRegistry, chat: ChatFunction, config: dict[str, Any],
                  state_getter, state_saver, step_saver, file_event_saver, conv_stat_saver=None,
-                 step_begin=None, step_finish=None, approval_check=None):
+                 step_begin=None, step_finish=None, approval_check=None,
+                 final_gate=None):
         self.tools, self.chat, self.config = tools, chat, config
         self.state_getter, self.state_saver = state_getter, state_saver
         self.step_saver, self.file_event_saver = step_saver, file_event_saver
@@ -196,6 +197,8 @@ class AgentRunner(PromptMixin, ParseMixin, TextMixin):
         self.step_begin, self.step_finish = step_begin, step_finish
         # 破坏性工具的一次性审批（fail-closed）：没有回调=不放行。
         self.approval_check = approval_check
+        # 任务图最终验收门（可选）：完成任务图后必须通过 Task acceptance。
+        self.final_gate = final_gate
         self.max_total_steps = min(int(config.get("max_total_steps", 1000)), 10000)
         # 一次回答最多执行几个动作（批量协议）：上限越小越不容易被输出上限截断
         self.max_actions_per_turn = max(1, min(int(config.get("max_actions_per_turn", 4)), 12))
@@ -469,6 +472,7 @@ class AgentRunner(PromptMixin, ParseMixin, TextMixin):
         tests_passed = bool(gate.get("tests_passed"))
 
         gate_strikes = 0   # 连续被验证门拒绝的次数：超限即失败收尾，防无限重试烧 token
+        task_gate_strikes = 0   # 任务图最终验收门拒绝次数
         # no-op 完成守卫：任务明显要求动手（创建/修改/运行…）却没真动手就 final。
         # 实测两个缺口：① 模型幻觉式宣称"已记录/已完成"（零工具调用）；
         # ② 先读一堆文件、再直接 final 不写任何产出——原先只拦 total==0，
@@ -499,6 +503,11 @@ class AgentRunner(PromptMixin, ParseMixin, TextMixin):
         except Exception:
             pass
         _needs_action = any(w in _latest_ins for w in _action_words)
+        # 只读约束：用户明确说"只读/不要修改/不要创建文件"时，Agent 层直接拒绝
+        # 变更类工具，不能只依赖模型自觉或默认沙箱。
+        self._read_only_intent = any(w in _latest_ins.lower() for w in (
+            "只读", "不要修改", "不要创建", "不要写入", "不得修改", "不得创建",
+            "read-only", "readonly", "do not modify", "do not create", "don't modify"))
         # "动手"类工具：成功执行即视为真的产生了产出/改动（读取、验证类不算）。
         _action_tools = {"write_text", "append_text", "write_text_b64", "append_text_b64",
                          "replace_text", "make_directory", "copy_path", "move_path",
@@ -1017,6 +1026,35 @@ class AgentRunner(PromptMixin, ParseMixin, TextMixin):
                         self.state_saver(total_steps=total, recent_steps=history[-self.keep_recent:],
                                          last_error=warn["error"])
                         continue
+                    # ── 任务图最终验收门 ──
+                    # 有活动任务图时，未完成任务或已完成任务的实际产物/验收条件
+                    # 不通过，不能直接 final；返工提示会进入下一回合。
+                    if self.final_gate is not None:
+                        try:
+                            _tg = self.final_gate(str(sub.get("content") or ""))
+                        except Exception as _exc:          # noqa: BLE001
+                            _tg = {"ok": False, "reason": f"验收门异常: {_exc}"}
+                        if isinstance(_tg, dict) and not _tg.get("skipped", False) \
+                                and not _tg.get("ok", True):
+                            task_gate_strikes += 1
+                            _reason = str(_tg.get("reason") or "任务图验收未通过")[:1200]
+                            tg = {"step": total + 1, "status": "task_gate",
+                                  "error": "任务图验收未通过，拒绝完成：" + _reason,
+                                  "task_gate": _tg}
+                            if task_gate_strikes >= 3:
+                                tg["status"] = "task_gate_blocked"
+                                tg["error"] += " 已停止自动重试，避免无限返工。"
+                                history.append(tg); all_steps.append(tg); self.step_saver(tg)
+                                self.state_saver(state="failed", total_steps=total + 1,
+                                                 recent_steps=history[-self.keep_recent:],
+                                                 last_error=tg["error"])
+                                return AgentResult(tg["error"], all_steps)
+                            history.append(tg); all_steps.append(tg); self.step_saver(tg)
+                            total += 1
+                            self.state_saver(total_steps=total,
+                                             recent_steps=history[-self.keep_recent:],
+                                             last_error=tg["error"])
+                            continue
                     # 记忆提醒（软钩子，与 noop_guard 同模式）：做了实质工作却一条
                     # memory_write 都没记过时，拦一次 final 提醒它——实测历史里 memory_write
                     # 全库只被调 1 次，软提示对模型等于不存在。拦一次就放行（不无限拦）。
@@ -1110,6 +1148,19 @@ class AgentRunner(PromptMixin, ParseMixin, TextMixin):
                         "risk": classify_tool_risk(str(tool), arguments)}
                 if batch_size > 1:
                     step["batch_of"] = batch_size
+                # 只读 intent：写/删/外发/记忆写入在 Agent 层直接拒绝，不靠模型自觉。
+                if self._read_only_intent and str(tool) in MUTATING_TOOLS:
+                    guard = {"step": total + 1, "status": "read_only_guard",
+                             "tool": "read_only_guard",
+                             "error": (f"当前任务明确只读，拒绝执行变更工具 {tool}；"
+                                       "请只读分析并返回 final，不要修改文件"),
+                             "blocked_tool": str(tool)}
+                    history.append(guard); all_steps.append(guard); self.step_saver(guard)
+                    total += 1
+                    self.state_saver(total_steps=total,
+                                     recent_steps=history[-self.keep_recent:],
+                                     last_error=guard["error"])
+                    continue
                 event = None
                 # 幂等保护：换会话接力时摘要若没让模型明确感知"上一动作已完成"，
                 # 或回合重发，同一动作可能连续到达。对非幂等工具（append 会重复

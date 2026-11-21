@@ -19,6 +19,7 @@ import uuid
 from typing import Any
 
 from . import bridge as b
+from .task_gate import verify_task_plan
 
 _SUBAGENT_MAX_DEPTH = 1          # 防递归：子代理不能再开子代理
 # 在跑的子代理：{child_sid: 开始时间}。**不用裸计数器**——实测一轮子代理被中断
@@ -195,7 +196,9 @@ async def _drive_child(child_sid: str, task: str, model_id: str, max_steps: int,
                                step_finish=lambda no, st='done': b.AGENT_SESSIONS.finish_step(
                                    child_sid, b._conv_index(child_sid), no, st),
                                approval_check=lambda tool, h: b.AGENT_SESSIONS.take_approval(
-                                   child_sid, tool, h))
+                                   child_sid, tool, h),
+                               final_gate=lambda content: verify_task_plan(
+                                   child_sid, child_reg.root, content))
         try:
             result = await runner.run(task, model_id)
             try:
