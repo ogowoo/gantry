@@ -361,6 +361,9 @@ class SemanticIndex:
                 "parent_text": base.get("parent_text"),
                 "chunk_kind": base.get("chunk_kind") or "legacy",
                 "meta": base.get("meta") or {},
+                "source": base.get("source") or "",
+                "updated": (base.get("meta") or {}).get("updated")
+                           if isinstance(base.get("meta"), dict) else None,
                 "score": round(w_vec * vec + w_cov * coverage, 4),
                 "vec": round(vec, 4), "coverage": round(coverage, 4),
                 "via": "both" if (vh and fh) else ("vector" if vh else "fts"),

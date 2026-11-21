@@ -42,7 +42,9 @@ class MemoryMixin:
         return self.memory
 
     async def memory_write(self, text: str, kind: str = "fact", tags: list | None = None,
-                           pinned: bool = False, scope: str = "global") -> dict[str, Any]:
+                           pinned: bool = False, scope: str = "global",
+                           verified: bool = False, source: str = "",
+                           ttl_days: float = 0, confidence: float = 0.5) -> dict[str, Any]:
         """记录一条长期记忆：跨会话累积的事实、偏好、结论与踩坑。"""
         if not self.allow_memory_write:
             raise ToolError("记忆写入已在 config.json 中禁用（allow_memory_write=false）")
@@ -50,12 +52,15 @@ class MemoryMixin:
             tags = [t.strip() for t in re.split(r"[,，]", tags) if t.strip()]
         target = "global" if str(scope or "global").lower().startswith("glob") else self.memory_scope
         try:
-            r = self._mem().remember(target, text, kind=kind, tags=list(tags or []),
-                                     source_session=self.session_id(),
-                                     pinned=bool(pinned))
+            r = self._mem().remember(
+                target, text, kind=kind, tags=list(tags or []),
+                source_session=self.session_id(), pinned=bool(pinned),
+                verified=bool(verified), source=str(source or ""),
+                ttl_days=ttl_days, confidence=confidence)
         except ValueError as exc:
             raise ToolError(str(exc)) from exc
-        r["note"] = "已写入长期记忆：后续相关任务会自动检索到（无需重启）"
+        r["note"] = ("已写入长期记忆（未验证事实会在检索时标注）"
+                     if not verified else "已写入已验证长期记忆")
         return r
 
     async def memory_search(self, query: str = "", limit: int = 8, scope: str = "all") -> dict[str, Any]:
@@ -68,7 +73,12 @@ class MemoryMixin:
         return {"query": query, "checked_scopes": scopes, "returned": len(items),
                 "items": [{"id": m["id"], "kind": m["kind"], "text": m["text"],
                            "tags": m.get("tags") or [], "pinned": bool(m["pinned"]),
-                           "use_count": m["use_count"], "scope": m["scope"]} for m in items]}
+                           "use_count": m["use_count"], "scope": m["scope"],
+                           "verified": bool(m.get("verified")),
+                           "source": m.get("source") or m.get("source_session") or "",
+                           "confidence": float(m.get("confidence") or 0.5),
+                           "updated": m.get("updated"),
+                           "expires_at": m.get("expires_at") or 0} for m in items]}
 
     async def memory_forget(self, id: int) -> dict[str, Any]:
         """删除一条记忆（只允许删当前任务可见作用域内的）。"""

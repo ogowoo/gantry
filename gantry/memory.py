@@ -35,6 +35,10 @@ CREATE TABLE IF NOT EXISTS memories (
   pinned INTEGER NOT NULL DEFAULT 0,
   use_count INTEGER NOT NULL DEFAULT 0,
   last_used REAL,
+  verified INTEGER NOT NULL DEFAULT 0,
+  source TEXT NOT NULL DEFAULT '',
+  expires_at REAL NOT NULL DEFAULT 0,
+  confidence REAL NOT NULL DEFAULT 0.5,
   created REAL NOT NULL,
   updated REAL NOT NULL,
   norm TEXT NOT NULL
@@ -84,13 +88,23 @@ class MemoryStore:
         try:
             with self._connect() as con:
                 con.executescript(SCHEMA)
+                cols = {str(r["name"]) for r in con.execute("PRAGMA table_info(memories)")}
+                for col, decl in (
+                    ("verified", "INTEGER NOT NULL DEFAULT 0"),
+                    ("source", "TEXT NOT NULL DEFAULT ''"),
+                    ("expires_at", "REAL NOT NULL DEFAULT 0"),
+                    ("confidence", "REAL NOT NULL DEFAULT 0.5"),
+                ):
+                    if col not in cols:
+                        con.execute(f"ALTER TABLE memories ADD COLUMN {col} {decl}")
         except Exception:
             pass
 
     # ── 写入 ──────────────────────────────────────────────────────
     def remember(self, scope: str, text: str, kind: str = "fact",
                  tags: list[str] | None = None, source_session: str | None = None,
-                 pinned: bool = False) -> dict[str, Any]:
+                 pinned: bool = False, verified: bool = False, source: str = "",
+                 ttl_days: float = 0, confidence: float = 0.5) -> dict[str, Any]:
         text = " ".join(str(text or "").split())
         if not text:
             raise ValueError("记忆内容不能为空")
@@ -99,33 +113,50 @@ class MemoryStore:
         kind = str(kind or "fact").strip().lower()
         if kind not in {"fact", "preference", "decision", "pitfall", "convention"}:
             kind = "fact"
+        try:
+            ttl = max(0.0, min(float(ttl_days or 0), 3650.0))
+        except Exception:
+            ttl = 0.0
+        try:
+            confidence = max(0.0, min(float(confidence if confidence is not None else 0.5), 1.0))
+        except Exception:
+            confidence = 0.5
         norm = _norm(text)
         now = time.time()
+        expires = now + ttl * 86400 if ttl > 0 else 0.0
         with self._connect() as con:
-            row = con.execute("SELECT id, use_count, kind, source_session FROM memories WHERE scope=? AND norm=?",
-                              (scope, norm)).fetchone()
+            row = con.execute(
+                "SELECT id, use_count, kind, source_session, verified, expires_at "
+                "FROM memories WHERE scope=? AND norm=?", (scope, norm)).fetchone()
             if row:
                 # 重复写入视为更新：默认 kind=fact 不应把已标注的 preference/pitfall 覆盖掉
                 keep_kind = kind if kind != "fact" else row["kind"]
-                # 去重时一并更新 source_session：记录"最后写入者"，便于溯源与
-                # 断言归属（否则旧条目仍指向很久以前的会话）
                 _prev_sid = row["source_session"] if "source_session" in row.keys() else None
                 con.execute("UPDATE memories SET text=?, kind=?, tags=?, updated=?, "
-                            "pinned=MAX(pinned, ?), source_session=? WHERE id=?",
+                            "pinned=MAX(pinned, ?), source_session=?, "
+                            "verified=MAX(verified, ?), source=CASE WHEN ? != '' THEN ? ELSE source END, "
+                            "expires_at=CASE WHEN ? > 0 THEN ? ELSE expires_at END, "
+                            "confidence=MAX(confidence, ?) WHERE id=?",
                             (text, keep_kind, json.dumps(tags or [], ensure_ascii=False), now,
-                             1 if pinned else 0, source_session or _prev_sid, row["id"]))
+                             1 if pinned else 0, source_session or _prev_sid,
+                             1 if verified else 0, str(source or ""), str(source or ""),
+                             float(expires), float(expires), confidence, row["id"]))
                 mid, created, updated = row["id"], False, True
                 kind = keep_kind
             else:
                 cur = con.execute(
                     "INSERT INTO memories(scope,kind,text,tags,source_session,pinned,use_count,"
-                    "created,updated,norm) VALUES(?,?,?,?,?,?,0,?,?,?)",
+                    "verified,source,expires_at,confidence,created,updated,norm) "
+                    "VALUES(?,?,?,?,?,?,0,?,?,?,?,?,?,?)",
                     (scope, kind, text, json.dumps(tags or [], ensure_ascii=False),
-                     source_session, 1 if pinned else 0, now, now, norm))
+                     source_session, 1 if pinned else 0, 1 if verified else 0,
+                     str(source or ""), float(expires), confidence, now, now, norm))
                 mid, created, updated = cur.lastrowid, True, False
             self._trim(con, scope)
         return {"id": mid, "created": created, "updated": updated, "scope": scope,
-                "kind": kind, "text": text, "pinned": bool(pinned)}
+                "kind": kind, "text": text, "pinned": bool(pinned),
+                "verified": bool(verified), "source": str(source or ""),
+                "expires_at": expires, "confidence": confidence}
 
     def _trim(self, con: sqlite3.Connection, scope: str) -> None:
         """超上限时淘汰：先保 pinned，再按使用次数与更新时间。"""
@@ -146,8 +177,9 @@ class MemoryStore:
             return []
         limit = max(1, min(int(limit or 8), 50))
         placeholders = ",".join("?" for _ in scopes)
-        sql = f"SELECT * FROM memories WHERE scope IN ({placeholders})"
-        args: list[Any] = list(scopes)
+        sql = (f"SELECT * FROM memories WHERE scope IN ({placeholders}) "
+               "AND (expires_at=0 OR expires_at>?)")
+        args: list[Any] = list(scopes) + [time.time()]
         if kinds:
             sql += f" AND kind IN ({','.join('?' for _ in kinds)})"
             args.extend(kinds)
@@ -156,6 +188,7 @@ class MemoryStore:
             pinned = [r for r in rows if r["pinned"]]
             pool = rows if not query else rows
             terms = _terms(query)
+            now = time.time()
             scored = []
             for r in pool:
                 if r["pinned"]:
@@ -170,6 +203,11 @@ class MemoryStore:
                     score = hits / max(len(terms), 1)
                     # 越新、越常被用到的记忆略微加权
                     score += min(r["use_count"], 10) * 0.01
+                age_days = max(0.0, (now - float(r.get("updated") or now)) / 86400)
+                score += max(0.0, 0.15 - min(age_days, 365) / 365 * 0.15)
+                if r.get("verified"):
+                    score += 0.08
+                score += max(0.0, min(float(r.get("confidence") or 0), 1.0)) * 0.02
                 scored.append((score, r["updated"], r))
             scored.sort(key=lambda x: (x[0], x[1]), reverse=True)
             picked = pinned[:3] + [r for _s, _u, r in scored]
@@ -193,7 +231,9 @@ class MemoryStore:
         with self._connect() as con:
             rows = [dict(r) for r in con.execute(
                 f"SELECT * FROM memories WHERE scope IN ({placeholders}) "
-                "ORDER BY pinned DESC, updated DESC LIMIT ?", (*scopes, max(1, min(limit, 500))))]
+                "AND (expires_at=0 OR expires_at>?) "
+                "ORDER BY pinned DESC, updated DESC LIMIT ?",
+                (*scopes, time.time(), max(1, min(limit, 500))))]
         if query:
             terms = _terms(query)
             rows = [r for r in rows if any(t in r["text"].lower() for t in terms)] if terms else rows

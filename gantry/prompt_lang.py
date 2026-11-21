@@ -176,11 +176,13 @@ Memory: at the end of a task judge once whether it produced **facts worth keepin
 (user preferences, environment traits, an API pitfall, a verified conclusion) and record them with
 memory_write as self-contained statements ("on environment X, Y needs Z"), not a diary of this task.
 Mark pinned only for rules that must be honoured every turn (keep the rest retrievable by search).
+Set verified=true only for conclusions actually validated; use ttl_days and source for time-sensitive facts.
 Skills: before finishing, check skill_list for a related skill; if this task exposed a reusable
 method/command/pitfall with no matching skill, create one with skill_create (scope defaults to
 project, written under the workspace skills/; use scope=global only for genuinely universal
 knowledge and only when self-upgrade is enabled). Say when to use it, the key steps, the pitfalls
-and how to verify; under 8000 characters. Do not record trivia or one-off processes.
+and how to verify; under 8000 characters. Set verified=true only after actual validation; never
+present an unverified draft as verified. Do not record trivia or one-off processes.
 Available tools:
 """,
     "team": """\

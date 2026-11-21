@@ -604,10 +604,10 @@ class ToolsCoreMixin:
             items += [
                 {"name": "skill_list", "description": "列出可用技能（全局 + 项目两级，项目同名覆盖全局）", "arguments": {}},
                 {"name": "skill_read", "description": "读取技能 SKILL.md 全文（全局技能在工作区外，只能用此工具读取）", "arguments": {"name": "技能名"}},
-                {"name": "memory_write", "description": "记录一条跨会话有用的长期记忆（事实/偏好/决定/踩坑）。只在确实对后续任务有价值时写，写入即去重合并；scope=global 对所有任务可见，project 仅当前工作区", "arguments": {"text": "一条自足的事实描述（不要写'本次任务'这类指代）", "kind": "fact|preference|decision|pitfall|convention", "tags": "标签数组，可省略", "pinned": "是否常驻提示词（只在极重要时用）", "scope": "global（默认）或 project"}},
-                {"name": "memory_search", "description": "检索长期记忆（关键词匹配，返回最相关若干条）", "arguments": {"query": "检索词", "limit": "返回条数，默认 8", "scope": "global|project|all，默认 all"}},
+                {"name": "memory_write", "description": "记录一条跨会话有用的长期记忆（事实/偏好/决定/踩坑）。只在确实对后续任务有价值时写；verified=true 才表示经过真实验证，未验证事实会被标注；ttl_days 可设过期", "arguments": {"text": "一条自足的事实描述（不要写'本次任务'这类指代）", "kind": "fact|preference|decision|pitfall|convention", "tags": "标签数组，可省略", "pinned": "是否常驻提示词（只在极重要时用）", "scope": "global（默认）或 project", "verified": "是否已通过真实验证（默认 false）", "source": "来源（URL/文件/命令，可选）", "ttl_days": "多少天后过期；0=不过期", "confidence": "0~1 置信度，默认 0.5"}},
+                {"name": "memory_search", "description": "检索长期记忆（关键词+新近度+验证状态，返回最相关若干条；过期条目不返回）", "arguments": {"query": "检索词", "limit": "返回条数，默认 8", "scope": "global|project|all，默认 all"}},
                 {"name": "memory_forget", "description": "删除一条过时或错误的长期记忆", "arguments": {"id": "记忆 ID"}},
-                {"name": "skill_create", "description": "把任务中验证有效的做法沉淀为技能（SKILL.md）。scope=project 写工作区 skills/（默认）；scope=global 写服务安装目录 skills/（需自升级权限）；已存在需 overwrite=true", "arguments": {"name": "技能名，小写短横线如 webui-theme-change", "content": "技能正文（Markdown：什么时候用/步骤/坑）", "description": "一句话描述，可省略（从正文首行提炼）", "scope": "project（默认）或 global", "overwrite": "是否覆盖已有技能，默认 false"}},
+                {"name": "skill_create", "description": "把任务中验证有效的做法沉淀为技能（SKILL.md）。scope=project 写工作区 skills/（默认）；scope=global 写服务安装目录 skills/（需自升级权限）；已存在需 overwrite=true；verified=true 仅用于经过实际验证的流程", "arguments": {"name": "技能名，小写短横线如 webui-theme-change", "content": "技能正文（Markdown：什么时候用/步骤/坑）", "description": "一句话描述，可省略", "scope": "project|global", "overwrite": "是否覆盖已有技能，默认 false", "verified": "是否经过实际验证"}},
             ]
         if self.allow_self_upgrade:
             items += [

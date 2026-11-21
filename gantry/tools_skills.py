@@ -51,8 +51,11 @@ class SkillsMixin:
                         continue
                     text = md.read_text(encoding="utf-8", errors="replace")
                     name, desc = parse_skill_md(sub.name, text)
+                    verified = bool(re.search(r"^verified:\s*true\s*$", text,
+                                              re.M | re.I))
                     merged[name] = {"name": name, "description": desc, "scope": scope,
-                                    "path": f"skills/{sub.name}/SKILL.md", "abs": str(md)}
+                                    "path": f"skills/{sub.name}/SKILL.md",
+                                    "abs": str(md), "verified": verified}
             except Exception:
                 continue
         return list(merged.values())[:30]
@@ -78,7 +81,8 @@ class SkillsMixin:
         raise ToolError(f"未找到技能: {name}（可用 skill_list 查看可用技能）")
 
     async def skill_create(self, name: str, content: str, description: str = "",
-                           scope: str = "project", overwrite: bool = False) -> dict[str, Any]:
+                           scope: str = "project", overwrite: bool = False,
+                           verified: bool = False) -> dict[str, Any]:
         """把任务中验证有效的做法沉淀为技能（SKILL.md）。
 
         scope=project（默认）写入工作区 skills/，只影响该工作区的任务；
@@ -132,7 +136,7 @@ class SkillsMixin:
             if not desc_line and candidates:
                 desc_line = " ".join(candidates[:2])[:120]
         body = str(content).strip()
-        text = f"---\nname: {slug}\ndescription: {desc_line}\n---\n\n{body}\n"
+        text = f"---\nname: {slug}\ndescription: {desc_line}\nverified: {'true' if verified else 'false'}\n---\n\n{body}\n"
 
         self._snap("skill_create", target.relative_to(self.root).as_posix()
                    if scope_key == "project" else target.relative_to(self.global_root).as_posix(),
@@ -144,6 +148,7 @@ class SkillsMixin:
         parsed_name, parsed_desc = parse_skill_md(slug, text)
         return {"created": True, "name": parsed_name, "slug": slug, "scope": scope_key,
                 "path": str(target), "description": parsed_desc, "chars": len(text),
+                "verified": bool(verified),
                 "note": "技能即时可用（下次 skill_list/任务上下文即出现），无需重启服务",
                 "file_event": {"tool": "skill_create", "path": str(target),
                                "before_hash": before, "after_hash": self._hash(target), "result": "ok"}}
