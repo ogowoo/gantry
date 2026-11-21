@@ -254,9 +254,21 @@ async def provider_turn(sid: str, model_id: str, prompt: str, force_new: bool = 
         # 再加一层硬超时：Kimi 等提供商偶发"连接还在、永不出 chunk"，没有这层
         # 会一直挂到评测/用户客户端超时，时间线里看起来像 0 步假死。
         _hard_timeout = float(b.CFG.get("provider_turn_timeout_seconds", 120) or 0)
-        _call_task = _await_interruptible(sid, _call(), "调用提供商 API")
-        answer = (await asyncio.wait_for(_call_task, timeout=_hard_timeout)
-                  if _hard_timeout > 0 else await _call_task)
+        _call_task = asyncio.ensure_future(
+            _await_interruptible(sid, _call(), "调用提供商 API"))
+        if _hard_timeout > 0:
+            # 不用 wait_for：它超时后会继续等待被取消的协程真正退出；若底层
+            # 流式任务忽略 CancelledError，wait_for 会一起挂死（0 步假死）。
+            # asyncio.wait 超时立即返回，再 cancel 并放弃该任务，保证外层
+            # 一定能回到 AgentRunner 记录 service_unavailable。
+            _done, _ = await asyncio.wait({_call_task}, timeout=_hard_timeout)
+            if _call_task not in _done:
+                _call_task.cancel()
+                _rollback_user()
+                raise b.CopilotRateLimited(
+                    f"提供商 {pm[0]} 单回合超过 {int(_hard_timeout)} 秒未返回，"
+                    "按可重试超时处理", window_seconds=0)
+        answer = await _call_task
     except asyncio.TimeoutError as exc:
         _rollback_user()
         raise b.CopilotRateLimited(

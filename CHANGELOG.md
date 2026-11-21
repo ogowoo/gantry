@@ -14,6 +14,18 @@
 ### Fixed
 - 
 
+## [0.11.0-beta.43] - 2026-11-21
+
+### Fixed
+- `noop_guard` 不再把“不要创建文件 / 不要修改 / do not write”里的动作词当成
+  必须动手；`final-markdown` 从 180 秒 0 步/5 步空转降为 10.3 秒直接 final。
+- 只读否定与正向动作词区分：`不要创建` 不触发 noop，`创建` 仍触发。
+- Provider 超时改用 `asyncio.wait` 立即返回，不再等待忽略取消的底层流任务。
+
+### Tests
+- 新增 noop 否定测试；
+- 全量回归 1866 tests，OK (skipped=2)；30 条 Benchmark 最近 27/30。
+
 ## [0.11.0-beta.42] - 2026-11-21
 
 ### Added

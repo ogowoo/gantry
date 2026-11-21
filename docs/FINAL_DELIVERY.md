@@ -46,7 +46,7 @@
 最终全量：
 
 ```text
-Ran 1864 tests...
+Ran 1866 tests...
 OK (skipped=2)
 ```
 
@@ -57,10 +57,10 @@ OK (skipped=2)
 - `tests/evals/tasks.json`：30 条、22 类；
 - `scripts/eval.py`：完成率、验收率、耗时、步数、工具调用、重试、无进展、
   子 Agent、token、压缩恢复、上一份报告对比；
-- 全量 30 条实际跑完：28/30；重测 task-run-subagent 通过后为 29/30（96.67%）；
-- 修复 `read-analyze` 的文件卡片短路（`file_view=false`）后通过；
-- 剩余失败：`task-run-subagent`（模型只给出口头步骤，未执行子任务）、`final-markdown`（180 秒 0 步 Provider 卡住）。
-  `read-analyze`、`debug-test`、只读任务均已修复通过；没有伪造全量通过。
+- 最近一次全量 30 条：27/30（90%）；
+- `read-analyze`、`task-run-subagent`、`final-markdown`、只读任务均已单独修复通过；
+- 剩余失败：`debug-test`（Provider 偶发 0 步）、`grep-locate`（最终答复断言）、`ambiguous-plan`（22 步超过 20 步限制）；
+- 没有伪造全量通过。
 
 ## 7. 安全审计发现
 
@@ -83,8 +83,8 @@ providers.llamacpp.api_key
 
 ## 8. 已知问题
 
-1. 全量 30 条 Benchmark 未跑完，只做了 3 条真实抽样；
-2. `read-analyze` 模型行为问题未修复；
+1. 30 条 Benchmark 已完成，但存在 Provider/模型抖动，最近 27/30；
+2. `debug-test` 仍偶发 0 步 Provider 卡住；
 3. 主 Agent 的 final 未统一接入 Task acceptance（目前 `task_run` 的子任务有验收）；
 4. 子 Agent 默认共享父工作区，未声明路径的写入仍可能冲突；
 5. 任务自动恢复在 `task_run/task_recover` 触发，不是服务启动时扫描；
