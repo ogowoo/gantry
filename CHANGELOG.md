@@ -14,6 +14,21 @@
 ### Fixed
 - 
 
+## [0.11.0-beta.45] - 2026-11-21
+
+### Added
+- Excel P2/P3：
+  - 表头识别 `header_row` / `data_start_row` / `header_confidence`；
+  - 连续数据区域 `regions` 与 `multiple_regions` 异常，不把不连续表静默合并；
+  - `needs_confirmation`：低置信度或多区域时提示先确认；
+  - `excel_preview`：表头 + 前几行 + 区域 + 异常；
+  - `excel_read_chunk`：分块读取 + `.gantry/excel_checkpoints` 检查点续跑；
+  - Agent 提示词推荐 inspect/preview → read/chunk → validate。
+
+### Tests
+- 新增表头/多区域/预览/分块续跑测试；
+- 全量回归 1874 tests，OK (skipped=2)。
+
 ## [0.11.0-beta.44] - 2026-11-21
 
 ### Added

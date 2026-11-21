@@ -107,7 +107,51 @@ class ExcelGuardTests(unittest.IsolatedAsyncioTestCase):
     async def test_tool_schema(self):
         names = {x.get("name") for x in self.tools.descriptions()}
         self.assertIn("excel_inspect", names)
+        self.assertIn("excel_preview", names)
+        self.assertIn("excel_read_chunk", names)
         self.assertIn("excel_validate", names)
+
+    async def test_header_and_regions(self):
+        import openpyxl
+        p = self.tmp / "regions.xlsx"
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.append(["名称", "数量"])
+        for r in range(2, 11):
+            ws.append([f"a{r}", r])
+        for r in range(12, 22):
+            ws.cell(row=r, column=1, value="")
+        for r in range(22, 31):
+            ws.append([f"b{r}", r])
+        wb.save(p)
+        report = inspect_workbook(p, "Sheet")
+        s = report["sheets"][0]
+        self.assertTrue(s["header"]["present"], s["header"])
+        self.assertGreaterEqual(s["region_count"], 2)
+        self.assertIn("multiple_regions", s["anomalies"])
+        self.assertEqual(s["data_start_row"], 2)
+        self.assertTrue(report["needs_confirmation"])
+
+    async def test_preview_and_chunk_resume(self):
+        self._make("chunks.xlsx", rows=500)
+        preview = await self.tools.excel_preview("chunks.xlsx", sheet="Data", max_rows=3)
+        self.assertEqual(preview["header"][:2], ["col1", "col2"])
+        self.assertEqual(len(preview["rows"]), 3)
+
+        c1 = await self.tools.excel_read_chunk("chunks.xlsx", "Data", chunk_rows=10,
+                                               reset=True)
+        self.assertFalse(c1["done"])
+        self.assertEqual(c1["next_row"], 12)   # header at row 1, data starts at 2
+        self.assertEqual(len(c1["rows"]), 10)
+        c2 = await self.tools.excel_read_chunk("chunks.xlsx", "Data", chunk_rows=10)
+        self.assertEqual(c2["next_row"], 22)
+        self.assertEqual(c2["processed"], 20)
+        self.assertNotEqual(c1["rows"], c2["rows"])
+
+        reset = await self.tools.excel_read_chunk("chunks.xlsx", "Data", chunk_rows=10,
+                                                  reset=True)
+        self.assertEqual(reset["next_row"], 12)
+        self.assertEqual(reset["processed"], 10)
 
 
 if __name__ == "__main__":

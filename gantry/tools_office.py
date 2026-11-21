@@ -26,6 +26,34 @@ from . import editmatch
 from .tools import ToolError  # noqa: F401
 
 
+def _range_str(g: dict[str, Any]) -> str:
+    from openpyxl.utils import get_column_letter
+    if not g:
+        return ""
+    return (f"{get_column_letter(max(1, int(g.get('start_col') or 1)))}"
+            f"{g.get('start_row')}:"
+            f"{get_column_letter(max(1, int(g.get('end_col') or 1)))}"
+            f"{g.get('end_row')}")
+
+
+def _read_range_sync(target: Path, sheet: str, start_row: int, end_row: int,
+                     max_col: int) -> list[list[str]]:
+    import openpyxl
+    wb = openpyxl.load_workbook(target, data_only=True, read_only=True)
+    try:
+        ws = wb[sheet] if sheet and sheet in wb.sheetnames else wb.active
+        rows = []
+        for r in ws.iter_rows(min_row=max(1, start_row), max_row=max(1, end_row),
+                              max_col=max(1, max_col), values_only=True):
+            vals = ["" if c is None else str(c) for c in r]
+            while vals and vals[-1] == "":
+                vals.pop()
+            rows.append(vals)
+        return rows
+    finally:
+        wb.close()
+
+
 def _inspect_for_read(target: Path, sheet: str) -> dict[str, Any]:
     from .excel_guard import inspect_workbook
     return inspect_workbook(target, sheet, max_cells=200_000,
@@ -62,6 +90,104 @@ class OfficeMixin:
             return int(value)
         except (TypeError, ValueError):
             raise ToolError(f"{name} 必须是整数")
+
+    async def excel_preview(self, path: str, sheet: str = "",
+                            max_rows: int = 5) -> dict[str, Any]:
+        """Excel 预览：真实范围 + 表头 + 前几行 + 数据区域。"""
+        self._office_allowed()
+        target = self._path(path)
+        if not target.is_file():
+            raise ToolError(f"文件不存在: {path}")
+        limit = max(1, min(self._int_arg(max_rows, 5, "max_rows"), 30))
+        report = await asyncio.to_thread(_inspect_for_read, target, sheet)
+        from .excel_guard import recommended_scan
+        guard = recommended_scan(report, sheet)
+        if not guard or not guard.get("end_row"):
+            return {"path": path, "inspection": report, "rows": [],
+                    "header": [], "regions": [], "warnings": ["没有识别到数据区域"]}
+        end = min(guard["end_row"], guard["start_row"] + limit - 1)
+        rows = await asyncio.to_thread(
+            _read_range_sync, target, guard["sheet"], guard["start_row"], end,
+            min(1000, guard["end_col"]))
+        return {"path": path, "sheet": guard["sheet"],
+                "inspection": report, "detected_range": _range_str(guard),
+                "header": (guard.get("header") or {}).get("values") or [],
+                "header_row": guard.get("header_row", 0),
+                "regions": guard.get("regions") or [],
+                "rows": rows,
+                "warnings": [a for a in (guard.get("anomalies") or [])
+                             if a in ("multiple_regions", "weak_header",
+                                      "used_range_inflated", "scan_truncated")]}
+
+    async def excel_read_chunk(self, path: str, sheet: str = "", chunk_rows: int = 500,
+                               resume: bool = True, reset: bool = False,
+                               region: int = 0) -> dict[str, Any]:
+        """分块读取 + 检查点续跑；不一次读完整表。"""
+        self._office_allowed()
+        target = self._path(path)
+        if not target.is_file():
+            raise ToolError(f"文件不存在: {path}")
+        size = max(1, min(self._int_arg(chunk_rows, 500, "chunk_rows"), 2000))
+        report = await asyncio.to_thread(_inspect_for_read, target, sheet)
+        from .excel_guard import recommended_scan
+        guard = recommended_scan(report, sheet)
+        if not guard or not guard.get("end_row"):
+            raise ToolError("没有识别到可读取的数据区域；请先 excel_inspect")
+        regions = guard.get("regions") or []
+        if region and 1 <= region <= len(regions):
+            r = regions[region - 1]
+            guard = dict(guard, start_row=int(r["start_row"]),
+                         end_row=int(r["end_row"]))
+        header = (guard.get("header") or {}).get("values") or []
+        start = max(guard["start_row"],
+                    int(guard.get("data_start_row") or guard["start_row"]))
+        cp = self._excel_checkpoint_path(target, guard["sheet"])
+        processed = 0
+        if resume and not reset and cp.is_file():
+            try:
+                old = json.loads(cp.read_text(encoding="utf-8"))
+                if int(old.get("next_row") or 0) >= start:
+                    start = int(old["next_row"])
+                processed = int(old.get("processed") or 0)
+            except Exception:
+                pass
+        if start > guard["end_row"]:
+            return {"path": path, "sheet": guard["sheet"], "rows": [], "header": header,
+                    "done": True, "next_row": start, "processed": processed,
+                    "total_rows": max(0, guard["end_row"] - start + 1),
+                    "checkpoint": str(cp), "regions": regions}
+        end = min(guard["end_row"], start + size - 1)
+        rows = await asyncio.to_thread(
+            _read_range_sync, target, guard["sheet"], start, end,
+            min(1000, guard["end_col"]))
+        processed += len(rows)
+        done = end >= guard["end_row"]
+        cp.parent.mkdir(parents=True, exist_ok=True)
+        tmp = cp.with_suffix(".tmp")
+        tmp.write_text(json.dumps({
+            "path": str(target), "sheet": guard["sheet"],
+            "next_row": end + 1, "processed": processed, "end_row": guard["end_row"],
+            "updated": time.time()}, ensure_ascii=False), encoding="utf-8")
+        tmp.replace(cp)
+        return {"path": path, "sheet": guard["sheet"],
+                "rows": rows, "header": header, "done": done,
+                "next_row": end + 1, "processed": processed,
+                "range": f"{start}:{end}", "checkpoint": str(cp),
+                "total_rows": max(0, guard["end_row"] - guard["start_row"] + 1),
+                "regions": regions,
+                "confidence": guard.get("confidence"),
+                "anomalies": guard.get("anomalies") or []}
+
+    def _excel_checkpoint_path(self, target: Path, sheet: str) -> Path:
+        try:
+            st = target.stat()
+            fingerprint = f"{st.st_size}:{st.st_mtime_ns}"
+        except OSError:
+            fingerprint = ""
+        key = hashlib.sha1((str(target.resolve()) + "|" + str(sheet) + "|"
+                            + fingerprint).encode("utf-8")).hexdigest()[:20]
+        base = Path(self.root) / ".gantry" / "excel_checkpoints"
+        return base / f"{key}.json"
 
     async def read_excel(self, path: str, sheet: str = "", max_rows: int = 200,
                          max_cols: int = 300, safe: bool = True) -> dict[str, Any]:

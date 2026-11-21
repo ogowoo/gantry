@@ -69,6 +69,7 @@ class SheetScan:
     truncated: bool = False
     error: str = ""
     first_rows: list[list[str]] = field(default_factory=list)
+    first_row_numbers: list[int] = field(default_factory=list)
 
     @property
     def min_row(self) -> int:
@@ -238,8 +239,58 @@ def _scan_sheet(z: zipfile.ZipFile, name: str, xml_path: str, shared: list[str],
     except Exception as exc:  # noqa: BLE001
         scan.error = f"{type(exc).__name__}: {exc}"
     if preview:
-        scan.first_rows = [preview[r] for r in sorted(preview)[:3]]
+        _rows = sorted(preview)
+        scan.first_rows = [preview[r] for r in _rows[:3]]
+        scan.first_row_numbers = _rows[:3]
     return scan
+
+
+def _regions(scan: SheetScan, gap: int = 6) -> list[dict[str, Any]]:
+    """按大于 gap 的空行切分连续数据区；不把不连续区域当成一张表。"""
+    rows = sorted(scan.actual_rows)
+    if not rows:
+        return []
+    blocks: list[list[int]] = [[rows[0], rows[0]]]
+    for r in rows[1:]:
+        if r - blocks[-1][1] > gap:
+            blocks.append([r, r])
+        else:
+            blocks[-1][1] = r
+    out = []
+    for i, (a, b) in enumerate(blocks, 1):
+        out.append({"index": i, "start_row": a, "end_row": b,
+                    "rows": b - a + 1, "min_col": scan.min_col,
+                    "max_col": scan.max_col})
+    return out
+
+
+def _looks_number(s: str) -> bool:
+    t = str(s).strip().replace(",", "").replace("%", "")
+    if not t:
+        return False
+    try:
+        float(t)
+        return True
+    except ValueError:
+        return False
+
+
+def _header_info(scan: SheetScan) -> dict[str, Any]:
+    """第一行是否为表头：非空文本比例、唯一性、数值/日期噪声。"""
+    if not scan.first_rows:
+        return {"present": False, "row": 0, "values": [], "confidence": 0.0}
+    vals = [str(v).strip() for v in scan.first_rows[0] if str(v).strip()]
+    if not vals:
+        return {"present": False, "row": 0, "values": [], "confidence": 0.0}
+    text_n = sum(1 for v in vals if not _looks_number(v))
+    uniq = len(set(vals))
+    ratio = text_n / max(1, len(vals))
+    confidence = round(min(0.98, 0.35 + ratio * 0.45 + (uniq / max(1, len(vals))) * 0.18), 2)
+    if len(vals) < 2:
+        confidence = min(confidence, 0.45)
+    return {"present": confidence >= 0.55,
+            "row": scan.first_row_numbers[0] if scan.first_row_numbers else scan.min_row,
+            "values": vals[:50], "confidence": confidence}
 
 
 def _anomalies(scan: SheetScan) -> list[str]:
@@ -276,6 +327,12 @@ def _anomalies(scan: SheetScan) -> list[str]:
     gaps = [(b - a - 1) for a, b in zip(rows, rows[1:]) if b - a > 6]
     if gaps:
         out.append("data_gaps")
+    regions = _regions(scan)
+    if len(regions) > 1:
+        out.append("multiple_regions")
+    header = _header_info(scan)
+    if header.get("confidence", 0) < 0.55:
+        out.append("weak_header")
     # 只有一两个单元格的列，疑似残留格式/备注列
     sparse = [c for c, n in scan.col_counts.items() if n <= 1]
     if len(sparse) >= 3 and len(scan.col_counts) > 3:
@@ -299,6 +356,10 @@ def _confidence(scan: SheetScan, anomalies: list[str]) -> float:
         conf -= 0.1
     if "sparse_columns" in anomalies:
         conf -= 0.05
+    if "multiple_regions" in anomalies:
+        conf -= 0.15
+    if "weak_header" in anomalies:
+        conf -= 0.08
     return round(max(0.05, min(0.99, conf)), 2)
 
 
@@ -333,6 +394,8 @@ def inspect_workbook(path: str | Path, sheet: str = "", *,
                 scan = _scan_sheet(z, name, xml_path, shared, max_cells=max_cells,
                                    max_rows=max_rows, max_seconds=max_seconds)
                 anomalies = _anomalies(scan)
+                regions = _regions(scan)
+                header = _header_info(scan)
                 sheets.append({
                     "sheet": name,
                     "declared_range": scan.declared,
@@ -351,13 +414,24 @@ def inspect_workbook(path: str | Path, sheet: str = "", *,
                     "truncated": scan.truncated,
                     "anomalies": anomalies,
                     "confidence": _confidence(scan, anomalies),
+                    "header": header,
+                    "header_row": header.get("row", 0),
+                    "header_confidence": header.get("confidence", 0.0),
                     "header_sample": scan.first_rows[0][:20] if scan.first_rows else [],
+                    "data_start_row": ((header.get("row") or scan.min_row) + 1
+                                       if header.get("present") else scan.min_row),
+                    "regions": regions,
+                    "region_count": len(regions),
                     "error": scan.error,
                 })
     except Exception as exc:  # noqa: BLE001
         return {"ok": False, "error": f"{type(exc).__name__}: {exc}", "sheets": [],
                 "elapsed_seconds": round(time.monotonic() - started, 3)}
     return {"ok": True, "path": str(p), "sheets": sheets,
+            "needs_confirmation": any(
+                float(s.get("confidence") or 0) < 0.55
+                or "multiple_regions" in (s.get("anomalies") or [])
+                for s in sheets),
             "elapsed_seconds": round(time.monotonic() - started, 3),
             "budget": {"max_cells": max_cells, "max_rows": max_rows,
                        "max_seconds": max_seconds}}
@@ -378,4 +452,10 @@ def recommended_scan(report: dict[str, Any], sheet: str = "") -> dict[str, Any]:
         "end_col": int(s.get("max_col") or 0),
         "confidence": s.get("confidence", 0.0),
         "anomalies": s.get("anomalies") or [],
+        "regions": s.get("regions") or [],
+        "header": s.get("header") or {},
+        "header_row": s.get("header_row", 0),
+        "data_start_row": s.get("data_start_row", 0),
+        "needs_confirmation": bool(s.get("confidence", 0) < 0.55
+                                   or "multiple_regions" in (s.get("anomalies") or [])),
     }

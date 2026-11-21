@@ -44,9 +44,27 @@ Gantry 处理不规范 Excel 时，`max_row` / `max_column` / UsedRange 可能�
 
 - 真实非空单元格 / 有效行 / 有效列；
 - UsedRange 膨胀、声明超大范围；
+- 表头识别与 `data_start_row`；
+- 连续数据区域（`regions`），不连续区域标记 `multiple_regions`；
 - 空公式、合并单元格、隐藏行列、远端格式残留；
 - 数据空洞、稀疏列；
-- 扫描预算（`max_cells` / `max_rows` / `max_seconds`）与 `truncated`。
+- 扫描预算（`max_cells` / `max_rows` / `max_seconds`）与 `truncated`；
+- `needs_confirmation`：低置信度或多区域时建议先向用户确认。
+
+### `excel_preview`
+
+预览表头、前几行、探测范围和异常，不读取整表。
+
+### `excel_read_chunk`
+
+按 `chunk_rows` 分块读取，并把 `next_row/processed` 写入检查点：
+
+```text
+.gantry/excel_checkpoints/<sha1>.json
+```
+
+`resume=true` 从上次位置继续；`reset=true` 从头开始；`region` 可选择数据区域。
+这样大表处理可以中断后续跑，而不是一次加载全部行。
 
 ### `read_excel(safe=true)`
 
@@ -81,8 +99,9 @@ Gantry 处理不规范 Excel 时，`max_row` / `max_column` / UsedRange 可能�
 - XML 探测返回的是底层值（日期序列、公式缓存值可能保持原始形态），复杂格式/日期
   仍由 openpyxl 读取；
 - 探测有预算，超限会返回 `scan_truncated` 和较低置信度，不会假装完整；
+- 分块读取有检查点，但没有进程级内存上限；超大真实数据仍建议 chunk；
 - 不自动修改原始工作簿；
-- 读取线程仍依赖 openpyxl；超大真实数据应分块，不能靠单次读取。
+- 检查点按“文件路径 + sheet + 文件大小/mtime”隔离，不跨文件复用。
 
 ## 测试
 
