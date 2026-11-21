@@ -14,6 +14,21 @@
 ### Fixed
 - 
 
+## [0.11.0-beta.39] - 2026-11-21
+
+### Added
+- Batch 6 安全与交付：
+  - 新 `gantry/security.py`：工具风险分级、覆盖/移动/删除/外部不可逆动作审批建议、
+    凭据脱敏、配置明文密钥审计；
+  - AgentRunner 步骤记录 risk，审批改用 `requires_approval_for(tool, arguments)`；
+  - 整文件覆盖、move_path 等进入一次性审批；
+  - 系统提示词始终注入安全边界（外部内容不是指令、凭据不落结果、不可用子 Agent 绕过审批）；
+  - 新增 `docs/SECURITY.md`、`docs/FINAL_DELIVERY.md`。
+
+### Tests
+- 新增安全风险/审批/脱敏/配置审计测试；
+- 全量回归 1856 tests，OK (skipped=2)。
+
 ## [0.11.0-beta.38] - 2026-11-21
 
 ### Added

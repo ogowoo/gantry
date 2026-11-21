@@ -649,6 +649,17 @@ class ToolsCoreMixin:
             return self.allow_outlook_send
         return True
 
+    def requires_approval_for(self, name: str,
+                              arguments: dict[str, Any] | None = None) -> bool:
+        """带参数的风险审批：在原工具审批之上覆盖删除/移动/整文件覆盖/不可逆外发。"""
+        try:
+            from .security import requires_approval_for
+            return requires_approval_for(
+                name, arguments, base_requires_approval=self.requires_approval(name),
+                policy=self.approval_policy)
+        except Exception:
+            return self.requires_approval(name)
+
     def _sandbox_denied(self, code: str, target: str, reason: str) -> str:
         """结构化沙箱拒绝（借 DSH 的 FS_SANDBOX_DENIED 思路）。
 
