@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 import subprocess
 import sys
 import time
@@ -29,12 +30,18 @@ def main() -> int:
         mods = [m for m in mods if args.only in m]
     bad = []
     t0 = time.time()
+    # 与子进程内 tests/__init__.py 同一套 redirect：测试临时目录统一进仓库外的
+    # .gantry-test-tmp，仓库根保持干净（tests/__init__ 还会再设一次，双保险）。
+    _tmp_redirect = BASE.parent / ".gantry-test-tmp"
+    _tmp_redirect.mkdir(parents=True, exist_ok=True)
+    _child_env = dict(os.environ, TMPDIR=str(_tmp_redirect), TEMP=str(_tmp_redirect),
+                      TMP=str(_tmp_redirect))
     for m in mods:
         cmd = [sys.executable, "-m", "unittest", f"tests.{m}"]
         started = time.time()
         try:
             r = subprocess.run(cmd, cwd=str(BASE), capture_output=True, text=True,
-                               timeout=args.timeout)
+                               timeout=args.timeout, env=_child_env)
             out = (r.stderr or "") + (r.stdout or "")
             tail = [ln for ln in out.splitlines() if ln.startswith(("Ran ", "OK", "FAILED"))]
             status = "OK" if r.returncode == 0 else "FAILED"
@@ -48,15 +55,17 @@ def main() -> int:
         except subprocess.TimeoutExpired:
             bad.append(m)
             print(f"TIMEOUT {m:46} {time.time() - started:5.1f}s  （>{args.timeout}s）")
-    # 清理测试在仓库根落下的临时目录：本机沙箱里原生进程只能写工作区，
-    # tempfile 兜底会指向仓库根（见 .gitignore 注释），跑完即清，避免越攒越多。
-    # 前缀清单与 .gitignore 保持同步。
+    # 清空 redirect 目录里的临时内容；并兜底清理仓库根残留（正常情况不会再有，
+    # 防直跑 pytest/单模块时 tests/__init__ 之外的漏网）。前缀清单与 .gitignore 同步。
     import shutil
+    n = 0
+    for sub in _tmp_redirect.iterdir():
+        shutil.rmtree(sub, ignore_errors=True)
+        n += 1
     _RESIDUE_PREFIXES = ("cbp_", "tmp", "gantry_at_", "gantry_root_", "gantry_self_",
                          "gantry_snap_", "gantry_ui_", "gantry_retrycount_",
                          "gantry_sendpause_", "gantry-diag-", "memory5_",
                          "sess_cap_", "teams_outbox_")
-    n = 0
     for d in BASE.iterdir():
         if d.is_dir() and d.name.startswith(_RESIDUE_PREFIXES):
             shutil.rmtree(d, ignore_errors=True)

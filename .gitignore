@@ -41,8 +41,9 @@ _*.png
 !.env.example
 config.json.bak*
 
-# 测试临时目录（沙箱里原生进程只能写工作区，mkdtemp 会落在仓库根）
+# 测试临时目录（redirect 失效时的兜底；正常都进仓库外 .gantry-test-tmp）
 cbp_*/
+.test-tmp/
 tmp*/
 gantry_at_*/
 gantry_root_*/
