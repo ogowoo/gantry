@@ -40,6 +40,23 @@ class OriginGuardTests(unittest.TestCase):
         r = self.c.post(PROBE, headers={"Origin": "http://127.0.0.1:9999"})
         self.assertEqual(r.status_code, 403, "其它端口的本机页面也是跨源")
 
+    def test_default_port_spoof_rejected(self):
+        """不带端口的回环 Origin = scheme 默认端口（80/443），与服务端口不同源。
+
+        旧逻辑把"没写端口"当放行：本机 80 端口的任意页面伪造 Origin: http://127.0.0.1
+        就能绕过 CSRF 防护打到服务的写接口。
+        """
+        r = self.c.post(PROBE, headers={"Origin": "http://127.0.0.1"})
+        self.assertEqual(r.status_code, 403, "默认端口(80) != 服务端口，应被拒")
+        r = self.c.post(PROBE, headers={"Referer": "http://127.0.0.1/form"})
+        self.assertEqual(r.status_code, 403, "Referer 同样要比较端口")
+
+    def test_default_port_match_allowed(self):
+        """服务跑在 80（http 默认端口）时，不带端口的 Origin 才算同源。"""
+        c = TestClient(A.app, base_url="http://127.0.0.1:80")
+        r = c.post(PROBE, headers={"Origin": "http://127.0.0.1"})
+        self.assertNotEqual(r.status_code, 403, "默认端口与服务一致时应放行")
+
     def test_reads_not_blocked(self):
         r = self.c.get(PROBE, headers={"Origin": "http://evil.example"})
         self.assertNotEqual(r.status_code, 403, "只拦写方法（读被浏览器同源策略保护）")

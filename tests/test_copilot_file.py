@@ -102,6 +102,38 @@ class CopilotFileTests(unittest.TestCase):
         self.assertEqual(data, payload)
         self.assertEqual(size, len(payload))
 
+    def test_download_over_cap_rejected(self):
+        """超过 agent.copilot_file_max_mb 的下载必须被拒且不落盘（M21）。"""
+        from gantry import bridge as b
+        from gantry.downloads import _save_from_href
+
+        payload = b"A" * (2 * 1024 * 1024)          # 2MB
+
+        async def scenario(browser):
+            page = await browser.new_page()
+            html = make_page(browser, payload)
+            await page.goto(html.as_uri())
+            saved = (b.page, b.ctx, b.AGENT_TOOLS.root, b.AGENT_CFG.get("copilot_file_max_mb"))
+            b.page = page
+            b.ctx = None
+            b.AGENT_CFG["copilot_file_max_mb"] = 1   # 上限 1MB
+            try:
+                target = b.AGENT_TOOLS.root / "big.bin"
+                try:
+                    await _save_from_href("data:application/octet-stream;base64,"
+                                          + base64.b64encode(payload).decode(), target)
+                    return "no-error"
+                except Exception as exc:
+                    return f"error:{exc}"
+            finally:
+                b.page, b.ctx = saved[0], saved[1]
+                b.AGENT_TOOLS.root = saved[2]
+                b.AGENT_CFG["copilot_file_max_mb"] = saved[3]
+
+        out = self._run(scenario)
+        self.assertTrue(str(out).startswith("error:"), f"超限下载应抛错，实际: {out}")
+        self.assertIn("超过单次上限", str(out))
+
     def test_blob_link_downloaded(self):
         from gantry import bridge as b
 

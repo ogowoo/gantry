@@ -53,6 +53,17 @@ class EnvFileTests(unittest.TestCase):
         self.assertEqual(os.environ["D"], "with_export")
         self.assertEqual(os.environ["E"], "value")
 
+    def test_quoted_value_with_hash_is_not_truncated(self):
+        """带引号的值里 # 是值本身（PASSWORD="ab#cd"），曾被行内注释逻辑切成 ab。"""
+        (self.tmp / ".env").write_text(
+            'F="ab#cd"\n'
+            "G='x#y'\n"
+            'H=ab#cd\n', encoding="utf-8")
+        load_env_file(self.tmp / ".env")
+        self.assertEqual(os.environ["F"], "ab#cd")
+        self.assertEqual(os.environ["G"], "x#y")
+        self.assertEqual(os.environ["H"], "ab")   # 不带引号：# 仍是行内注释
+
     def test_missing_file_is_noop(self):
         self.assertEqual(load_env_file(self.tmp / "nope.env"), 0)
 

@@ -96,7 +96,9 @@ class UpdaterZipTests(unittest.TestCase):
         with mock.patch.object(self.up, "_release_info", side_effect=fake_release), \
                 mock.patch.object(self.up, "_download", side_effect=fake_download), \
                 mock.patch.object(self.up, "_schedule_restart"):
-            out = self.up.apply(version="0.11.0-beta.1", method="zip", restart=False)
+            # release 无 digest 时必须显式 force=True 才放行（新安全语义）
+            out = self.up.apply(version="0.11.0-beta.1", method="zip", restart=False,
+                                force=True)
         self.assertTrue(out["changed"])
         self.assertTrue((self.root / "gantry" / "new.py").is_file())
         self.assertFalse((self.root / "gantry" / "old.py").exists())
@@ -109,6 +111,26 @@ class UpdaterZipTests(unittest.TestCase):
         self.assertEqual(out2["method"], "zip")
         self.assertTrue((self.root / "gantry" / "old.py").is_file())
         self.assertFalse((self.root / "gantry" / "new.py").exists())
+
+    def test_zip_missing_digest_requires_force(self):
+        """release 无 SHA256 digest 时默认拒绝安装，仅 force=True 放行。"""
+        def fake_release(tag):
+            return {"tag": tag, "version": tag, "url": "https://github.com/x/y.zip",
+                    "sha256": "", "notes": "", "source": "release"}
+
+        def fake_download(url, dest):
+            shutil.copyfile(self.zip_path, dest)
+
+        with mock.patch.object(self.up, "_release_info", side_effect=fake_release), \
+                mock.patch.object(self.up, "_download", side_effect=fake_download), \
+                mock.patch.object(self.up, "_schedule_restart"):
+            with self.assertRaises(u.UpdateError):
+                self.up.apply(version="0.11.0-beta.1", method="zip", restart=False)
+            self.assertTrue((self.root / "gantry" / "old.py").is_file(),
+                            "拒绝安装时不应改动现有代码")
+            out = self.up.apply(version="0.11.0-beta.1", method="zip", restart=False,
+                                force=True)
+        self.assertTrue(out["changed"])
 
     def test_zip_slip_rejected(self):
         bad = self.root / "bad.zip"
@@ -223,7 +245,7 @@ class UpdaterZipTests(unittest.TestCase):
         self.assertIn("--force", tag_fetch[0])
 
     def test_git_apply_falls_back_to_remote_branch(self):
-        """tag 抓不到时退到 origin/<branch>，而不是整个更新失败。"""
+        """tag 抓不到时退到 origin/<branch>：明确版本号必须 force=True，且结果带 fallback 标记。"""
         up = u.Updater(config={"method": "git", "channel": "beta"}, current="0.10.0")
         calls = []
 
@@ -249,8 +271,12 @@ class UpdaterZipTests(unittest.TestCase):
                 mock.patch.object(Path, "is_dir", return_value=True), \
                 mock.patch.object(up, "_new_backup", return_value=(Path("/tmp/b"), {})), \
                 mock.patch.object(up, "_save_backup"):
-            out = up._apply_git("0.11.0-beta.14", force=False)
+            # 目标是明确版本号：非 force 禁止静默兜底
+            with self.assertRaises(u.UpdateError):
+                up._apply_git("0.11.0-beta.14", force=False)
+            out = up._apply_git("0.11.0-beta.14", force=True)
         self.assertEqual(out["target_commit"], "remotehead456"[:12])
+        self.assertTrue(out.get("fallback"))
 
     def test_git_merge_failure_gives_actionable_hint(self):
         """ff-only 失败（本地有自己的提交/分叉）要给出可执行的修复命令。"""
