@@ -329,6 +329,29 @@ class LogTests(unittest.TestCase):
             if getattr(h, "_gantry_file", False) or getattr(h, "_gantry_console", False):
                 logging.getLogger().removeHandler(h)
 
+    def test_handler_level_redact_token_on_disk(self):
+        """脱敏 filter 挂在 handler 层：gantry.updater 这类子 logger 传播上来的
+        含 token= 记录，落盘文本必须已脱敏（logger 层 filter 覆盖不到传播路径）。"""
+        import shutil
+
+        from gantry import logcfg
+
+        tmp = Path(tempfile.mkdtemp(prefix="gantry_redact_"))
+        try:
+            path = logcfg.setup_logging(tmp, console=False)
+            logging.getLogger("gantry.updater").info(
+                "下载 release 失败 url=https://api.example.com/?token=SUPERSECRET&x=1")
+            for h in logging.getLogger().handlers:
+                h.flush()
+            text = path.read_text(encoding="utf-8")
+            self.assertNotIn("SUPERSECRET", text, "token 不得落盘")
+            self.assertIn("token=***", text, "落盘文本必须已脱敏")
+        finally:
+            for h in list(logging.getLogger().handlers):
+                if getattr(h, "_gantry_file", False) or getattr(h, "_gantry_console", False):
+                    logging.getLogger().removeHandler(h)
+            shutil.rmtree(tmp, ignore_errors=True)
+
     def test_log_env_override(self):
         from gantry import logcfg
 

@@ -18,6 +18,10 @@ from pathlib import Path
 log = logging.getLogger("gantry.envfile")
 
 _ENV_LINE = re.compile(r"^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)$")
+# 闭合引号对 + 其后仅允许空白/行尾注释（group2=引号内的值）。
+# 优先于"按 # 截断"：PASSWORD="ab#cd" # comment 这类变体里 # 在引号内，
+# 旧实现先判 quoted 再剥注释，遇到引号后带注释的行会把值切成 "ab。
+_QUOTED_VAL = re.compile(r"^([\"'])(.*?)\1\s*(?:#.*)?$")
 _PLACEHOLDER = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}")
 _SENSITIVE = re.compile(r"(key|token|secret|password)", re.I)
 
@@ -38,14 +42,13 @@ def load_env_file(path: str | Path = ".env", root: Path | None = None) -> int:
         if not m:
             continue
         key, val = m.group(1), m.group(2).strip()
-        # 行内注释：KEY=value # comment。带引号的值不剥注释（# 是值的一部分，
-        # 如 PASSWORD="ab#cd"）——必须先记引号状态，剥了引号再判断就永远为 False。
-        quoted = len(val) >= 2 and val[0] == val[-1] and val[0] in ("'", '"')
-        if not quoted and "#" in val:
+        # 行内注释：先尝试"闭合引号对 + 其后仅空白/注释"（带引号的值里 # 是值的
+        # 一部分，如 PASSWORD="ab#cd" # comment → ab#cd）；失败再退回无引号按 # 截断。
+        mq = _QUOTED_VAL.match(val)
+        if mq:
+            val = mq.group(2)
+        elif "#" in val:
             val = val.split("#", 1)[0].rstrip()
-        # 去掉成对的引号
-        if quoted:
-            val = val[1:-1]
         if key not in os.environ:
             os.environ[key] = val
             n += 1

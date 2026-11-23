@@ -37,8 +37,10 @@ class NetErrorTextTests(unittest.TestCase):
         self.assertNotIn("网络异常（ReadTimeout）：。", text)   # 不是空消息裸奔
 
     def test_proxy_mentioned_when_used(self):
-        p = self._prov(proxy="http://127.0.0.1:10809")
+        p = self._prov(proxy="http://user:pass@127.0.0.1:10809")
         text = p.net_error_text(httpx.ConnectError("boom"))
+        # userinfo（user:pass）不得进错误提示；只展示 scheme://host:port
+        self.assertNotIn("user:pass", text)
         self.assertIn("经代理 http://127.0.0.1:10809", text)
         self.assertIn("boom", text)
 

@@ -141,6 +141,36 @@ class UpdaterZipTests(unittest.TestCase):
             u.Updater._safe_extract(bad, dest)
         self.assertFalse((self.root / "evil.txt").exists())
 
+    def test_apply_prunes_old_backups_keep_5(self):
+        """成功安装后淘汰旧备份：目录名带时间戳，按序删旧的，总数只留最近 5 份。"""
+        backups = self.root / "data" / "updates" / "backups"
+        for i in range(6):   # 预置 6 份旧备份
+            d = backups / f"2026010{i}-120000-zip"
+            d.mkdir(parents=True)
+            (d / "backup.json").write_text("{}", encoding="utf-8")
+
+        def fake_release(tag):
+            return {"tag": tag, "version": tag, "url": "https://github.com/x/y.zip",
+                    "sha256": "", "notes": "", "source": "release"}
+
+        def fake_download(url, dest):
+            shutil.copyfile(self.zip_path, dest)
+
+        with mock.patch.object(self.up, "_release_info", side_effect=fake_release), \
+                mock.patch.object(self.up, "_download", side_effect=fake_download), \
+                mock.patch.object(self.up, "_schedule_restart"):
+            out = self.up.apply(version="0.11.0-beta.1", method="zip", restart=False,
+                                force=True)
+        self.assertTrue(out["changed"])
+        kept = sorted(p.name for p in backups.iterdir() if p.is_dir())
+        self.assertEqual(len(kept), 5, f"6 旧 + 1 新 = 7 份，应淘汰到 5 份：{kept}")
+        self.assertNotIn("20260100-120000-zip", kept, "最旧的应先被淘汰")
+        self.assertNotIn("20260101-120000-zip", kept)
+        self.assertIn("20260105-120000-zip", kept)
+        self.assertIn(out["backup"], kept, "本次新备份必须保留")
+        # 被淘汰的目录整体删除（backup.json 一起没）
+        self.assertFalse((backups / "20260100-120000-zip" / "backup.json").exists())
+
     def test_dry_run_does_not_touch_code(self):
         with mock.patch.object(self.up, "_release_info") as rel, \
                 mock.patch.object(self.up, "_download") as dl:

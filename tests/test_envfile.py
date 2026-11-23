@@ -64,6 +64,19 @@ class EnvFileTests(unittest.TestCase):
         self.assertEqual(os.environ["G"], "x#y")
         self.assertEqual(os.environ["H"], "ab")   # 不带引号：# 仍是行内注释
 
+    def test_quoted_value_with_trailing_comment_keeps_hash(self):
+        """引号值 + 行尾注释：PASSWORD="ab#cd" # comment → ab#cd（实跑复现的变体）。
+
+        旧实现先看首尾是否同引号——尾字符是注释的 d，判成无引号后按 # 截断，
+        结果值变成 "ab。现在用「闭合引号对 + 其后仅空白/注释」正则优先匹配。
+        """
+        (self.tmp / ".env").write_text(
+            'PASSWORD="ab#cd" # comment\n'
+            "TOKEN='tok#en'   # 另一个\n", encoding="utf-8")
+        load_env_file(self.tmp / ".env")
+        self.assertEqual(os.environ["PASSWORD"], "ab#cd")
+        self.assertEqual(os.environ["TOKEN"], "tok#en")
+
     def test_missing_file_is_noop(self):
         self.assertEqual(load_env_file(self.tmp / "nope.env"), 0)
 

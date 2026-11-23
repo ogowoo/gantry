@@ -145,6 +145,9 @@ def _repair_provider_history(hist: list[dict]) -> int:
 def discard_provider_agent_history(sid: str) -> None:
     """会话删除时清理提供商对话历史（避免长期运行内存里堆积）。"""
     _PROVIDER_AGENT_HISTORY.pop(sid, None)
+    # 按会话的锁同生命周期：只在 _PROVIDER_LOCKS.setdefault(sid) 的会话里创建，
+    # 会话删除后不 pop 会让 dict 无限增长（每个 sid 一把 asyncio.Lock）。
+    _PROVIDER_LOCKS.pop(sid, None)
 
 
 def sync_provider_history_message(sid: str, old: str, new: str | None) -> bool:

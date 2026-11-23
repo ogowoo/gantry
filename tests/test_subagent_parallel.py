@@ -127,7 +127,14 @@ class SubagentManyToolTests(unittest.TestCase):
             self.live += 1
             self.peak = max(self.peak, self.live)
             try:
-                await asyncio.sleep(0.25)
+                # 条件轮询替代固定盲睡（0.25s）：观察到并发（另一任务同时在跑）
+                # 即可放行——并行测试立即放完；顺序模式永远等不到并发，由 0.25s
+                # 超时兜底保持"任务时长"语义。总上限 5s 防挂死。
+                t0 = time.time()
+                while self.live < 2 and time.time() - t0 < 0.25:
+                    if time.time() - t0 > 5:
+                        break
+                    await asyncio.sleep(0.01)
                 return {"agent_id": "sub-" + task, "steps": 1, "content": "r:" + task}
             finally:
                 self.live -= 1

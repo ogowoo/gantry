@@ -13,10 +13,34 @@ from __future__ import annotations
 import logging
 import logging.handlers
 import os
+import re
 import sys
 from pathlib import Path
 
 FMT = "%(asctime)s %(levelname)-7s %(name)s: %(message)s"
+
+
+class RedactTokenFilter(logging.Filter):
+    """把日志里的 token=xxx 抹掉：?token= 便捷用法不能让密钥进日志。
+
+    按**最终文本**脱敏：uvicorn 的 args 既可能是 tuple、也可能是 dict，
+    只处理 tuple 会漏（dict 形式的访问日志会把 ?token= 原样写盘）。
+    挂在 **handler 层**：logger 层 filter 只对直接记在该 logger 上的记录生效，
+    子 logger（如 gantry.updater）传播上来的记录不经过父 logger 的 filter，
+    只有 handler filter 能覆盖全部路径。
+    """
+
+    _RE = re.compile(r"(token=)[^&\s\"]+", re.I)
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        try:
+            text = record.getMessage()
+            if "token=" in text.lower():
+                record.msg = self._RE.sub(r"\1***", text)
+                record.args = ()          # 已合并进 msg，避免二次格式化
+        except Exception:
+            pass
+        return True
 
 
 def log_dir(root: Path) -> Path:
@@ -65,15 +89,18 @@ def setup_logging(root: Path, *, console: bool | None = None,
             logger.removeHandler(h)
 
     path = log_file(root)
+    redact = RedactTokenFilter()
     fh = logging.handlers.RotatingFileHandler(
         path, maxBytes=5 * 1024 * 1024, backupCount=7, encoding="utf-8")
     fh.setFormatter(logging.Formatter(FMT))
+    fh.addFilter(redact)                        # handler 层脱敏：覆盖所有子 logger 传播路径
     fh._gantry_file = True                      # type: ignore[attr-defined]
     logger.addHandler(fh)
 
     if console and sys.stderr is not None:
         sh = logging.StreamHandler()
         sh.setFormatter(logging.Formatter(FMT))
+        sh.addFilter(redact)                    # 控制台输出同样不许带 token
         sh._gantry_console = True               # type: ignore[attr-defined]
         logger.addHandler(sh)
 

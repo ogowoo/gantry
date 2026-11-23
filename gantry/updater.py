@@ -304,6 +304,20 @@ class Updater:
     def _save_backup(self, bdir: Path, record: dict[str, Any]) -> None:
         _write_json(bdir / "backup.json", record)
 
+    def _prune_backups(self, keep: int = 5) -> None:
+        """apply 成功后淘汰旧备份，只保留最近 keep 份。
+
+        备份目录名 = {_now()}-{kind}（时间戳前缀），按目录名排序即按时间排序；
+        超出的整体删除（backup.json 与备份内容一起）。
+        """
+        bdir = self.update_dir / "backups"
+        if not bdir.is_dir():
+            return
+        dirs = sorted((p for p in bdir.iterdir() if p.is_dir()),
+                      key=lambda p: p.name)
+        for old in dirs[:-keep] if len(dirs) > keep else []:
+            shutil.rmtree(old, ignore_errors=True)
+
     # ── 安装 ────────────────────────────────────────────────────
     def apply(self, version: str = "", method: str = "", restart: bool = True,
               dry_run: bool = False, force: bool = False) -> dict[str, Any]:
@@ -331,6 +345,8 @@ class Updater:
             res.update({"ok": True, "current_before": self.current,
                         "target": target, "method": plan_method,
                         "restart_required": bool(restart)})
+            if res.get("changed"):
+                self._prune_backups(keep=5)   # 每次成功安装后淘汰，只留最近 5 份备份
             if restart:
                 self._schedule_restart()
             return res

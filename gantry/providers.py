@@ -23,6 +23,7 @@ import os
 import urllib.request
 from pathlib import Path
 from typing import Any, AsyncIterator
+from urllib.parse import urlsplit
 
 import httpx
 
@@ -242,6 +243,20 @@ class ApiProvider:
         name = type(exc).__name__ if exc is not None else "NetworkError"
         detail = str(exc).strip() if exc is not None else ""
         via = self.proxy_url()
+        if via:
+            # 代理 URL 常内联 userinfo（http://user:pass@host:port）——错误提示是
+            # 给人看的，把账号密码剥掉再展示（只保留 scheme://host:port）。
+            try:
+                u = urlsplit(via)
+                if u.hostname:
+                    host = u.hostname
+                    if ":" in host:
+                        host = f"[{host}]"        # IPv6 字面量补回方括号
+                    if u.port is not None:
+                        host = f"{host}:{u.port}"
+                    via = f"{u.scheme}://{host}" if u.scheme else host
+            except Exception:                        # noqa: BLE001
+                pass                                 # 解析不了就保持原文（无 userinfo 可剥的裸 host:port 形态）
         where = f"经代理 {via}" if via else "直连"
         return (f"{where} 访问 {self.base_url} 时网络异常（{name}）："
                 f"{detail[:200] if detail else '对端无详细消息'}。"

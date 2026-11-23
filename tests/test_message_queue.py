@@ -7,6 +7,7 @@ HTTP 立即返回 queued/position，后台 worker 逐条处理。
 import asyncio
 import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
 
@@ -36,6 +37,16 @@ async def drain_until_empty(timeout=2.0):
         await asyncio.sleep(0.02)
 
 
+async def wait_until_inflight(sid: str, timeout: float = 5.0):
+    """条件轮询等 worker 抓走队列第一条（进入 _MSG_INFLIGHT），替代固定 sleep 盲等。"""
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        if sid in b._MSG_INFLIGHT:
+            return
+        await asyncio.sleep(0.01)
+    raise AssertionError(f"{timeout}s 内 {sid} 的 worker 仍未抓走消息")
+
+
 class MessageQueueTests(unittest.TestCase):
     def setUp(self):
         self.tmp = Path(tempfile.mkdtemp(prefix="cbp_mq_"))
@@ -61,7 +72,7 @@ class MessageQueueTests(unittest.TestCase):
         b._process_queued_message = make_stub([], gate)
         async def main():
             r1 = await b.enqueue_session_message("s1", "a", "copilot-auto", False, None)
-            await asyncio.sleep(0.05)   # 让 worker 抓走第一条（进入处理中）
+            await wait_until_inflight("s1")   # 等 worker 抓走第一条（进入处理中）
             r2 = await b.enqueue_session_message("s1", "b", "copilot-auto", False, None)
             r3 = await b.enqueue_session_message("s1", "c", "copilot-auto", False, None)
             return r1, r2, r3
@@ -97,7 +108,7 @@ class MessageQueueTests(unittest.TestCase):
         async def main():
             await b.enqueue_session_message("s1", "a", "copilot-auto", False, None)
             await b.enqueue_session_message("s1", "b", "copilot-auto", False, None)
-            await asyncio.sleep(0.05)   # 让 worker 抓走第一条
+            await wait_until_inflight("s1")   # 等 worker 抓走第一条
         asyncio.run(main())
         from gantry.api import app
         c = TestClient(app)
