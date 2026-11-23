@@ -12,8 +12,10 @@ bundle 不含公司根证书，requests/urllib 一律抛 CERTIFICATE_VERIFY_FAIL
    这一步需要在公司网络下跑过一次才能把根收进来；
 3. 仍失败则退回 curl 子进程（schannel 走 Windows 证书库，天然信任公司根）。
 
-环境变量 REQUESTS_CA_BUNDLE / SSL_CERT_FILE 指向合并 bundle（用户级，setx），
-Python 系库与 stdlib 都认；服务/计划任务重启进程后全局生效。
+环境变量 REQUESTS_CA_BUNDLE / SSL_CERT_FILE 指向合并 bundle。脚本每次运行都会
+幂等自检并补写用户级环境变量（winreg 写 HKCU\\Environment，等价 setx 但不经
+cmd），因此全新机器上只要跑过一次本脚本即完成部署，更新 bundle 路径也不用
+再手动设置；服务/计划任务重启进程后生效。
 
 用法：
     python scripts/ensure_corp_ca.py                # 自检 + 需要时收公司根
@@ -59,6 +61,66 @@ def _split_pem(text: str) -> list[str]:
         elif cur:
             cur.append(line)  # PEM 正文行（certifi 的注释行混在里面，解码端忽略）
     return blocks
+
+
+def _read_user_env(name: str) -> str | None:
+    """读用户级环境变量当前值（注册表读也被禁时退回进程环境）。"""
+    import os
+
+    import winreg
+
+    try:
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, "Environment", 0, winreg.KEY_READ) as key:
+            return winreg.QueryValueEx(key, name)[0]
+    except OSError:
+        return os.environ.get(name)
+
+
+def setup_env(bundle: Path) -> list[str]:
+    """幂等补写用户级环境变量，让 requests/stdlib 的全局校验都认合并 bundle。
+
+    用 winreg 写 HKCU\\Environment（与 setx 等效，不经 cmd）；已存在且值正确
+    就跳过，所以每次运行调用都无副作用。返回本次改动的变量名列表。
+    非 Windows 平台直接跳过（linux 上通常没有这种 SSL inspection 问题）。
+    """
+    if sys.platform != "win32":
+        return []
+    import winreg
+
+    changed = []
+    target = str(bundle)
+    try:
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, "Environment", 0, winreg.KEY_READ | winreg.KEY_SET_VALUE) as key:
+            for name in ("REQUESTS_CA_BUNDLE", "SSL_CERT_FILE"):
+                try:
+                    val, _ = winreg.QueryValueEx(key, name)
+                except FileNotFoundError:
+                    val = None
+                if val == target:
+                    continue
+                winreg.SetValueEx(key, name, 0, winreg.REG_EXPAND_SZ, target)
+                changed.append(name)
+    except OSError:
+        # 有的沙箱/策略禁 python 进程写注册表（winreg OpenKey 即拒），退 setx。
+        # setx 也不行的机器（如受限 CI）就此跳过——抓取兜底链不受影响，
+        # 只是其他 Python 进程得靠人工设置环境变量。
+        import subprocess
+
+        for name in ("REQUESTS_CA_BUNDLE", "SSL_CERT_FILE"):
+            cur = _read_user_env(name)
+            if cur == target:
+                continue
+            p = subprocess.run(["setx", name, target], capture_output=True, timeout=30)
+            if p.returncode == 0:
+                changed.append(name)
+            else:
+                print(f"（警告：补写 {name} 失败：{p.stderr.decode(errors='replace')[:120]}）")
+    # 同时刷新当前进程，脚本内后续抓取立即生效
+    import os
+
+    os.environ["REQUESTS_CA_BUNDLE"] = target
+    os.environ["SSL_CERT_FILE"] = target
+    return changed
 
 
 def ensure_bundle() -> Path:
@@ -159,13 +221,16 @@ def fetch(url: str, out: Path | None = None) -> bytes:
 
 
 def main(argv: list[str]) -> int:
+    bundle = ensure_bundle()
+    changed = setup_env(bundle)
+    if changed:
+        print(f"（已补写用户级环境变量：{', '.join(changed)}；新开的进程生效）")
     if len(argv) > 1:
         out = Path(argv[2]) if len(argv) > 2 else None
         body = fetch(argv[1], out)
         print(f"OK {len(body)} bytes" + (f" -> {out}" if out else ""))
         return 0
     # 自检：抓 github.com 首页，顺带演示完整兜底链
-    bundle = ensure_bundle()
     print(f"bundle: {bundle} ({len(_split_pem(bundle.read_text(encoding='ascii', errors='ignore')))} 张证书)")
     try:
         body = fetch("https://github.com/")

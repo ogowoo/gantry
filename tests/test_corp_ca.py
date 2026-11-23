@@ -82,6 +82,57 @@ class CorpCaTests(unittest.TestCase):
         self.assertEqual(after1, after2)
         self.assertGreaterEqual(after1, before)
 
+    def test_setup_env_idempotent_with_fake_winreg(self):
+        """setup_env 幂等补写：注入假 winreg，验证两次调用第二次无改动。"""
+        import types
+
+        store: dict[str, str] = {}
+
+        fake = types.ModuleType("winreg")
+        fake.HKEY_CURRENT_USER = 0
+        fake.KEY_READ = 1
+        fake.KEY_SET_VALUE = 2
+        fake.REG_EXPAND_SZ = 3
+
+        class _Key:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a):
+                return False
+
+            def __init__(self, *a):
+                pass
+
+            def __getattr__(self, _n):
+                raise AttributeError(_n)
+
+        def _query(key, name):
+            if name not in store:
+                raise FileNotFoundError(name)
+            return store[name], fake.REG_EXPAND_SZ
+
+        def _set(key, *a):
+            store[a[0]] = a[-1]
+
+        fake.OpenKey = lambda *a, **k: _Key()
+        fake.QueryValueEx = _query
+        fake.SetValueEx = _set
+
+        real = sys.modules.get("winreg")
+        sys.modules["winreg"] = fake
+        try:
+            changed1 = mod.setup_env(Path(r"C:\fake\ca-bundle.pem"))
+            changed2 = mod.setup_env(Path(r"C:\fake\ca-bundle.pem"))
+        finally:
+            if real is not None:
+                sys.modules["winreg"] = real
+            else:
+                sys.modules.pop("winreg", None)
+        self.assertEqual(sorted(changed1), ["REQUESTS_CA_BUNDLE", "SSL_CERT_FILE"])
+        self.assertEqual(changed2, [])
+        self.assertEqual(store["SSL_CERT_FILE"], r"C:\fake\ca-bundle.pem")
+
 
 if __name__ == "__main__":
     unittest.main()
