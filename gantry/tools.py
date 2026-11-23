@@ -69,7 +69,7 @@ TOOL_GROUPS: dict[str, tuple[str, ...]] = {
     "delete": ("delete_path",),
     "python": ("run_python",),
     "office": ("read_excel", "write_excel", "excel_inspect", "excel_preview",
-               "excel_read_chunk", "excel_validate",
+               "excel_read_chunk", "excel_validate", "read_csv", "write_csv",
                "read_docx", "write_docx", "read_pptx", "read_pdf"),
     "outlook": ("outlook_unread", "outlook_read", "outlook_search", "outlook_send"),
     # copilot 组只剩"上传文件给 Copilot 分析"，关键字围绕附件/图片
@@ -329,6 +329,8 @@ class ToolsCoreMixin:
             "write_docx": self.write_docx,
             "read_pptx": self.read_pptx,
             "read_pdf": self.read_pdf,
+            "read_csv": self.read_csv,
+            "write_csv": self.write_csv,
             "outlook_unread": self.outlook_unread,
             "outlook_read": self.outlook_read,
             "outlook_search": self.outlook_search,
@@ -603,6 +605,8 @@ class ToolsCoreMixin:
                 {"name": "write_docx", "description": "创建或追加 Word 文档段落", "arguments": {"path": "相对路径", "paragraphs": "字符串数组", "mode": "append 或 overwrite，默认 append"}},
                 {"name": "read_pptx", "description": "提取 PPT 每页文字与备注", "arguments": {"path": "相对路径"}},
                 {"name": "read_pdf", "description": "提取 PDF 每页文字", "arguments": {"path": "相对路径"}},
+                {"name": "read_csv", "description": "读取 CSV 文件（自动识别 utf-8/gb18030 编码）；大表先用小 max_rows 预览", "arguments": {"path": "相对路径", "max_rows": "最多行数，默认 2000", "max_cols": "每行最多列数，默认 200", "encoding": "编码，默认自动探测"}},
+                {"name": "write_csv", "description": "写入 CSV 二维数组（utf-8-sig 带 BOM，Excel 双击不乱码）", "arguments": {"path": "相对路径", "rows": "二维数组", "mode": "append 或 overwrite，默认 overwrite", "encoding": "编码，默认 utf-8-sig（带 BOM）", "escape_formulas": "默认 true：=,+,-,@ 开头的文本单元格前导加 '，防公式注入"}},
             ]
         if self.allow_outlook:
             items += [

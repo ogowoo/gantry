@@ -15,8 +15,10 @@ import math
 import os
 import posixpath
 import re
+import shutil
 import tempfile
 import zipfile
+from copy import copy as _copy_obj
 from datetime import date, datetime, time
 from pathlib import Path
 from typing import Any
@@ -238,24 +240,30 @@ def write_cells(path: str | Path, rows: list, sheet: str = "",
                 xml = xml[:pos] + f'<dimension ref="{new_dim}"/>' + xml[pos:]
 
         fd, tmp_name = tempfile.mkstemp(prefix=".gantry-xlsx-", suffix=target.suffix,
-                                       dir=str(target.parent))
+                                        dir=str(target.parent))
         os.close(fd)
-        # Windows 不允许替换仍被打开的文件：先在原句柄内把全部条目读进内存、释放句柄，
-        # 再一次性写出——旧实现关句柄后重新打开原文件读第二遍，等于整个 xlsx 读两次。
+        # Windows 不允许替换仍被打开的文件：先释放原句柄，再边读边写逐条目
+        # 流式复制（两个 zip 句柄同时开），内存占用从"整个 xlsx 两倍"降为
+        # 常数级；大文件不再一次性 read 全部条目。
         try:
-            with zipfile.ZipFile(target) as zin:
-                entries = [(item, zin.read(item.filename)) for item in zin.infolist()]
-        finally:
             zf.close()
+        except Exception:
+            pass
         try:
-            with zipfile.ZipFile(tmp_name, "w", zipfile.ZIP_DEFLATED) as zout:
-                for item, data in entries:
-                    if item.filename == sheet_path:
-                        data = xml.encode("utf-8")
+            with zipfile.ZipFile(target) as zin, \
+                    zipfile.ZipFile(tmp_name, "w", zipfile.ZIP_DEFLATED) as zout:
+                for item in zin.infolist():
                     # 传 ZipInfo 而不是文件名：保留原条目的时间戳/压缩方式/属性，
                     # 只传名字时 writestr 用默认压缩且所有文件时间被改成现在，
                     # Excel 会认为整个包都变了（diff 全红）。
-                    zout.writestr(item, data)
+                    # 注意必须传副本：ZipFile.open(mode='w') 会覆写传入 ZipInfo 的
+                    # header_offset 等字段，传原对象会污染 zin 的条目信息。
+                    with zout.open(_copy_obj(item), mode="w") as out:
+                        if item.filename == sheet_path:
+                            out.write(xml.encode("utf-8"))
+                        else:
+                            with zin.open(item) as fh:
+                                shutil.copyfileobj(fh, out, 512 * 1024)
             os.replace(tmp_name, target)
         finally:
             try:

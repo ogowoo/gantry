@@ -109,22 +109,19 @@ def _read_shared_strings(z: zipfile.ZipFile) -> list[str]:
         raise ToolError(
             f"xl/sharedStrings.xml 解压后约 {info.file_size / (1024*1024):.0f} MB，"
             f"超过 {_SHARED_STRINGS_MAX_BYTES // (1024*1024)} MB 预算，已中止探测")
-    data = z.read("xl/sharedStrings.xml")
-    if len(data) > _SHARED_STRINGS_MAX_BYTES:  # 防御压缩率异常
-        from .tools import ToolError
-        raise ToolError(
-            f"xl/sharedStrings.xml 超过 {_SHARED_STRINGS_MAX_BYTES // (1024*1024)} MB "
-            "字节预算，已中止探测")
     out: list[str] = []
+    # 流式 iterparse（而非 ET.fromstring 全量 DOM）：大共享字符串表内存占用
+    # 从 ~3 倍峰值降到常数级，速度也更快；截断/损坏的表按空表处理。
     try:
-        root = ET.fromstring(data)
+        with z.open("xl/sharedStrings.xml") as f:
+            for event, el in ET.iterparse(f, events=("end",)):
+                if _local(el.tag) != "si":
+                    continue
+                parts = [t.text or "" for t in el.iter() if _local(t.tag) == "t"]
+                out.append("".join(parts))
+                el.clear()
     except ET.ParseError:
         return []
-    for si in root:
-        if _local(si.tag) != "si":
-            continue
-        parts = [t.text or "" for t in si.iter() if _local(t.tag) == "t"]
-        out.append("".join(parts))
     return out
 
 
@@ -194,13 +191,17 @@ def _scan_sheet(z: zipfile.ZipFile, name: str, xml_path: str, shared: list[str],
     started = time.monotonic()
     row_cells: dict[int, int] = {}
     preview: dict[int, list[str]] = {}
+    valued_cells = 0  # 预算只按“有值/公式”的单元格计：样式空单元格不计入，
+    # 否则不规范文件（大量残留格式格）会迅速烧光 max_cells，真实范围测不出来。
     try:
         with z.open(xml_path) as f:
-            for event, el in ET.iterparse(f, events=("start", "end")):
+            # 只监听 end：dimension 是自闭合标签，end 事件上属性同样可读，
+            # 省掉 start 事件近乎减半 iterparse 回调开销。
+            for event, el in ET.iterparse(f, events=("end",)):
                 ln = _local(el.tag)
-                if event == "start" and ln == "dimension":
+                if ln == "dimension":
                     scan.declared = el.attrib.get("ref", "") or ""
-                elif event == "end" and ln == "row":
+                elif ln == "row":
                     scan.rows_seen += 1
                     rref = el.attrib.get("r")
                     try:
@@ -226,6 +227,7 @@ def _scan_sheet(z: zipfile.ZipFile, name: str, xml_path: str, shared: list[str],
                                 scan.empty_formula_cells += 1
                         has_val = bool(str(val).strip()) or formula
                         if has_val:
+                            valued_cells += 1
                             has_row = True
                             row_cells[row] = row_cells.get(row, 0) + 1
                             scan.col_counts[col] = scan.col_counts.get(col, 0) + 1
@@ -239,12 +241,13 @@ def _scan_sheet(z: zipfile.ZipFile, name: str, xml_path: str, shared: list[str],
                     if has_row and rnum not in scan.actual_rows:
                         scan.actual_rows.append(rnum)
                     el.clear()
-                elif event == "end" and ln in ("mergeCell",):
+                elif ln in ("mergeCell",):
                     scan.merged += 1
-                elif event == "end" and ln == "col":
+                elif ln == "col":
                     if el.attrib.get("hidden") in ("1", "true"):
                         scan.hidden_cols += 1
-                if scan.cells_seen >= max_cells or scan.rows_seen >= max_rows:
+                if valued_cells >= max_cells or scan.cells_seen >= max_cells \
+                        or scan.rows_seen >= max_rows:
                     scan.truncated = True
                     break
                 if time.monotonic() - started > max_seconds:
@@ -385,6 +388,20 @@ def _range_str(scan: SheetScan) -> str:
             f"{get_column_letter(max(1, scan.max_col))}{scan.max_row}")
 
 
+def _skipped_sheet(name: str) -> dict[str, Any]:
+    """超全局预算后被跳过的表：标记 truncated，字段给安全默认值。"""
+    return {"sheet": name, "declared_range": "", "detected_range": "",
+            "actual_rows": 0, "actual_columns": 0,
+            "min_row": 0, "max_row": 0, "min_col": 0, "max_col": 0,
+            "actual_cells": 0, "formula_cells": 0, "empty_formula_cells": 0,
+            "merged_cells": 0, "hidden_rows": 0, "hidden_columns": 0,
+            "styled_empty_cells": 0, "truncated": True,
+            "anomalies": ["scan_truncated"], "confidence": 0.1,
+            "header": {"present": False, "row": 0, "values": [], "confidence": 0.0},
+            "header_row": 0, "header_confidence": 0.0, "header_sample": [],
+            "data_start_row": 0, "regions": [], "region_count": 0, "error": ""}
+
+
 def inspect_workbook(path: str | Path, sheet: str = "", *,
                      max_cells: int = 200_000, max_rows: int = 200_000,
                      max_seconds: float = 8.0) -> dict[str, Any]:
@@ -404,7 +421,15 @@ def inspect_workbook(path: str | Path, sheet: str = "", *,
                 if not pairs:
                     return {"ok": False, "error": f"工作表不存在: {sheet}", "sheets": []}
             sheets = []
+            budget_exceeded = False
             for name, xml_path in pairs:
+                if not budget_exceeded and time.monotonic() - started > max_seconds:
+                    # 全局时间预算用尽：剩余表不再扫，直接标 truncated 跳过，
+                    # 避免 N 张表每张都各烧一遍 max_seconds。
+                    budget_exceeded = True
+                if budget_exceeded:
+                    sheets.append(_skipped_sheet(name))
+                    continue
                 scan = _scan_sheet(z, name, xml_path, shared, max_cells=max_cells,
                                    max_rows=max_rows, max_seconds=max_seconds)
                 anomalies = _anomalies(scan)
