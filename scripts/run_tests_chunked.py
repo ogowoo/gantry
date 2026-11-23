@@ -48,6 +48,21 @@ def main() -> int:
         except subprocess.TimeoutExpired:
             bad.append(m)
             print(f"TIMEOUT {m:46} {time.time() - started:5.1f}s  （>{args.timeout}s）")
+    # 清理测试在仓库根落下的临时目录：本机沙箱里原生进程只能写工作区，
+    # tempfile 兜底会指向仓库根（见 .gitignore 注释），跑完即清，避免越攒越多。
+    # 前缀清单与 .gitignore 保持同步。
+    import shutil
+    _RESIDUE_PREFIXES = ("cbp_", "tmp", "gantry_at_", "gantry_root_", "gantry_self_",
+                         "gantry_snap_", "gantry_ui_", "gantry_retrycount_",
+                         "gantry_sendpause_", "gantry-diag-", "memory5_",
+                         "sess_cap_", "teams_outbox_")
+    n = 0
+    for d in BASE.iterdir():
+        if d.is_dir() and d.name.startswith(_RESIDUE_PREFIXES):
+            shutil.rmtree(d, ignore_errors=True)
+            n += 1
+    if n:
+        print(f"（已清理 {n} 个测试临时目录）")
     print(f"\n共 {len(mods)} 个模块，用时 {time.time() - t0:.1f}s；异常模块：{bad or '无'}")
     return 0 if not bad else 1
 

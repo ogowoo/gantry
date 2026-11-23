@@ -40,3 +40,18 @@ _*.png
 .env.local
 !.env.example
 config.json.bak*
+
+# 测试临时目录（沙箱里原生进程只能写工作区，mkdtemp 会落在仓库根）
+cbp_*/
+tmp*/
+gantry_at_*/
+gantry_root_*/
+gantry_self_*/
+gantry_snap_*/
+gantry_ui_*/
+gantry_retrycount_*/
+gantry_sendpause_*/
+gantry-diag-*/
+memory5_*/
+sess_cap_*/
+teams_outbox_*/
