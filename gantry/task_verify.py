@@ -13,7 +13,9 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
+import shlex
 import subprocess
 import sys
 import time
@@ -23,6 +25,29 @@ from typing import Any, Awaitable, Callable
 MAX_READ_BYTES = 8 * 1024 * 1024
 READ_SUFFIXES = {".txt", ".md", ".json", ".py", ".js", ".ts", ".html", ".css",
                  ".csv", ".log", ".yaml", ".yml", ".xml", ".ini", ".toml", ".sql"}
+
+# 验收检查回读的文件内容/命令输出会原样进 checks[].detail 与 reason，最终落库并
+# 展示在界面上——若文件里恰好有密钥（.env、测试夹带、生成的配置），会跟着外泄。
+# 这里对对外字段做一层凭据扫描，命中即替换为 [REDACTED]。
+_CRED_PATTERNS = (
+    re.compile(r"AKIA[0-9A-Z]{16}"),                                   # AWS Access Key ID
+    re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----"),                 # PEM 私钥头
+    re.compile(r"(?i)(token|passwd|password|secret|api[_-]?key)"
+               r"(\s*[:=]\s*)([^\s]{6,})"),                            # key=value 形态
+)
+
+
+def _redact_secrets(text: Any) -> str:
+    """把疑似凭据替换为 [REDACTED]；只影响对外展示/落库字段，不改源文件。"""
+    s = str(text or "")
+    for pat in _CRED_PATTERNS:
+        if pat.groups >= 3:
+            s = pat.sub(lambda m: m.group(1) + m.group(2) + "[REDACTED]", s)
+        else:
+            s = pat.sub("[REDACTED]", s)
+    return s
+# shell 元字符：不经 shell 执行后这些只剩“裸词”形态，出现即说明命令依赖 shell 特性
+_SHELL_TOKENS = frozenset({"&", "&&", "|", "||", "<", ">", ">>", "<<", ";"})
 
 
 def _safe_path(root: Path, raw: str) -> Path | None:
@@ -74,10 +99,37 @@ def _check_outputs(task: dict[str, Any], root: Path) -> list[dict[str, Any]]:
 
 
 def _run_command(command: Any, root: Path, timeout: float = 60) -> dict[str, Any]:
-    if not isinstance(command, str) or not command.strip():
+    """不经 shell 执行命令（shell=False）：字符串命令用 shlex 拆成参数列表。
+
+    拆不开（引号不配对）或含 shell 特性（重定向/管道/&& 等，拆出来是裸元字符）
+    时返回明确错误，不静默降级成 shell 执行——避免注入面。
+    """
+    if isinstance(command, str):
+        if not command.strip():
+            return {"ok": False, "detail": "empty command", "stdout": "", "stderr": ""}
+        try:
+            # Windows 用 posix=False 保留反斜杠路径，再逐 token 剥掉成对引号；
+            # posix=True 会把未加引号的 C:\path 里的反斜杠当转义符吃掉。
+            if os.name == "nt":
+                argv = [t[1:-1] if len(t) >= 2 and t[0] == t[-1] and t[0] in ("'", '"')
+                        else t for t in shlex.split(command, posix=False)]
+            else:
+                argv = shlex.split(command, posix=True)
+        except ValueError as exc:
+            return {"ok": False,
+                    "detail": f"命令无法拆分（引号不配对/Shell 语法）: {exc}",
+                    "stdout": "", "stderr": ""}
+        meta = [t for t in argv if t in _SHELL_TOKENS]
+        if meta:
+            return {"ok": False,
+                    "detail": f"命令含 Shell 特性（{meta[0]}），不支持；请改写为直接命令",
+                    "stdout": "", "stderr": ""}
+    elif isinstance(command, (list, tuple)) and len(command) > 0:
+        argv = [str(x) for x in command]
+    else:
         return {"ok": False, "detail": "empty command", "stdout": "", "stderr": ""}
     try:
-        proc = subprocess.run(command, cwd=str(root), shell=True, capture_output=True,
+        proc = subprocess.run(argv, cwd=str(root), shell=False, capture_output=True,
                               text=True, timeout=max(1, min(float(timeout or 60), 300)))
     except subprocess.TimeoutExpired:
         return {"ok": False, "detail": "command timeout", "stdout": "", "stderr": ""}
@@ -128,6 +180,18 @@ def _format_ok(path: Path, fmt: str) -> tuple[bool, str]:
 
 def _check_one(raw: Any, result: dict[str, Any], root: Path,
                allow_commands: bool) -> dict[str, Any]:
+    # 验收条件是模型自填 JSON：float(raw.get("timeout"))/int(bytes)/int(exit_code)
+    # 等脏转换抛 TypeError/ValueError 时在函数体 try 块外，会直接崩掉 run_plan。
+    # 入口整体兜底：转换失败按"该条验收不通过"处理，不拖垮整轮验收。
+    try:
+        return _check_one_impl(raw, result, root, allow_commands)
+    except (TypeError, ValueError) as exc:
+        # 必须带 name：review_task 汇总失败原因时会读 c["name"]。
+        return {"name": "bad_param", "ok": False, "detail": f"bad param: {exc}"}
+
+
+def _check_one_impl(raw: Any, result: dict[str, Any], root: Path,
+                    allow_commands: bool) -> dict[str, Any]:
     if isinstance(raw, str):
         return {"name": "manual", "ok": True, "manual": True,
                 "detail": "manual: " + raw[:200]}
@@ -192,10 +256,11 @@ def _check_one(raw: Any, result: dict[str, Any], root: Path,
             return {"name": kind, "ok": False,
                     "detail": "command checks disabled (allow_commands=false)"}
         if kind == "tests":
+            # 参数列表直接传，不经 shell/引号拼接——路径含空格或引号时不会被拆开或注入
             path = str(raw.get("path") or "tests")
             pattern = str(raw.get("pattern") or "test_*.py")
-            command = (f'"{sys.executable}" -m unittest discover -s "{path}" '
-                       f'-p "{pattern}"')
+            command = [sys.executable, "-m", "unittest", "discover",
+                       "-s", path, "-p", pattern]
         else:
             command = str(raw.get("command") or "")
         run = _run_command(command, root, timeout)
@@ -263,12 +328,17 @@ def review_task(task: dict[str, Any], result: dict[str, Any], workspace: str | P
     checks: list[dict[str, Any]] = []
     error = str(result.get("error") or "").strip()
     if error:
+        error = _redact_secrets(error)
         return {"ok": False, "verified": False,
                 "checks": [{"name": "agent_error", "ok": False, "detail": error}],
                 "reason": error[:1000]}
     checks.extend(_check_outputs(task, root))
     for raw in task.get("acceptance") or []:
         checks.append(_check_one(raw, result, root, allow_commands))
+    # 凭据脱敏：detail/reason 会落库并展示，文件内容/命令输出里的密钥不能原样外泄。
+    for c in checks:
+        if c.get("detail"):
+            c["detail"] = _redact_secrets(c["detail"])
     failed = [c for c in checks if not c["ok"]]
     manual = [c for c in checks if c.get("manual")]
     verified = bool(checks) and not manual and not failed

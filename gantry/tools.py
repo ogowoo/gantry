@@ -585,7 +585,9 @@ class ToolsCoreMixin:
                                          "（read_text/list_directory/find_files/skill_list/"
                                          "memory_search/tool_list），最后用 final(值) 回传结果。"
                                          "适合“读多个文件再汇总”：工具循环要 N 个回合，这里 1 个回合。"
-                                         "只读、无写入；有超时与调用次数上限",
+                                         "⚠️ 等同本机执行任意 Python，可读写文件系统全部文件；"
+                                         "受 allow_run_code/审批保护，无沙箱隔离。"
+                                         "有超时与调用次数上限",
                           "arguments": {"code": "Python 代码；用 final(结果) 结束"}})
         if self.allow_python:
             items.append({"name": "run_python", "description": "运行短 Python 计算；禁止用于修改项目文件", "arguments": {"code": "短 Python 代码"}})

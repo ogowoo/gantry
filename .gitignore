@@ -40,3 +40,17 @@ _*.png
 .env.local
 !.env.example
 config.json.bak*
+
+# 测试临时目录（redirect 失效时的兜底；正常都进仓库外 .gantry-test-tmp）
+cbp_*/
+.test-tmp/
+tmp*/
+gantry_*/
+gantry-*/
+vi_*/
+excel_*/
+kb_*/
+vd_*/
+memory5_*/
+sess_cap_*/
+teams_outbox_*/

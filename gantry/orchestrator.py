@@ -143,15 +143,18 @@ async def run_plan(store: TaskStore, session_id: str, run_subagent: RunSubagent,
             break
 
         # 已完成的产物路径不能被另一个任务覆盖；先判冲突再选批次。
-        blocked_conflicts: list[dict[str, Any]] = []
+        # blocked_conflicts 存 (task, owner) 元组：owner 随任务一起保存，
+        # 否则第二个 for 循环里引用的是第一个循环结束后的残留变量，
+        # 报错文案会张冠李戴（把别人的产物占用记到当前任务头上）。
+        blocked_conflicts: list[tuple[dict[str, Any], str]] = []
         clean: list[dict[str, Any]] = []
         for task in sub_ready:
             owner = next((path_owner[p] for p in _paths(task) if p in path_owner), "")
             if owner:
-                blocked_conflicts.append(task)
+                blocked_conflicts.append((task, owner))
             else:
                 clean.append(task)
-        for task in blocked_conflicts:
+        for task, owner in blocked_conflicts:
             try:
                 store.update_task(sid, task["id"], status="failed",
                                   failure_reason=f"产物路径已被任务 {owner} 占用，拒绝并行覆盖")
@@ -236,10 +239,19 @@ async def run_plan(store: TaskStore, session_id: str, run_subagent: RunSubagent,
             return _result_record(task, "failed", started, result=result,
                                   review=verdict, error=reason)
 
-        recs = await asyncio.gather(*(_one(t) for t in batch))
-        results.extend(recs)
+        recs = await asyncio.gather(*(_one(t) for t in batch), return_exceptions=True)
+        for task, rec in zip(batch, recs):
+            if isinstance(rec, BaseException):
+                # return_exceptions=True：单个 _one 漏出 BaseException（
+                # except Exception 捕不到的 CancelledError 等）或未知缺陷时，
+                # 逐条记为该任务失败，不能让 gather 把整批结果一起崩掉。
+                results.append(_result_record(task, "failed", time.time(),
+                                              error=f"{type(rec).__name__}: {rec}"))
+            else:
+                results.append(rec)
+        batch_recs = results[-len(batch):] if batch else []
         # 若一批全部失败/返工，下一轮会重新读取 store；避免永久循环：
-        if all(r["status"] == "failed" for r in recs):
+        if all(r["status"] == "failed" for r in batch_recs):
             # 独立 ready 任务可能还有可执行项；但若剩下全是 blocked，下一轮 ready 为空。
             continue
 

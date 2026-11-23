@@ -30,6 +30,15 @@ from .teams_dom import (  # noqa: F401
 )
 _HOOK_JS = r"""
 (() => {
+  // 安全：init script 是 context 级，共享 ctx 里 Copilot/Power Apps 等其它
+  // 页面的请求响应也会被注入。只在 Teams 域页面装抓包钩子，其它页面直接
+  // 放行、不记录，避免缓存其它应用的敏感请求/响应体。
+  try {
+    const h = String(location.hostname || '').toLowerCase();
+    const ok = h === 'teams.cloud.microsoft' || h.endsWith('.teams.cloud.microsoft')
+            || h === 'teams.microsoft.com' || h.endsWith('.teams.microsoft.com');
+    if (!ok) return;
+  } catch (e) { return; }
   if (window.__gantryHookInstalled) return;
   window.__gantryHookInstalled = true;
   window.__gantryHookVer = 3;
@@ -224,13 +233,50 @@ def truncated(url) -> str:
     url = str(url or "")
     return url[:90] + ("…" if len(url) > 90 else "")
 
+# skypeToken 缓存的保守兜底 TTL（秒）：authz 签发的 skypeToken 实际约 1 小时
+# 有效；能解析 JWT exp 时优先按 exp-5min 判定，解析失败才退回该 TTL。
+_SKYPE_TTL = 50 * 60
+
+def _jwt_exp(tok: str) -> float:
+    """解析 JWT 的 exp（Unix 秒）；不是合法 JWT 返回 0。"""
+    try:
+        part = str(tok or "").split(".")[1]
+        part += "=" * (-len(part) % 4)
+        data = json.loads(base64.urlsafe_b64decode(part))
+        return float(data.get("exp") or 0)
+    except Exception:                            # noqa: BLE001
+        return 0
+
+def _fresh_skype() -> str:
+    """取未过期的 skypeToken；过期则清缓存并返回 ""。
+
+    防止缓存一旦写入就永久生效：拿死令牌去发消息会先吃一次 401 再 UI 回退。
+    """
+    tok = str(_CAPTURED.get("skype") or "")
+    if not tok:
+        return ""
+    now = time.time()
+    exp = _jwt_exp(tok)
+    at = float(_CAPTURED.get("skype_at") or 0)
+    if exp:
+        fresh = now < exp - 300                 # 提前 5 分钟视为过期
+    elif at:
+        fresh = (now - at) < _SKYPE_TTL
+    else:
+        fresh = False                           # 无时间戳的缓存不可信，强制重取
+    if not fresh:
+        _CAPTURED.pop("skype", None)
+        _CAPTURED.pop("skype_at", None)
+        return ""
+    return tok
+
 async def _ensure_skype_token(page, *, capture: bool = False) -> str:
-    """拿 chatsvc 用的 skypeToken；优先缓存，其次 authz。
+    """拿 chatsvc 用的 skypeToken；优先缓存（未过期），其次 authz。
 
     `capture=True` 才会重载页面抓 token（诊断用）；发送路径默认不抓：
     重载/装钩子可能几十秒，会把 Teams 发送卡死（实测 120s 超时）。
     """
-    skype = str(_CAPTURED.get("skype") or "")
+    skype = _fresh_skype()
     if skype:
         return skype
     try:
@@ -240,6 +286,7 @@ async def _ensure_skype_token(page, *, capture: bool = False) -> str:
         skype = ""
     if skype:
         _CAPTURED["skype"] = skype
+        _CAPTURED["skype_at"] = time.time()
         return skype
     if not capture:
         return ""
@@ -247,7 +294,7 @@ async def _ensure_skype_token(page, *, capture: bool = False) -> str:
         await api_hook_capture(page=None, reload=True, seconds=45)
     except Exception:                            # noqa: BLE001
         pass
-    return str(_CAPTURED.get("skype") or "")
+    return _fresh_skype()
 
 async def _resolve_conversation_id(page, conv_id: str, peer: str, token: str,
                                    snippet: str = "", *,
@@ -584,7 +631,7 @@ async def api_page_mimic(page=None) -> dict[str, Any]:
     base = {k: v for k, v in (req.get("headers") or {}).items()
             if k in ("claimschallengecapable", "x-ms-client-type", "x-ms-client-version",
                      "x-ms-migration")}
-    tok = str(_CAPTURED.get("skype") or "")
+    tok = _fresh_skype()
     if not tok:
         async with httpx.AsyncClient(timeout=45, follow_redirects=True) as c:
             r = await c.post(str(req.get("url") or ""),
@@ -849,7 +896,7 @@ async def api_try_headers() -> dict[str, Any]:
     """用已保存的 skypeToken 试多种头组合（只读 GET）。"""
     import httpx
 
-    tok = str(_CAPTURED.get("skype") or "")
+    tok = _fresh_skype()
     if not tok:
         return {"error": "没有已抓到的 skypeToken（先跑 api/hook-capture）"}
     base_headers = {
@@ -893,10 +940,8 @@ async def api_tokens_all(page=None, seconds: float = 150.0) -> dict[str, Any]:
     page = teams_page
     if page is None:
         return {**out, "error": "没有页面"}
-    try:
-        resps = await page.evaluate("() => (window.__gantryResponses || [])")
-    except Exception as exc:                     # noqa: BLE001
-        return {**out, "error": f"读响应失败: {exc}"}
+    # api_hook_capture 结束后页面内数组已清空，改读模块内暂存的那份
+    resps = list(_LAST_HOOK.get("responses") or [])
     tokens: dict[str, str] = {}
     for r in resps or []:
         body = str(r.get("body") or "")
@@ -929,10 +974,10 @@ async def api_hosts_probe(page=None) -> dict[str, Any]:
     """用当前 skype 令牌逐个 host 试（只读 GET），找出真正可用的那个。"""
     import httpx
 
-    tok = str(_CAPTURED.get("skype") or "")
+    tok = _fresh_skype()
     if not tok and page is not None:
         await api_hook_capture(page=page, reload=False, seconds=5)
-        tok = str(_CAPTURED.get("skype") or "")
+        tok = _fresh_skype()
     if not tok:
         return {"error": "没有 skype 令牌（先 hook-capture）"}
     headers = {
@@ -946,7 +991,10 @@ async def api_hosts_probe(page=None) -> dict[str, Any]:
         "Referer": "https://teams.cloud.microsoft/",
     }
     results = []
-    async with httpx.AsyncClient(timeout=25, follow_redirects=True, verify=False) as c:
+    # 安全：此处曾关闭 TLS 证书校验（verify 传 False），会让真实 Bearer
+    # 令牌发往 8 个候选 host 时被中间人截获；默认走系统 CA 严格校验（企业
+    # 代理自签证书请加到系统信任链，不要在这里关校验）。
+    async with httpx.AsyncClient(timeout=25, follow_redirects=True) as c:
         for host in HOST_CANDIDATES:
             for path in _PATHS:
                 url = host + path
@@ -1222,7 +1270,7 @@ async def api_sw_capture(page=None, seconds: float = 60.0) -> dict[str, Any]:
 async def api_cookie_probe(page=None) -> dict[str, Any]:
     """同源 chatsvc 请求：分别试 只带 cookie / 带 skypeToken / 带 Loki，比较结果。"""
     page = page or await teams_open()
-    skype = str(_CAPTURED.get("skype") or "")
+    skype = _fresh_skype()
     loki = ""
     try:
         loki = str(_CAPTURED.get("auth") or "")
@@ -1361,12 +1409,23 @@ async def api_hook_capture(page=None, reload: bool = True,
         await asyncio.sleep(2.5)
     out["responses"] = [{"url": r.get("url"), "head": str(r.get("body") or "")[:100]}
                         for r in (resps or [])[-5:]]
+    # 暂存一份完整响应给 api_tokens_all 等内部消费者：页面内数组随后即清空，
+    # 之后不能再从 window.__gantryResponses 读。
+    _LAST_HOOK["responses"] = list(resps or [])
     out["skype_found"] = bool(skype)
     if skype:
         _CAPTURED["skype"] = skype
         _CAPTURED["skype_at"] = time.time()
         out["skype_len"] = len(skype)
         out["probe"] = await _python_chatsvc_probe(skype)
+    # 安全：抓到的请求/响应体含 skypeToken 等敏感数据，取数后立即清空页面内
+    # 缓存数组，避免令牌长期驻留在 window 上被任意页面脚本读到。
+    try:
+        await target.evaluate(
+            "() => { if (window.__gantryCaptured) window.__gantryCaptured.length = 0;"
+            " if (window.__gantryResponses) window.__gantryResponses.length = 0; }")
+    except Exception:                            # noqa: BLE001
+        pass
     return out
 
 async def api_cdp_capture(page, seconds: float = 60.0) -> dict[str, Any]:
@@ -1897,6 +1956,10 @@ def probe_json(data: dict[str, Any]) -> str:
 
 
 _CAPTURED: dict[str, Any] = {}
+
+# api_hook_capture 取数后页面内缓存数组会被清空，完整响应先暂存在这里，
+# 仅供 api_tokens_all 等本模块内部消费者使用（不对外暴露）。
+_LAST_HOOK: dict[str, Any] = {"responses": []}
 
 _SW2: dict[str, Any] = {}
 

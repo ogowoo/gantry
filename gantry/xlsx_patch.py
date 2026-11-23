@@ -240,16 +240,22 @@ def write_cells(path: str | Path, rows: list, sheet: str = "",
         fd, tmp_name = tempfile.mkstemp(prefix=".gantry-xlsx-", suffix=target.suffix,
                                        dir=str(target.parent))
         os.close(fd)
-        # Windows 不允许替换仍被打开的文件：先释放读句柄再写 ZIP/替换。
-        zf.close()
+        # Windows 不允许替换仍被打开的文件：先在原句柄内把全部条目读进内存、释放句柄，
+        # 再一次性写出——旧实现关句柄后重新打开原文件读第二遍，等于整个 xlsx 读两次。
         try:
-            with zipfile.ZipFile(target) as zin, \
-                    zipfile.ZipFile(tmp_name, "w", zipfile.ZIP_DEFLATED) as zout:
-                for item in zin.infolist():
-                    data = zin.read(item.filename)
+            with zipfile.ZipFile(target) as zin:
+                entries = [(item, zin.read(item.filename)) for item in zin.infolist()]
+        finally:
+            zf.close()
+        try:
+            with zipfile.ZipFile(tmp_name, "w", zipfile.ZIP_DEFLATED) as zout:
+                for item, data in entries:
                     if item.filename == sheet_path:
                         data = xml.encode("utf-8")
-                    zout.writestr(item.filename, data)
+                    # 传 ZipInfo 而不是文件名：保留原条目的时间戳/压缩方式/属性，
+                    # 只传名字时 writestr 用默认压缩且所有文件时间被改成现在，
+                    # Excel 会认为整个包都变了（diff 全红）。
+                    zout.writestr(item, data)
             os.replace(tmp_name, target)
         finally:
             try:

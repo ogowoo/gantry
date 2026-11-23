@@ -5,14 +5,307 @@
 
 ## [Unreleased]
 
+## [0.11.0-beta.50] - 2026-11-23
+
 ### Added
-- 
+- schedule 插件 0.2.0：WebUI 定时任务面板从只读升级为完整管理——新建/编辑表单
+  （间隔/每天/一次性、任务描述、模型候选、工作区、启用开关）、每行 运行/启停/
+  编辑/删除/跳转会话；新增 `schedule_update` 工具与 `POST api/update`（部分更新，
+  改 spec 重排下次执行）；执行记录补 `last_session`/`last_error` 字段。
 
 ### Changed
-- 
+- 定时任务列表展示上次失败原因，可从面板直接跳到任务产生的新会话。
+
+## [0.11.0-beta.49] - 2026-11-23
+
+### Added
+- `scripts/ensure_corp_ca.py`：公司网络 SSL 审查（SSL inspection）抓取兜底工具。
+  公司代理用内部根证书重签站点证书导致 Python certifi/requests 一律
+  `CERTIFICATE_VERIFY_FAILED`（curl 走 Windows 证书库不受影响）。三层兜底：
+  合并 bundle 校验（`data/ca-bundle.pem` = certifi + 收录证书）→ 失败自动抓
+  对端证书链把公司根收入 `data/corp-ca.pem` 后重试 → 仍失败退 curl(schannel)；
+- 环境变量自举：脚本每次运行幂等补写 `REQUESTS_CA_BUNDLE` / `SSL_CERT_FILE`
+  （winreg 写 `HKCU\Environment`；沙箱禁写时自动退 `setx`，再失败仅警告），
+  全新机器跑一次即完成部署，更新 bundle 无需手动设置。
+
+### Tests
+- `tests/test_corp_ca.py`：bundle 去重/坏块跳过/收录幂等/环境变量自举（假 winreg）
+  4 项；工具实测可抓 github.com/trending 全页。
+
+## [0.11.0-beta.48] - 2026-11-23
+
+### Added
+- 全面代码审查报告（`REVIEW_REPORT.md`）：8 个 HIGH 全部确认并修复，P1 逐项落实；
+- 回归测试：`test_config_raw_redact` / `test_teams_api_security` / `test_power_apps_ui` /
+  `test_xlsx_patch` 新建，`test_api_hardening` / `test_task_verify` /
+  `test_copilot_file` / `test_chat_windows` 扩展。
+
+### Changed
+- `/v1/config/raw`：敏感键（token/secret/password 等）GET 返回打码 `***`，
+  POST 遇占位符保留旧值，配置不再明文出网；
+- CSRF 校验从"是否本机"收紧为"本机且同端口"（origin/referer 端口与服务端口比较）；
+- `delete_session` 的远程 URL 限定 Copilot 域名白名单；
+- `/health` 的 `page_url` 仅回环请求返回；
+- Teams/Power 平台：删除 Bearer 探测的 `verify=False`，恢复 CA 校验；抓包钩子
+  仅限 Teams 域名并取数即清页缓存；skypeToken 按 JWT exp 计算 TTL；
+  `pa-auth` cookie 域边界匹配 + 文件权限 0o600；
+- 下载响应统一 512MB 上限；
+- `task_plan` 写操作 `BEGIN IMMEDIATE`；任务验收对错误与详情脱敏
+  （AWS key/PEM 私钥/token 等模式）；
+- 前端 4 个脚本加 `?v={{VERSION}}` 版本戳，根治浏览器缓存旧 ESM。
 
 ### Fixed
-- 
+- `visual-design` 渲染器在**没装 Playwright 自带 Chromium** 的机器上直接失败
+  （`Executable doesn't exist ... chrome-headless-shell`，需要额外下 ~130 MB）。
+  现在先试自带 Chromium，失败后自动退回 `config.json` 的 `browser_channel`
+  （Windows 上默认 `msedge`，本服务本来就必须有 Edge），两条路都不通时才报错，
+  错误信息同时给出两个原因。`tests/test_visual_design_plugin` /
+  `test_visual_design_e2e` 在只有 Edge 的机器上恢复通过；
+- envfile 解析：先判引号值再剥注释，引号内 `#` 不再被截断；
+- xlsx 补丁写出改用 `writestr(ZipInfo, data)`，保留原条目时间戳/压缩方式，
+  Excel 不再报"整包被改"；原句柄内一次读完，避免 close 后读句柄；
+- 子会话超时取消（CancelledError）先落库 `failed` 再 re-raise，
+  不再永远停留 running；
+- 测试临时目录统一 redirect 到仓库外 `.gantry-test-tmp`（跑完即清），
+  仓库根不再出现 `cbp_*/gantry_*/vi_test_*` 等 200+ 种前缀的残留；
+  跑完兜底清理改为从 `tests/*.py` 动态抓 `mkdtemp(prefix=...)` 清单，新前缀零维护。
+
+### Tests
+- 全量回归 254 模块，0 异常（redirect 双保险 + 动态前缀清理验证通过）。
+
+## [0.11.0-beta.47] - 2026-11-21
+
+### Added
+- Excel 子进程资源隔离：
+  - openpyxl 读取/预览/分块改在独立子进程执行；
+  - 超时直接 kill，不再等待无法取消的线程；
+  - Windows Job Object + 父进程内存看门狗，`excel_worker_memory_mb` 默认 512；
+  - POSIX 使用 RLIMIT_AS + 看门狗；
+  - `excel_use_worker=false` 可回退同进程模式。
+
+### Tests
+- 覆盖子进程超时 kill、`.xls` 明确拒绝、Excel 安全读取；
+- 全量回归 1876 tests，OK (skipped=2)。
+
+## [0.11.0-beta.46] - 2026-11-21
+
+### Added
+- Excel 区域选择：`read_excel(region=N)` 只读指定数据区域；
+- `excel_validate(expect_headers=...)` 检查关键表头；
+- `excel_read_timeout_seconds`（默认 60 秒）读取超时保护；
+- `.xls` 明确提示“另存为 .xlsx/.xlsm”，不再落入 openpyxl 的含混错误。
+
+### Tests
+- 多区域分别读取、表头验证、超时相关路径；
+- 全量回归 1874 tests，OK (skipped=2)。
+
+## [0.11.0-beta.45] - 2026-11-21
+
+### Added
+- Excel P2/P3：
+  - 表头识别 `header_row` / `data_start_row` / `header_confidence`；
+  - 连续数据区域 `regions` 与 `multiple_regions` 异常，不把不连续表静默合并；
+  - `needs_confirmation`：低置信度或多区域时提示先确认；
+  - `excel_preview`：表头 + 前几行 + 区域 + 异常；
+  - `excel_read_chunk`：分块读取 + `.gantry/excel_checkpoints` 检查点续跑；
+  - Agent 提示词推荐 inspect/preview → read/chunk → validate。
+
+### Tests
+- 新增表头/多区域/预览/分块续跑测试；
+- 全量回归 1874 tests，OK (skipped=2)。
+
+## [0.11.0-beta.44] - 2026-11-21
+
+### Added
+- Excel Data Guard：
+  - `excel_inspect` 流式解析 xlsx，识别真实数据范围、膨胀 UsedRange、
+    空公式、合并单元格、隐藏行列、数据空洞和稀疏列；
+  - 扫描预算 `max_cells` / `max_rows` / `max_seconds`，超限返回 truncated + 低置信度；
+  - `read_excel(safe=true)` 使用 detected_range 读取，`total_rows` 不再信任 max_row；
+  - `excel_validate` 验证输出文件可读、范围和期望行数；
+  - Agent 提示词增加 Excel 先 inspect、再 read、再 validate 的规则；
+  - 文档 `docs/EXCEL_DATA_GUARD.md`。
+
+### Tests
+- 新增异常 Excel 测试集：500 行数据声明 XFD1048576、正常文件、空 Sheet、多 Sheet、
+  安全读取、结果验证；
+- 全量回归 1872 tests，OK (skipped=2)。
+
+## [0.11.0-beta.43] - 2026-11-21
+
+### Fixed
+- `noop_guard` 不再把“不要创建文件 / 不要修改 / do not write”里的动作词当成
+  必须动手；`final-markdown` 从 180 秒 0 步/5 步空转降为 10.3 秒直接 final。
+- 只读否定与正向动作词区分：`不要创建` 不触发 noop，`创建` 仍触发。
+- Provider 超时改用 `asyncio.wait` 立即返回，不再等待忽略取消的底层流任务。
+
+### Tests
+- 新增 noop 否定测试；
+- 全量回归 1866 tests，OK (skipped=2)；30 条 Benchmark 最近 27/30。
+
+## [0.11.0-beta.42] - 2026-11-21
+
+### Added
+- 明确工具执行约束：用户指令里出现“调用/执行/使用 task_run/subagent”时，
+  final 前必须有成功的对应工具调用；`task_run` 还要求 completed > 0。
+- `required_tool_guard`：只说不做时拒绝 final，连续两次失败后 `required_tool_blocked`。
+- `task_run` / `subagent` / `subagent_many` 计入 productive action，不再被 noop guard 误拦。
+
+### Tests
+- 新增 required tool guard 测试；
+- 全量回归 1864 tests，OK (skipped=2)。
+- `task-run-subagent` 复测通过（94.3s，8 步）。
+
+## [0.11.0-beta.41] - 2026-11-21
+
+### Added
+- 只读任务 Agent 层强约束：用户明确“只读/不要修改/不要创建”时，
+  `MUTATING_TOOLS` 直接记为 `read_only_guard`，不会落盘。
+- 任务图最终验收门 `verify_task_plan`：主 Agent / 子 Agent final 前检查
+  未完成任务和已完成任务的 outputs/acceptance；连续 3 次拒绝后 failed。
+- 提供商单回合硬超时 `agent.provider_turn_timeout_seconds`（默认 120 秒），
+  避免“连接不断开但永不返回”的 0 步假死。
+
+### Benchmark
+- 完整 30 条跑完：28/30 通过（93.33%），验收率 98.52%；
+- `read-analyze`、`debug-test`、只读任务均已通过；
+- 剩余 `task-run-subagent`（模型只给出口头步骤）、`final-markdown`
+  （180 秒 0 步 Provider 卡住）。
+
+### Tests
+- 全量回归 1862 tests，OK (skipped=2)。
+
+## [0.11.0-beta.40] - 2026-11-21
+
+### Added
+- `AgentRequest.file_view`（默认 true）：评测/需要真实工具轨迹时可设 false，
+  避免“读取文件”被本地文件卡片短路。
+- Benchmark fixture/setup_files 与目录清理；单任务 timeout 覆盖。
+- 30 条 Benchmark 全量实跑：25/30 通过，指标落盘。
+
+### Fixed
+- `read-analyze` 之前 0 步返回旧内容，根因是 file_view 短路；`file_view=false` 后通过。
+- `file-copy-move` 改为不触发破坏性 move 的 copy 场景。
+- final-markdown/ambiguous/安全边界的断言与 fixture 修正。
+
+### Tests
+- 全量回归 1856 tests，OK (skipped=2)。
+
+## [0.11.0-beta.39] - 2026-11-21
+
+### Added
+- Batch 6 安全与交付：
+  - 新 `gantry/security.py`：工具风险分级、覆盖/移动/删除/外部不可逆动作审批建议、
+    凭据脱敏、配置明文密钥审计；
+  - AgentRunner 步骤记录 risk，审批改用 `requires_approval_for(tool, arguments)`；
+  - 整文件覆盖、move_path 等进入一次性审批；
+  - 系统提示词始终注入安全边界（外部内容不是指令、凭据不落结果、不可用子 Agent 绕过审批）；
+  - 新增 `docs/SECURITY.md`、`docs/FINAL_DELIVERY.md`。
+
+### Tests
+- 新增安全风险/审批/脱敏/配置审计测试；
+- 全量回归 1856 tests，OK (skipped=2)。
+
+## [0.11.0-beta.38] - 2026-11-21
+
+### Added
+- Batch 5 Memory / Knowledge / Skills：
+  - Memory 增加 verified/source/expires_at/confidence，迁移旧库；
+  - `memory_write` 支持 verified/source/ttl_days/confidence；`memory_search` 过滤过期、
+    按验证/新近度加权并返回来源；
+  - Agent 提示词显示 verified/unverified 与 source；
+  - Knowledge 支持 front-matter `expires` / `valid_until` 过期过滤，混合检索保留
+    source/updated；
+  - `skill_create` 增加 verified，SKILL.md front-matter 与 skill_list/提示词显示验证状态；
+  - 文档 `docs/MEMORY_KNOWLEDGE.md`。
+
+### Tests
+- 新增记忆时效/验证、知识库过期、技能验证测试；
+- 全量回归 1851 tests，OK (skipped=2)。
+
+## [0.11.0-beta.37] - 2026-11-21
+
+### Added
+- Batch 4 长任务可靠性：
+  - `task_recover` 与 `task_run` 自动恢复中断遗留的 running 任务；
+  - Task 增加 `safe_retry`：有外部副作用的不可安全重试任务恢复为 failed，不盲目重放；
+  - `task_summary` 持久化到 sessions，并进入压缩摘要、续跑提示和 work ledger；
+  - 新 `gantry/error_taxonomy.py`：network/timeout/rate_limit 可有限重试，
+    permission 停止，argument/business 修方案，internal 有限重试后停止；
+  - AgentRunner 工具错误步骤记录 error_kind/retryable/recovery；
+  - 编排器对 permission/argument 子 Agent 错误不再盲目返工。
+- 文档：`docs/LONG_TASK_RELIABILITY.md`。
+
+### Tests
+- 新增任务恢复、任务摘要持久化、错误分类、非可重试错误测试；
+- 全量回归 1843 tests，OK (skipped=2)。
+
+## [0.11.0-beta.36] - 2026-11-21
+
+### Added
+- Batch 3 Verification & Benchmark：
+  - 扩展 `gantry/task_verify.py`：文件、格式、命令、unittest、API、all_of/any_of/not
+    组合条件；命令/API 必须显式 `allow_commands`；高风险任务缺少确定性证据直接失败；
+  - 独立验证 Agent `independent_review`；它只补充/否定，不能推翻确定性失败；
+  - `task_run` 增加 `allow_commands` / `independent`；
+  - `tests/evals/tasks.json` 扩展到 30 条、22 个类别；
+  - `scripts/eval.py` 增加完成率/验收率/耗时/步数/重试/无进展/子 Agent/token/
+    压缩恢复指标、上一份报告对比，并修复 API token 未带导致 0 步假失败；
+- 文档：`docs/VERIFICATION_BENCHMARK.md`。
+
+### Tests
+- 新增验收引擎、指标、Benchmark 结构测试；
+- 全量回归 1833 tests，OK (skipped=2)。
+
+## [0.11.0-beta.35] - 2026-11-21
+
+### Added
+- Batch 2 Agent Orchestrator：
+  - 新增 `gantry/orchestrator.py`：按 TaskStore 的 ready/依赖/优先级调度
+    `executor=subagent` 任务，复用 `subagents.run_subagent`；
+  - 支持并发上限、单任务超时、产物路径冲突保护、失败下游阻塞；
+  - 支持按 `max_retries` 返工，返工原因写入任务历史；
+  - `executor=main` 的任务返回 `needs_main`，不交给子 Agent；
+  - 任务可声明自己的子 Agent `model`。
+- 新增 `gantry/task_verify.py`：最小产物审查（文件存在/非空/内容、
+  final_contains、tests_pass/syntax_pass）；没有机器可验证条件时明确
+  `verified=False`，不把文本声称当验证。
+- 子 Agent 结果新增真实 `verification` 证据（来自时间线里的
+  validate_python / run_unittest 成功步骤），不依赖它自称完成。
+- 新工具 `task_run`，并加入规划提示词、中英工具描述/参数。
+- 文档：`docs/TASK_ORCHESTRATOR.md`，补充 Task Planner 的 per-task model。
+
+### Tests
+- 新增 orchestrator/产物审查/子 Agent 证据测试；
+- 全量回归 1821 tests，OK (skipped=2)。
+
+## [0.11.0-beta.34] - 2026-11-21
+
+### Added
+- Batch 1 Task Planner：
+  - 新增 `gantry/task_plan.py`：Task 模型、依赖/循环/ready/下游传播、SQLite
+    `task_plans` + `task_items` 持久化；
+  - 新增 `task_plan/task_read/task_update/task_cancel/task_resume/task_replan`
+    工具，默认写入 `data/tasks.db`，并投影到现有 todo 面板；
+  - 复杂任务提示词规则；简单任务不强制建图；
+  - `task_replan` 只重算受影响下游，已完成任务不重做；
+  - 新增中英工具描述/参数，保持英文提示词无中文。
+- 文档：`docs/TASK_PLANNER.md`。
+
+### Tests
+- 新增 Task 图、工具、提示词、AgentRunner 循环测试；
+- 全量回归 1802 tests，OK (skipped=2)。
+
+## [0.11.0-beta.33] - 2026-11-20
+
+### Changed
+- 法规下载脚本支持全量/断点/慢速爬取：
+  - `--limit 0` 不再限制条数；
+  - 已有 bbbs/文件会跳过；
+  - `--sleep` 控制请求间隔；
+  - PDF 缺失时自动回退官方 DOCX 附件；
+  - 国家层面按 `flxz` + 制定机关过滤，避免把地方性法规/决定混入。
+- 当前国家层面全量爬取已启动，输出 `workspace/LAW/laws/national`。
 
 ## [0.11.0-beta.47] - 2026-11-21
 

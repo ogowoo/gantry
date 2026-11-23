@@ -38,12 +38,14 @@ def load_env_file(path: str | Path = ".env", root: Path | None = None) -> int:
         if not m:
             continue
         key, val = m.group(1), m.group(2).strip()
-        # 去掉成对的引号
-        if len(val) >= 2 and val[0] == val[-1] and val[0] in ("'", '"'):
-            val = val[1:-1]
-        # 行内注释：KEY=value # comment（不在引号里才算）
-        if "#" in val and not (val.startswith(("'", '"'))):
+        # 行内注释：KEY=value # comment。带引号的值不剥注释（# 是值的一部分，
+        # 如 PASSWORD="ab#cd"）——必须先记引号状态，剥了引号再判断就永远为 False。
+        quoted = len(val) >= 2 and val[0] == val[-1] and val[0] in ("'", '"')
+        if not quoted and "#" in val:
             val = val.split("#", 1)[0].rstrip()
+        # 去掉成对的引号
+        if quoted:
+            val = val[1:-1]
         if key not in os.environ:
             os.environ[key] = val
             n += 1

@@ -10,6 +10,7 @@ import asyncio
 import re
 import time
 from typing import Any
+from urllib.parse import urlparse
 
 from . import power_automate_ui as core
 
@@ -130,6 +131,10 @@ async def goto_path(path: str, wait: float = 3.0) -> dict[str, Any]:
         return err
     url = (path if str(path).startswith("http")
            else POWERAPPS_URL.rstrip("/") + "/" + str(path or "/").lstrip("/"))
+    # 安全：绝对 URL 必须命中白名单（与 power_automate_ui 同源），否则带着
+    # 全租户 SSO 登录态的浏览器会被导航到任意外站。
+    if str(url).startswith("http") and not core._nav_host_allowed(url):
+        return {"ok": False, "error": f"目标域名不在白名单：{(urlparse(url).hostname or '')}"}
     try:
         await page.goto(url, wait_until="domcontentloaded", timeout=120000)
     except Exception as exc:                     # noqa: BLE001

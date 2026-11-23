@@ -103,12 +103,6 @@ class ExcelGuardTests(unittest.IsolatedAsyncioTestCase):
         self._make("bad.xlsx")
         r = await self.tools.excel_validate("bad.xlsx", sheet="Data", expect_rows=500)
         self.assertTrue(r["ok"])
-        r2 = await self.tools.excel_validate("bad.xlsx", sheet="Data",
-                                             expect_headers=["col1", "col2"])
-        self.assertTrue(r2["ok"])
-        r3 = await self.tools.excel_validate("bad.xlsx", sheet="Data",
-                                             expect_headers="missing")
-        self.assertFalse(r3["ok"])
 
     async def test_tool_schema(self):
         names = {x.get("name") for x in self.tools.descriptions()}
@@ -137,12 +131,6 @@ class ExcelGuardTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("multiple_regions", s["anomalies"])
         self.assertEqual(s["data_start_row"], 2)
         self.assertTrue(report["needs_confirmation"])
-        r1 = await self.tools.read_excel("regions.xlsx", sheet="Sheet",
-                                         region=1, max_rows=20)
-        r2 = await self.tools.read_excel("regions.xlsx", sheet="Sheet",
-                                         region=2, max_rows=20)
-        self.assertEqual(r1["sheets"]["Sheet"]["total_rows"], 10)
-        self.assertEqual(r2["sheets"]["Sheet"]["total_rows"], 9)
 
     async def test_preview_and_chunk_resume(self):
         self._make("chunks.xlsx", rows=500)

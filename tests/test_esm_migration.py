@@ -32,11 +32,25 @@ class RetirementTests(unittest.TestCase):
         self.assertNotIn('src="app.js"', HTML, "index.html 不该再引用 app.js")
 
     def test_index_loads_globals_before_i18n_and_module(self):
-        order = [HTML.index('<script src="js/globals.js"></script>'),
-                 HTML.index('<script src="i18n.js"></script>'),
-                 HTML.index('<script type="module" src="js/main.js"></script>')]
+        # 脚本带 ?v={{VERSION}} 版本戳（服务端替换成当前版本号，防浏览器持有旧缓存）
+        order = [HTML.index('<script src="js/globals.js?v={{VERSION}}"></script>'),
+                 HTML.index('<script src="i18n.js?v={{VERSION}}"></script>'),
+                 HTML.index('<script type="module" src="js/main.js?v={{VERSION}}"></script>')]
         self.assertEqual(order, sorted(order),
                          "顺序必须是 globals.js → i18n.js → js/main.js（i18n 切语言会读 globals 里的状态）")
+
+    def test_index_scripts_are_version_stamped(self):
+        """脚本必须带版本戳：ESM 迁移后实测用户浏览器 heuristic 缓存旧 app.js，
+        导致 /self-upgrade 命令与插件面板丢失。CSS 用手动 ?v=，JS 用 {{VERSION}}
+        占位符由服务端注入（routes_core.web_ui_index），升版即刷新缓存。"""
+        for needle in ('src="boot.js?v={{VERSION}}"',
+                       'src="js/globals.js?v={{VERSION}}"',
+                       'src="i18n.js?v={{VERSION}}"',
+                       'src="js/main.js?v={{VERSION}}"'):
+            self.assertIn(needle, HTML)
+        backend = (ROOT / "gantry" / "routes_core.py").read_text(encoding="utf-8")
+        self.assertIn('html.replace("{{VERSION}}"', backend,
+                      "服务端必须把 {{VERSION}} 替换成当前版本号，否则戳不生效")
 
     def test_globals_is_classic_script(self):
         """globals.js 必须是经典脚本：写成模块就没有全局词法绑定，模块裸名访问会炸。"""

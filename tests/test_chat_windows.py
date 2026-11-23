@@ -101,6 +101,11 @@ class PlainChatWindowTests(unittest.TestCase):
         self.assertIn("窗口", ctx.exception.detail)
 
 
+def _health_request():
+    """构造 health() 需要的最小 request：只读 .client.host（回环）。"""
+    return types.SimpleNamespace(client=types.SimpleNamespace(host="127.0.0.1"))
+
+
 class BusySemanticsTests(unittest.TestCase):
     def _hold(self, sid):
         win = Window(99, object())
@@ -117,13 +122,13 @@ class BusySemanticsTests(unittest.TestCase):
     def test_health_busy_reflects_windows(self):
         win = self._hold("s-busy")
         try:
-            out = asyncio.run(api.health())
+            out = asyncio.run(api.health(_health_request()))
         finally:
             self._drop(win)
         self.assertTrue(out["busy"], "有任务占着窗口时 /health 必须报 busy")
 
     def test_health_idle_without_windows(self):
-        self.assertFalse(asyncio.run(api.health())["busy"])
+        self.assertFalse(asyncio.run(api.health(_health_request()))["busy"])
 
     def test_session_running_covers_provider_slots(self):
         """提供商任务占逻辑槽（SLOTS）而不占窗口：只看 WINDOWS 会漏判。"""

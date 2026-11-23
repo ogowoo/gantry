@@ -283,15 +283,57 @@ async def set_config(payload: dict | None = None):
     return {"applied": applied, "persisted": persisted}
 
 
+# raw 编辑器里的敏感值占位：GET 打码返回，POST 遇到占位符保留原值不写回，
+# 避免"读出来是 ***、保存时把真密钥覆盖成 ***"。
+_REDACTED = "***"
+
+_SENSITIVE_KEY_PARTS = ("api_token", "api_key", "apikey", "secret", "password",
+                        "token", "passwd")
+
+
+def _is_sensitive_key(key: str) -> bool:
+    k = str(key or "").lower()
+    return any(p in k for p in _SENSITIVE_KEY_PARTS)
+
+
+def _redact_config(node):
+    """递归把敏感键的值换成占位符（键路径含 api_token/api_key/secret/password 等）。"""
+    if isinstance(node, dict):
+        return {k: (_REDACTED if _is_sensitive_key(k) and isinstance(v, (str, int))
+                    else _redact_config(v))
+                for k, v in node.items()}
+    if isinstance(node, list):
+        return [_redact_config(x) for x in node]
+    return node
+
+
+def _restore_redacted(new: dict, old: dict) -> None:
+    """把 new 里仍是占位符的敏感值还原为 old 的原值（原地修改 new）。
+
+    只对敏感键生效：用户真把 api_token 改成别的值时正常写入；
+    非敏感键即使值恰好是 *** 也不动（避免误还原）。
+    """
+    for k, v in list(new.items()):
+        if _is_sensitive_key(k) and v == _REDACTED and k in old:
+            new[k] = old[k]
+        elif isinstance(v, dict) and isinstance(old.get(k), dict):
+            _restore_redacted(v, old[k])
+
+
 @router.get("/v1/config/raw")
 async def get_config_raw():
-    """返回完整 config.json（原始 JSON），用于高级/raw 编辑。"""
+    """返回完整 config.json（原始 JSON），用于高级/raw 编辑。
+
+    敏感键（api_token / *.api_key / secret / password 等）的值打码为 ***——
+    默认 loopback 无 token 部署时本机任意进程都能读这个端点，不该零门槛导出明文密钥。
+    打码值保存时会被忽略（见 set_config_raw 的占位符保留逻辑）。
+    """
     cfg_path = b.BASE / "config.json"
     if not cfg_path.exists():
         return {"config": {}}
     try:
         text = cfg_path.read_text(encoding="utf-8")
-        return {"config": json.loads(text)}
+        return {"config": _redact_config(json.loads(text))}
     except Exception as exc:
         raise HTTPException(500, f"读取 config.json 失败: {exc}") from exc
 
@@ -304,12 +346,20 @@ async def set_config_raw(payload: dict | None = None):
     if not isinstance(cfg, dict):
         raise HTTPException(400, "需要 {config: {...}} 结构")
     cfg_path = b.BASE / "config.json"
+    # 占位符保留：raw 编辑器读到的敏感值是 ***，保存时不能把真密钥覆盖掉。
+    try:
+        if cfg_path.exists():
+            old = json.loads(cfg_path.read_text(encoding="utf-8") or "{}")
+            _restore_redacted(cfg, old)
+    except Exception as exc:                 # noqa: BLE001
+        b.log(f"raw 保存：读取旧配置做占位符还原失败（按提交内容写）: {exc}")
     try:
         cfg_path.write_text(json.dumps(cfg, ensure_ascii=False, indent=2),
                             encoding="utf-8")
     except Exception as exc:
         raise HTTPException(500, f"写 config.json 失败: {exc}") from exc
-    # 同时刷新内存中的 CFG，让多数改动立即生效（部分仍要重启）
+    # 同时刷新内存中的 CFG，让多数改动立即生效（部分仍要重启）——同样还原占位符，
+    # 否则内存里的密钥被刷成 ***，当前会话的 API 调用会 401。
     try:
         b.CFG.clear()
         b.CFG.update(cfg)
@@ -634,12 +684,41 @@ async def list_local_models():
     }
 
 
+class _ModelDownloadTooLarge(Exception):
+    def __init__(self, limit_mb: int):
+        super().__init__(f"下载超过上限 {limit_mb} MB，已中止并删除半成品")
+        self.limit_mb = limit_mb
+
+
+def _download_model_sync(url: str, dest: Path, max_bytes: int) -> int:
+    """在 worker 线程里流式下载；写 dest 只在单线程内发生，失败由调用方清理。"""
+    req = urllib.request.Request(url, headers={"User-Agent": "gantry-local-model/1.0"})
+    limit_mb = max(1, max_bytes // (1024 * 1024))
+    with urllib.request.urlopen(req, timeout=3600) as resp, open(dest, "wb") as out:
+        cl = resp.headers.get("Content-Length")
+        if cl and cl.isdigit() and int(cl) > max_bytes:
+            raise _ModelDownloadTooLarge(limit_mb)
+        total = 0
+        while True:
+            chunk = resp.read(256 * 1024)
+            if not chunk:
+                break
+            total += len(chunk)
+            if total > max_bytes:
+                raise _ModelDownloadTooLarge(limit_mb)
+            out.write(chunk)
+    return total
+
+
 @router.post("/v1/models/local/download")
 async def download_local_model(payload: dict):
     """从 URL 下载模型到 data/models/。返回时文件已落盘。"""
     url = str(payload.get("url") or "")
     if not url:
         raise HTTPException(400, "缺少 url")
+    scheme = urllib.parse.urlparse(url).scheme.lower()
+    if scheme not in ("http", "https"):
+        raise HTTPException(400, f"仅支持 http/https 下载: {scheme or '缺少 scheme'}")
     filename = str(payload.get("filename") or "").strip()
     if not filename:
         # 从 URL 路径取文件名，并确保 .gguf 后缀
@@ -651,15 +730,18 @@ async def download_local_model(payload: dict):
     dest = b.BASE / "data" / "models" / filename
     if dest.exists():
         raise HTTPException(409, f"文件已存在: {filename}")
+    max_mb = max(1, int(b.CFG.get("max_model_download_mb") or 20 * 1024))
+    max_bytes = max_mb * 1024 * 1024
     try:
         dest.parent.mkdir(parents=True, exist_ok=True)
-        req = urllib.request.Request(url, headers={"User-Agent": "gantry-local-model/1.0"})
-        with urllib.request.urlopen(req, timeout=3600) as resp, open(dest, "wb") as out:
-            while True:
-                chunk = resp.read(256 * 1024)
-                if not chunk:
-                    break
-                out.write(chunk)
+        await asyncio.to_thread(_download_model_sync, url, dest, max_bytes)
+    except _ModelDownloadTooLarge as exc:
+        # 超限中止：删除半成品
+        try:
+            dest.unlink(missing_ok=True)
+        except Exception:                # noqa: BLE001
+            pass
+        raise HTTPException(400, str(exc)) from exc
     except HTTPException:
         raise
     except Exception as exc:

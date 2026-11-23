@@ -74,6 +74,27 @@ class TaskVerifyTests(unittest.TestCase):
         bad = review_task(task, {"content": "claimed passed"}, self.root)
         self.assertFalse(bad["ok"])
 
+    def test_credentials_in_error_are_redacted(self):
+        """agent_error / detail / reason 会落库展示：AKIA 密钥与 key=value 凭据必须脱敏（M8）。"""
+        v = review_task({}, {"error": "deploy failed, key = AKIAIOSFODNN7EXAMPLE and "
+                                      "api_key=sk-live-123456"}, self.root)
+        blob = str(v["checks"]) + str(v["reason"])
+        self.assertNotIn("AKIAIOSFODNN7EXAMPLE", blob)
+        self.assertNotIn("sk-live-123456", blob)
+        self.assertIn("[REDACTED]", blob)
+
+    def test_credentials_in_check_detail_are_redacted(self):
+        """文件内容/命令输出回读进 detail 时同样不能原样带出私钥（M8）。"""
+        v = review_task({}, {"error": "-----BEGIN PRIVATE KEY-----\nMIIB\n-----END PRIVATE KEY-----"},
+                        self.root)
+        blob = str(v["checks"]) + str(v["reason"])
+        self.assertNotIn("BEGIN PRIVATE KEY", blob.replace("[REDACTED]", ""))
+        self.assertIn("[REDACTED]", blob)
+
+    def test_normal_text_not_overredacted(self):
+        v = review_task({}, {"error": "connection refused"}, self.root)
+        self.assertIn("connection refused", v["reason"])
+
 
 if __name__ == "__main__":
     unittest.main()
