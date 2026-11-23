@@ -55,19 +55,23 @@ def main() -> int:
         except subprocess.TimeoutExpired:
             bad.append(m)
             print(f"TIMEOUT {m:46} {time.time() - started:5.1f}s  （>{args.timeout}s）")
-    # 清空 redirect 目录里的临时内容；并兜底清理仓库根残留（正常情况不会再有，
-    # 防直跑 pytest/单模块时 tests/__init__ 之外的漏网）。前缀清单与 .gitignore 同步。
+    # 清空 redirect 目录里的临时内容；并兜底清理仓库根残留。
+    # 前缀清单不自维护：直接从 tests/*.py 源码里抓所有 mkdtemp(prefix="...")
+    # 字面值动态生成（200+ 种且会随新测试增长），再加 tempfile 默认前缀 "tmp"。
+    import re
     import shutil
     n = 0
     for sub in _tmp_redirect.iterdir():
         shutil.rmtree(sub, ignore_errors=True)
         n += 1
-    _RESIDUE_PREFIXES = ("cbp_", "tmp", "gantry_at_", "gantry_root_", "gantry_self_",
-                         "gantry_snap_", "gantry_ui_", "gantry_retrycount_",
-                         "gantry_sendpause_", "gantry-diag-", "memory5_",
-                         "sess_cap_", "teams_outbox_")
+    _prefixes = {"tmp"}
+    for src in TESTS.glob("test_*.py"):
+        try:
+            _prefixes.update(re.findall(r'mkdtemp\(prefix="([^"]+)"', src.read_text(encoding="utf-8")))
+        except OSError:
+            pass
     for d in BASE.iterdir():
-        if d.is_dir() and d.name.startswith(_RESIDUE_PREFIXES):
+        if d.is_dir() and d.name.startswith(tuple(_prefixes)):
             shutil.rmtree(d, ignore_errors=True)
             n += 1
     if n:
