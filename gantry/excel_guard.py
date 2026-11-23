@@ -96,11 +96,25 @@ class SheetScan:
         return len(self.col_counts)
 
 
+_SHARED_STRINGS_MAX_BYTES = 32 * 1024 * 1024  # 32MB：超出说明共享字符串表异常
+
+
 def _read_shared_strings(z: zipfile.ZipFile) -> list[str]:
     try:
-        data = z.read("xl/sharedStrings.xml")
+        info = z.getinfo("xl/sharedStrings.xml")
     except KeyError:
         return []
+    if info.file_size > _SHARED_STRINGS_MAX_BYTES:
+        from .tools import ToolError
+        raise ToolError(
+            f"xl/sharedStrings.xml 解压后约 {info.file_size / (1024*1024):.0f} MB，"
+            f"超过 {_SHARED_STRINGS_MAX_BYTES // (1024*1024)} MB 预算，已中止探测")
+    data = z.read("xl/sharedStrings.xml")
+    if len(data) > _SHARED_STRINGS_MAX_BYTES:  # 防御压缩率异常
+        from .tools import ToolError
+        raise ToolError(
+            f"xl/sharedStrings.xml 超过 {_SHARED_STRINGS_MAX_BYTES // (1024*1024)} MB "
+            "字节预算，已中止探测")
     out: list[str] = []
     try:
         root = ET.fromstring(data)

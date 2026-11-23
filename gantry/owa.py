@@ -24,6 +24,12 @@ OWA_URL = _b.CFG.get("outlook_url", "https://outlook.office.com/mail/")
 
 owa_page = None
 
+# 页面互斥锁：owa_search_mails / read / send 等会操作共享 owa_page 的
+# 键盘焦点与 DOM，复合操作必须整体持锁。尤其「先 search 再点击索引」的
+# 两步（OWABackend.read）必须在同一把锁内完成，否则并发的搜索会把
+# option 列表换掉，点到错误的邮件。用法参考 teams_common._PAGE_LOCK。
+_OWA_LOCK = asyncio.Lock()
+
 
 async def _owa_visible(page, selectors):
     ctx = _b.ctx  # 同上：headless 切换会重建上下文
@@ -38,9 +44,24 @@ async def _owa_visible(page, selectors):
     return None
 
 
-async def owa_open() -> None:
-    ctx = _b.ctx  # 同上：headless 切换会重建上下文
-    """打开/复用 OWA 标签页，等待 SSO 回跳与列表渲染完成。"""
+async def _owa_open_locked() -> None:
+    """打开/复用 OWA 标签页，等待 SSO 回跳与列表渲染完成。
+
+    持锁前提：调用方必须持有 _OWA_LOCK（owa_open / 各复合操作入口）。
+    """
+    # ctx 是懒启动的：先确保浏览器起来，否则 _b.ctx 还是 None，
+    # 直接 new_page 会 AttributeError。参考 teams_dom.teams_open。
+    try:
+        _raw = getattr(_b, "ENSURE_BROWSER_RAW", None)
+        if callable(_raw):
+            await _raw()
+        else:
+            await _b.ensure_browser_ready()
+    except Exception as exc:                     # noqa: BLE001
+        raise RuntimeError(f"启动浏览器失败：{exc}") from exc
+    ctx = _b.ctx
+    if ctx is None:
+        raise RuntimeError("浏览器上下文未就绪（ctx 为 None），无法打开 Outlook 网页版")
     global owa_page
     if owa_page is None or owa_page.is_closed():
         owa_page = await ctx.new_page()
@@ -64,10 +85,17 @@ async def owa_open() -> None:
     raise RuntimeError("Outlook 网页版加载超时（SSO 未完成或页面结构变化）")
 
 
-async def owa_search_mails(query: str, max_count: int) -> list[dict]:
-    ctx = _b.ctx  # 同上：headless 切换会重建上下文
-    """用 OWA 搜索框跑 KQL（isread:false / subject: 等），解析结果列表。"""
-    await owa_open()
+async def owa_open() -> None:
+    """打开/复用 OWA 标签页（持 _OWA_LOCK 整体互斥）。"""
+    async with _OWA_LOCK:
+        await _owa_open_locked()
+
+
+async def _owa_search_locked(query: str, max_count: int) -> list[dict]:
+    """用 OWA 搜索框跑 KQL（isread:false / subject: 等），解析结果列表。
+
+    持锁前提：调用方必须已调用 _owa_open_locked() 并持有 _OWA_LOCK。
+    """
     box = await _owa_visible(owa_page, [
         'input[type="search"]', 'input[aria-label*="Search" i]', 'input[aria-label*="搜索"]',
     ])
@@ -102,9 +130,15 @@ async def owa_search_mails(query: str, max_count: int) -> list[dict]:
     return items
 
 
-async def owa_read_current() -> str:
-    ctx = _b.ctx  # 同上：headless 切换会重建上下文
-    """读取阅读窗格正文。"""
+async def owa_search_mails(query: str, max_count: int) -> list[dict]:
+    """用 OWA 搜索框搜索（持 _OWA_LOCK，内部含 owa_open）。"""
+    async with _OWA_LOCK:
+        await _owa_open_locked()
+        return await _owa_search_locked(query, max_count)
+
+
+async def _owa_read_current_locked() -> str:
+    """读取阅读窗格正文。持锁前提：调用方持有 _OWA_LOCK。"""
     pane = await _owa_visible(owa_page, [
         '[id*="ReadingPane"]',
         'div[role="main"]',
@@ -114,6 +148,12 @@ async def owa_read_current() -> str:
     if not pane:
         return ""
     return (await pane.inner_text()).strip()
+
+
+async def owa_read_current() -> str:
+    """读取阅读窗格正文（持 _OWA_LOCK 整体互斥）。"""
+    async with _OWA_LOCK:
+        return await _owa_read_current_locked()
 
 
 class OWABackend:
@@ -126,20 +166,25 @@ class OWABackend:
         return {"unread_returned": len(items), "items": items, "backend": "owa"}
 
     async def read(self, keyword: str) -> dict:
-        items = await owa_search_mails(f'subject:"{keyword}"' if keyword else "isread:false", 10)
-        target = None
-        for it in items:
-            if keyword and keyword.lower() in (it.get("subject") or "").lower():
-                target = it
-                break
-        if target is None and items:
-            target = items[0]
-        if target is None:
-            raise RuntimeError(f"没有找到主题包含「{keyword}」的邮件")
-        options = owa_page.locator('[role="option"]')
-        await options.nth(target["_index"]).click()
-        await asyncio.sleep(1.2)
-        body = await owa_read_current()
+        # 「search → 点击索引 → 读正文」是复合操作，必须同一把锁内完成，
+        # 否则并发的搜索会换掉 option 列表，点到错误的邮件。
+        async with _OWA_LOCK:
+            await _owa_open_locked()
+            items = await _owa_search_locked(
+                f'subject:"{keyword}"' if keyword else "isread:false", 10)
+            target = None
+            for it in items:
+                if keyword and keyword.lower() in (it.get("subject") or "").lower():
+                    target = it
+                    break
+            if target is None and items:
+                target = items[0]
+            if target is None:
+                raise RuntimeError(f"没有找到主题包含「{keyword}」的邮件")
+            options = owa_page.locator('[role="option"]')
+            await options.nth(target["_index"]).click()
+            await asyncio.sleep(1.2)
+            body = await _owa_read_current_locked()
         target.pop("_index", None)
         target["body"] = body[:20000]
         target["truncated"] = len(body) > 20000
@@ -153,7 +198,13 @@ class OWABackend:
         return {"keyword": keyword, "returned": len(items), "items": items, "backend": "owa"}
 
     async def send(self, to: str, subject: str, body: str, cc: str = "") -> dict:
-        await owa_open()
+        # 新建邮件 → 填收件人/主题/正文 → 发送：全程占用 owa_page 键盘焦点，
+        # 必须整体持锁，否则并发搜索/读信会把焦点抢走的。
+        async with _OWA_LOCK:
+            await _owa_open_locked()
+            return await self._send_locked(to, subject, body, cc=cc)
+
+    async def _send_locked(self, to: str, subject: str, body: str, cc: str = "") -> dict:
         btn = await _owa_visible(owa_page, [
             'button[aria-label*="New mail" i]', 'button[aria-label*="新建邮件"]',
             'button[aria-label*="New message" i]', 'button[aria-label*="撰写"]',

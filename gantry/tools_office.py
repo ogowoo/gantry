@@ -166,14 +166,20 @@ class OfficeMixin:
         if target.suffix.lower() == ".xls":
             raise ToolError("旧版 .xls 暂不支持；请先另存为 .xlsx 或 .xlsm")
         limit = max(1, min(self._int_arg(max_rows, 5, "max_rows"), 30))
-        report = await asyncio.to_thread(_inspect_for_read, target, sheet)
+        timeout = float(self.config.get("excel_read_timeout_seconds", 60) or 60)
+        if bool(self.config.get("excel_use_worker", True)):
+            report = await self._excel_worker(
+                {"action": "inspect", "path": str(target), "sheet": sheet,
+                 "max_cells": 200_000, "max_rows": 200_000,
+                 "max_seconds": min(8.0, timeout)}, timeout + 10)
+        else:
+            report = await asyncio.to_thread(_inspect_for_read, target, sheet)
         from .excel_guard import recommended_scan
         guard = recommended_scan(report, sheet)
         if not guard or not guard.get("end_row"):
             return {"path": path, "inspection": report, "rows": [],
                     "header": [], "regions": [], "warnings": ["没有识别到数据区域"]}
         end = min(guard["end_row"], guard["start_row"] + limit - 1)
-        timeout = float(self.config.get("excel_read_timeout_seconds", 60) or 60)
         try:
             if bool(self.config.get("excel_use_worker", True)):
                 data = await self._excel_worker(
@@ -211,7 +217,14 @@ class OfficeMixin:
         if target.suffix.lower() == ".xls":
             raise ToolError("旧版 .xls 暂不支持；请先另存为 .xlsx 或 .xlsm")
         size = max(1, min(self._int_arg(chunk_rows, 500, "chunk_rows"), 2000))
-        report = await asyncio.to_thread(_inspect_for_read, target, sheet)
+        timeout = float(self.config.get("excel_read_timeout_seconds", 60) or 60)
+        if bool(self.config.get("excel_use_worker", True)):
+            report = await self._excel_worker(
+                {"action": "inspect", "path": str(target), "sheet": sheet,
+                 "max_cells": 200_000, "max_rows": 200_000,
+                 "max_seconds": min(8.0, timeout)}, timeout + 10)
+        else:
+            report = await asyncio.to_thread(_inspect_for_read, target, sheet)
         from .excel_guard import recommended_scan
         guard = recommended_scan(report, sheet)
         if not guard or not guard.get("end_row"):
@@ -242,7 +255,6 @@ class OfficeMixin:
                     "total_rows": max(0, guard["end_row"] - start + 1),
                     "checkpoint": str(cp), "regions": regions}
         end = min(guard["end_row"], start + size - 1)
-        timeout = float(self.config.get("excel_read_timeout_seconds", 60) or 60)
         try:
             if bool(self.config.get("excel_use_worker", True)):
                 data = await self._excel_worker(

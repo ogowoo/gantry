@@ -13,6 +13,7 @@ from typing import Any
 
 from .task_plan import TaskStore
 from .task_verify import review_task
+from .tools_extra import _task_db_path
 
 
 def verify_task_plan(session_id: str, workspace: str | Path,
@@ -22,8 +23,9 @@ def verify_task_plan(session_id: str, workspace: str | Path,
     if not sid:
         return {"ok": True, "skipped": True, "reason": "no session"}
     try:
-        store = store or TaskStore(
-            Path(__file__).resolve().parent.parent / "data" / "tasks.db")
+        # 与 tools_extra._task_store 同一套路径解析（config.task_db_path 优先），
+        # 不再硬编码 data/tasks.db；调用方（agentrun.final_gate）应尽量传入 store。
+        store = store or TaskStore(_task_db_path(None))
         plan = store.get_plan(sid)
     except Exception as exc:
         return {"ok": False, "skipped": False,

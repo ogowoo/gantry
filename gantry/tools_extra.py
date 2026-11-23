@@ -97,6 +97,17 @@ def similar_task_hint(task: str, siblings: list[dict], threshold: float = 0.55) 
     return ""
 
 
+def _task_db_path(config: dict[str, Any] | None) -> Path:
+    """任务图数据库路径：config.task_db_path 优先，默认 data/tasks.db。
+
+    task_gate.verify_task_plan 与 _Extra._task_store 共用同一解析逻辑，
+    避免验收门读到另一份库（曾两处硬编码不一致）。
+    """
+    raw = str((config or {}).get("task_db_path") or "").strip()
+    return Path(raw).expanduser() if raw else (
+        Path(__file__).resolve().parent.parent / "data" / "tasks.db")
+
+
 class _Extra:
     """扩展工具的实现集合；每个公开方法对应一个工具。"""
 
@@ -496,10 +507,7 @@ class _Extra:
 
     def _task_store(self) -> TaskStore:
         if self._task_store_obj is None:
-            raw = str(self.config.get("task_db_path") or "").strip()
-            path = Path(raw).expanduser() if raw else (
-                Path(__file__).resolve().parent.parent / "data" / "tasks.db")
-            self._task_store_obj = TaskStore(path)
+            self._task_store_obj = TaskStore(_task_db_path(self.config))
         return self._task_store_obj
 
     def _project_plan(self, plan: dict[str, Any]) -> dict[str, Any]:
@@ -580,11 +588,13 @@ class _Extra:
 
     async def task_run(self, plan_id: str = "", model: str = "",
                        max_concurrency: int = 0, timeout_seconds: float = 0,
-                       max_steps: int = 0, allow_commands: bool = False,
-                       independent: bool = False) -> dict[str, Any]:
+                       max_steps: int = 0, independent: bool = False) -> dict[str, Any]:
         """按任务图调度 subagent ready 任务，并审查产物/返工。"""
         if self.subagent_fn is None:
             raise ExtraToolError("当前通道不支持子代理，无法执行任务图")
+        # 命令/测试/API 验收是否允许**只能由服务端配置**决定（allow_task_commands，
+        # 默认 False）——曾暴露为模型参数等于把权限提升交给模型，已移除。
+        allow_commands = bool(self.config.get("allow_task_commands", False))
         store = self._task_store()
         plan = store.get_plan(self._sid(), plan_id)
         if not plan:
@@ -1045,12 +1055,13 @@ _DESCRIPTIONS: dict[str, tuple[str, dict[str, Any]]] = {
                      {"plan_id": "计划 ID（可选）"}),
     "task_run": ("按任务图自动调度 executor=subagent 的 ready 任务：按依赖/优先级、并发和"
                  "产物冲突执行，审查实际产物，失败按 max_retries 返工并写入任务历史。"
-                 "executor=main 的任务留给主 Agent，会出现在 needs_main。",
+                 "executor=main 的任务留给主 Agent，会出现在 needs_main。"
+                 "命令/测试/API 验收是否允许由服务端配置 allow_task_commands 决定（默认不允许），"
+                 "不能用参数开启。",
                  {"plan_id": "计划 ID（可选）", "model": "子代理模型（可选）",
                   "max_concurrency": "最大并发，默认 agent.task_run_max_concurrency 或 4",
                   "timeout_seconds": "单任务超时，默认 600",
                   "max_steps": "每个子任务步数上限（默认 agent.subagent_max_steps）",
-                  "allow_commands": "允许验收执行命令/测试/API，默认 false",
                   "independent": "是否额外派独立验证 Agent 交叉检查，默认 false"}),
     "read_image": ("读取图片元数据（格式/尺寸/大小）；analyze=true 时交给 Copilot 视觉描述",
                    {"path": "图片相对路径", "question": "要问 Copilot 的问题（可选）",

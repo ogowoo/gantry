@@ -576,6 +576,9 @@ async def run_agent(req: b.AgentRequest, attach_paths: list | None = None):
                         approval_check=lambda tool,h: b.AGENT_SESSIONS.take_approval(sid, tool, h),
                         final_gate=lambda content: verify_task_plan(
                             sid, T.root, content,
+                            # 传入与 task_run 共用的任务存储（同一 config 路径解析），
+                            # 否则验收门会退回默认 data/tasks.db，读不到本会话的任务图
+                            store=b.TOOLS_EXTRA._task_store(),
                             allow_commands=bool(b.AGENT_CFG.get("task_gate_allow_commands", False))))
         try:
             b.PLUGINS.emit("session_start", session_id=sid, task=effective_task, model=req.model)
