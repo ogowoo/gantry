@@ -227,23 +227,34 @@ class _Extra:
 
         matches: list[dict[str, Any]] = []
         truncated = False
+        truncated_lines = 0     # 因单行超过 300 字符被截断的行数
+        scanned_files = 0       # 实际读取并搜索过的文件数
+        skipped_large = 0       # 因超过单文件上限被跳过的文件数
         for f in files:
             try:
                 if f.stat().st_size > _MAX_GREP_FILE_BYTES:
+                    skipped_large += 1
                     continue
                 text = f.read_text(encoding="utf-8")
             except (UnicodeDecodeError, OSError):
                 continue
+            scanned_files += 1
             for no, line in enumerate(text.splitlines(), 1):
                 if rx.search(line):
-                    matches.append({"path": self._rel(f), "line": no, "text": line[:300]})
+                    if len(line) > 300:
+                        truncated_lines += 1
+                        matches.append({"path": self._rel(f), "line": no,
+                                        "text": line[:300] + " …[行截断]"})
+                    else:
+                        matches.append({"path": self._rel(f), "line": no, "text": line})
                     if len(matches) >= limit:
                         truncated = True
                         break
             if truncated:
                 break
         return {"pattern": pattern, "count": len(matches), "matches": matches,
-                "truncated": truncated, "scanned_files": len(files)}
+                "truncated": truncated, "truncated_lines": truncated_lines,
+                "scanned_files": scanned_files, "skipped_large": skipped_large}
 
     # ── web：抓网页正文 ──
     @staticmethod
@@ -395,6 +406,7 @@ class _Extra:
                                    "proc": proc, "out": [], "err": [],
                                    "done": False, "exit_code": None, "started": time.time()}
             self.jobs[job_id] = job
+            self._prune_jobs()      # 长会话防膨胀：完成条目只留最近 50 条
 
             async def _pump(stream: Any, buf: list[str]) -> None:
                 while True:
@@ -448,18 +460,36 @@ class _Extra:
                 "exit_code": job["exit_code"],
                 "stdout": out[since:since + _MAX_OUTPUT],
                 "stderr": err[since:since + _MAX_OUTPUT],
-                "chars": len(out) + len(err)}
+                "chars": len(out) + len(err), "total_chars": len(out) + len(err)}
+
+    _MAX_DONE_JOBS = 50      # 完成的后台任务最多留 50 条，防长会话内存膨胀
+
+    def _prune_jobs(self) -> None:
+        """淘汰已完成条目，保留最近 50 条（按启动时间；运行中的不动）。"""
+        done = [jid for jid, j in self.jobs.items() if j.get("done")]
+        excess = len(done) - self._MAX_DONE_JOBS
+        if excess <= 0:
+            return
+        done.sort(key=lambda jid: self.jobs[jid].get("started") or 0)
+        for jid in done[:excess]:
+            self.jobs.pop(jid, None)
 
     async def job_list(self) -> dict[str, Any]:
         """列出后台任务。"""
+        self._prune_jobs()
         return {"jobs": [{"job_id": j["id"], "command": j["command"][:120],
                           "status": "done" if j["done"] else "running",
                           "exit_code": j["exit_code"]}
                          for j in self.jobs.values()]}
 
     async def job_output(self, job_id: str, wait: bool = False,
-                         timeout_seconds: float = 30) -> dict[str, Any]:
-        """读取后台任务输出（wait=true 时等到结束或超时）。"""
+                         timeout_seconds: float = 30,
+                         since_chars: int = 0) -> dict[str, Any]:
+        """读取后台任务输出（wait=true 时等到结束或超时）。
+
+        since_chars>0 时按字符偏移增量返回（配合 total_chars 做轮询，
+        不用每次全量取回已看过的输出）。
+        """
         job = self.jobs.get(str(job_id))
         if not job:
             raise ExtraToolError(f"没有这个后台任务: {job_id}")
@@ -467,18 +497,19 @@ class _Extra:
             deadline = time.monotonic() + float(timeout_seconds)
             while time.monotonic() < deadline and not job["done"]:
                 await asyncio.sleep(0.2)
-        return self._job_text(job)
+        try:
+            since = max(0, int(since_chars))
+        except (TypeError, ValueError):
+            since = 0
+        return self._job_text(job, since=since)
 
     async def job_kill(self, job_id: str) -> dict[str, Any]:
-        """终止后台任务。"""
+        """终止后台任务（杀整个进程树，而不仅是直接子进程）。"""
         job = self.jobs.get(str(job_id))
         if not job:
             raise ExtraToolError(f"没有这个后台任务: {job_id}")
         if not job["done"]:
-            try:
-                job["proc"].kill()
-            except ProcessLookupError:
-                pass
+            await self._kill_tree(job["proc"])
         return {"job_id": job["id"], "status": "killed", "exit_code": job["exit_code"]}
 
     # ── plan：任务清单 / 交付物 ──
@@ -1014,7 +1045,8 @@ _DESCRIPTIONS: dict[str, tuple[str, dict[str, Any]]] = {
               "timeout_seconds": "超时秒数，默认 120", "run_in_background": "后台执行，默认 false"}),
     "job_list": ("列出后台任务", {}),
     "job_output": ("读取后台任务输出（wait=true 等到结束或超时）",
-                   {"job_id": "任务 id", "wait": "是否等待完成", "timeout_seconds": "等待上限秒数，默认 30"}),
+                   {"job_id": "任务 id", "wait": "是否等待完成", "timeout_seconds": "等待上限秒数，默认 30",
+                    "since_chars": "字符偏移：只返回该位置之后的新输出（配合返回的 total_chars 增量轮询）"}),
     "job_kill": ("终止后台任务", {"job_id": "任务 id"}),
     "todo_write": ("写入任务清单（整体替换，最多 50 项）；长任务用它跟踪进度",
                    {"todos": "数组；每项 {content, status=pending|in_progress|completed}"}),
