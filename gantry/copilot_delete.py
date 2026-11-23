@@ -87,21 +87,19 @@ async def _conversation_sidebar_link(url: str):
     parsed = urlparse(url)
     path = parsed.path.rstrip("/")
     chat_id = path.rsplit("/", 1)[-1] if path else ""
-    selectors = []
-    if chat_id:
-        selectors.extend([
-            f'a[href*="{chat_id}"]',
-            f'[role="link"][href*="{chat_id}"]',
-        ])
-    if path:
-        selectors.extend([
-            f'a[href*="{path}"]',
-            f'[role="link"][href*="{path}"]',
-        ])
-    for selector in selectors:
-        loc = page.locator(selector)
-        for index in range(await loc.count() - 1, -1, -1):
-            item = loc.nth(index)
+    # 不拼接 CSS 选择器（chat_id/path 里的引号等会破坏 selector），
+    # 改为逐条取 <a> 的 href 用包含关系比对。
+    needles = [s for s in (chat_id, path) if s]
+    if needles:
+        links = page.locator("a[href]")
+        for index in range(await links.count() - 1, -1, -1):
+            item = links.nth(index)
+            try:
+                href = await item.get_attribute("href") or ""
+            except Exception:
+                continue
+            if not any(n in href for n in needles):
+                continue
             try:
                 await item.scroll_into_view_if_needed(timeout=3000)
                 if await item.is_visible():

@@ -217,18 +217,25 @@ async def _window(sid: str, wait_timeout: float = 30.0, need_page: bool = True):
         win = await pool.acquire(sid, wait_timeout=wait_timeout)
     except WindowBusy as exc:
         raise b.CopilotBusy(str(exc)) from exc
-    tok_page = b._PAGE_CTX.set(win.page) if win.page is not None else None
-    tok_win = b._WIN_CTX.set(win)
-    tok_sess = b._SESSION_CTX.set(sid or None)
-    tools = b.AGENT_TOOLS.clone()
-    tok_tools = b._TOOLS_CTX.set(tools)
+    # ctx set / clone 全部放进 try：acquire 成功后任何一步抛异常都要走
+    # finally 归还窗口，否则窗口会永远占用导致后续任务 CopilotBusy。
+    tok_page = tok_win = tok_sess = tok_tools = None
+    tools = None
     try:
+        tok_page = b._PAGE_CTX.set(win.page) if win.page is not None else None
+        tok_win = b._WIN_CTX.set(win)
+        tok_sess = b._SESSION_CTX.set(sid or None)
+        tools = b.AGENT_TOOLS.clone()
+        tok_tools = b._TOOLS_CTX.set(tools)
         yield win, tools
     finally:
         try:
-            b._TOOLS_CTX.reset(tok_tools)
-            b._SESSION_CTX.reset(tok_sess)
-            b._WIN_CTX.reset(tok_win)
+            if tok_tools is not None:
+                b._TOOLS_CTX.reset(tok_tools)
+            if tok_sess is not None:
+                b._SESSION_CTX.reset(tok_sess)
+            if tok_win is not None:
+                b._WIN_CTX.reset(tok_win)
             if tok_page is not None:
                 b._PAGE_CTX.reset(tok_page)
         finally:

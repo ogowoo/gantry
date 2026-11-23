@@ -141,13 +141,14 @@ def maybe_file_view(text: str, root: Path, last_path: str = "") -> dict | None:
         if kind != "text":
             return base
         try:
-            data = p.read_bytes()[:MAX_TEXT_BYTES]
+            with p.open("rb") as f:
+                data = f.read(MAX_TEXT_BYTES)
             content = data.decode("utf-8", "replace")
         except OSError:
             continue
         base.update({"content": content,
                      "lines": content.count("\n") + (0 if content.endswith("\n") else 1),
-                     "truncated": size > len(data)})
+                     "truncated": size > MAX_TEXT_BYTES})
         return base
     return None
 

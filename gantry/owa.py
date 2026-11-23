@@ -31,6 +31,12 @@ owa_page = None
 _OWA_LOCK = asyncio.Lock()
 
 
+def _kql_quote(keyword: str) -> str:
+    """KQL subject:"..." 共用的去引号转义：read 与 search 走同一个 helper，
+    避免一侧转义一侧不转义导致同一 keyword 搜索结果不一致。"""
+    return str(keyword).replace('"', "")
+
+
 async def _owa_visible(page, selectors):
     ctx = _b.ctx  # 同上：headless 切换会重建上下文
     for selector in selectors:
@@ -153,7 +159,34 @@ async def _owa_read_current_locked() -> str:
 async def owa_read_current() -> str:
     """读取阅读窗格正文（持 _OWA_LOCK 整体互斥）。"""
     async with _OWA_LOCK:
+        # 入口兜底：owa_page 可能还没打开或被外部关掉（如浏览器重启），
+        # 与 search/send 一样先确保页面就绪，否则 _owa_read_current_locked
+        # 会在死引用上静默返回空串。
+        if owa_page is None or owa_page.is_closed():
+            await _owa_open_locked()
         return await _owa_read_current_locked()
+
+
+async def _owa_click_and_read(target: dict) -> str:
+    """按目标邮件点击列表行并读取阅读窗格正文。
+
+    点击前用 target.subject 按文本重新定位行（列表在搜索渲染期间可能重排，
+    裸 nth(_index) 会点错）；读取失败/为空时返回空串，由调用方决定是否重搜。
+    持锁前提：调用方持有 _OWA_LOCK 且已 _owa_open_locked()。
+    """
+    global owa_page
+    subj = (target.get("subject") or "").strip()
+    row = owa_page.locator('[role="option"]').nth(target["_index"])
+    if subj:
+        try:
+            by_text = owa_page.locator('[role="option"]', has_text=subj)
+            if await by_text.count() > 0:
+                row = by_text.first
+        except Exception:
+            pass                                # 文本定位失败退回 nth(_index)
+    await row.click()
+    await asyncio.sleep(1.2)
+    return await _owa_read_current_locked()
 
 
 class OWABackend:
@@ -171,7 +204,7 @@ class OWABackend:
         async with _OWA_LOCK:
             await _owa_open_locked()
             items = await _owa_search_locked(
-                f'subject:"{keyword}"' if keyword else "isread:false", 10)
+                f'subject:"{_kql_quote(keyword)}"' if keyword else "isread:false", 10)
             target = None
             for it in items:
                 if keyword and keyword.lower() in (it.get("subject") or "").lower():
@@ -181,17 +214,30 @@ class OWABackend:
                 target = items[0]
             if target is None:
                 raise RuntimeError(f"没有找到主题包含「{keyword}」的邮件")
-            options = owa_page.locator('[role="option"]')
-            await options.nth(target["_index"]).click()
-            await asyncio.sleep(1.2)
-            body = await _owa_read_current_locked()
+            body = await _owa_click_and_read(target)
+            subj = (target.get("subject") or "").strip()
+            if subj and subj.lower() not in body.lower():
+                # 阅读窗格标题与目标不一致：option 列表可能被并发操作换过，
+                # 重搜一次再点，避免把别封邮件的正文当成目标返回。
+                _b.log(f"OWA read：点击后阅读窗格与「{subj}」不一致，重搜一次")
+                items = await _owa_search_locked(
+                    f'subject:"{_kql_quote(keyword)}"' if keyword else "isread:false", 10)
+                target = None
+                for it in items:
+                    if keyword and keyword.lower() in (it.get("subject") or "").lower():
+                        target = it
+                        break
+                if target is None and items:
+                    target = items[0]
+                if target is not None:
+                    body = await _owa_click_and_read(target)
         target.pop("_index", None)
         target["body"] = body[:20000]
         target["truncated"] = len(body) > 20000
         return target
 
     async def search(self, keyword: str, max_count: int) -> dict:
-        safe = str(keyword).replace('"', "")
+        safe = _kql_quote(keyword)
         items = await owa_search_mails(f'subject:"{safe}"', max_count)
         for it in items:
             it.pop("_index", None)

@@ -187,23 +187,43 @@ async def _save_from_href(href: str, target: Path) -> int:
     """
     _max = await _copilot_file_max_bytes()
     if href.startswith("blob:") or href.startswith("data:"):
-        b64 = await b.page.evaluate(
-            """async (url) => {
-                const resp = await fetch(url);
-                const buf = await resp.arrayBuffer();
-                let bin = '';
-                const bytes = new Uint8Array(buf);
-                const CH = 0x8000;
-                for (let i = 0; i < bytes.length; i += CH) {
-                    bin += String.fromCharCode.apply(null, bytes.subarray(i, i + CH));
-                }
-                return btoa(bin);
-            }""", href)
+        # JS 侧先查 size：超限直接中止，不把 base64 全量传出页面。
+        try:
+            b64 = await b.page.evaluate(
+                """async (args) => {
+                    const resp = await fetch(args.url);
+                    const buf = await resp.arrayBuffer();
+                    if (buf.byteLength > args.max) {
+                        throw new Error('__CBP_TOO_LARGE__:' + buf.byteLength);
+                    }
+                    let bin = '';
+                    const bytes = new Uint8Array(buf);
+                    const CH = 0x8000;
+                    for (let i = 0; i < bytes.length; i += CH) {
+                        bin += String.fromCharCode.apply(null, bytes.subarray(i, i + CH));
+                    }
+                    return btoa(bin);
+                }""", {"url": href, "max": _max})
+        except Exception as exc:
+            if "__CBP_TOO_LARGE__" in str(exc):
+                raise b.ToolError(f"下载内容超过单次上限 {_max // 1048576}MB"
+                                  f"（agent.copilot_file_max_mb 可调，已在页面侧中止）")
+            raise
         data = base64.b64decode(b64)
     else:
         resp = await b.ctx.request.get(href, timeout=120000)
         if not resp.ok:
             raise b.ToolError(f"下载失败 HTTP {resp.status}: {href[:120]}")
+        # Playwright APIRequestContext 不支持流式读：先按 Content-Length 预检，
+        # 长度未知时只能整取 body() 后兜底校验（超大即拒，不落盘）。
+        cl = (resp.headers.get("content-length") or "").strip()
+        if cl:
+            try:
+                if int(cl) > _max:
+                    raise b.ToolError(f"下载内容 {int(cl) / 1048576:.0f}MB 超过单次上限 "
+                                      f"{_max // 1048576}MB（agent.copilot_file_max_mb 可调）")
+            except ValueError:
+                pass
         data = await resp.body()
     if len(data) > _max:
         raise b.ToolError(f"下载内容 {len(data) / 1048576:.0f}MB 超过单次上限 "

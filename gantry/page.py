@@ -139,7 +139,10 @@ async def new_chat():
         await btn.click()
         await asyncio.sleep(1)
     else:
-        await b.page.goto(b.URL, wait_until="domcontentloaded", timeout=120000)
+        try:
+            await b.page.goto(b.URL, wait_until="domcontentloaded", timeout=120000)
+        except Exception:
+            pass
         await asyncio.sleep(2)
 
     if not await _empty():
@@ -878,12 +881,12 @@ def save_image_attachments(images) -> list[Path]:
         if not item or not isinstance(item, str):
             continue
         m = re.match(r"^data:image/([A-Za-z0-9+.-]+);base64,(.*)$", item, re.S)
-        ext, b64 = "png", item
-        if m:
-            ext = (m.group(1).lower().replace("jpeg", "jpg") or "png")
-            b64 = m.group(2)
+        if not m:
+            continue                        # 非严格 data:image/...;base64, 一律跳过
+        ext = (m.group(1).lower().replace("jpeg", "jpg") or "png")
+        b64 = m.group(2)
         try:
-            data = b.base64.b64decode(b64, validate=False)
+            data = b.base64.b64decode(b64, validate=True)
         except Exception:
             continue
         if not data or len(data) > b.MAX_IMAGE_BYTES:

@@ -15,6 +15,21 @@ from fastapi import HTTPException
 from . import bridge as b
 
 
+async def _clear_composer() -> None:
+    """wait_for 超时取消后清理 Copilot 输入框里的残留提示词（Ctrl+A + Backspace）。
+
+    超时时 agent_chat_once 可能已把 prompt 填进输入框，不清掉会留到下一条任务。
+    """
+    try:
+        box = await b.input_box()
+        if box:
+            await box.click()
+            await box.press("Control+a")
+            await box.press("Backspace")
+    except Exception:                        # noqa: BLE001
+        pass
+
+
 # ── 深研一键任务（WebUI「深研」按钮）──────────────────────────────────
 async def deep_research_task(query: str, model: str = "", angles: int = 3,
                              fetch_top: int = 3, lang: str = "zh") -> dict:
@@ -68,9 +83,14 @@ async def deep_research_task(query: str, model: str = "", angles: int = 3,
                 b.PROVIDERS[pm[0]].complete(pm[1], [{"role": "user", "content": prompt}]),
                 timeout=float(b.AGENT_CFG.get("research_timeout_seconds", 300)))
         else:
-            text = await asyncio.wait_for(
-                b.agent_chat_once(prompt, use_model, True),
-                timeout=float(b.AGENT_CFG.get("research_timeout_seconds", 600)))
+            try:
+                text = await asyncio.wait_for(
+                    b.agent_chat_once(prompt, use_model, True),
+                    timeout=float(b.AGENT_CFG.get("research_timeout_seconds", 600)))
+            except (asyncio.TimeoutError, asyncio.CancelledError):
+                # 超时取消：输入框里可能残留 prompt，清掉再向上抛
+                await _clear_composer()
+                raise
             try:
                 await b._wait_dom_stable()
                 md = await b.answer_markdown(text)
@@ -115,7 +135,12 @@ async def run_plugin_task(task: str, model: str = "", workspace: str = "",
                        stream=False, session_id=sid,
                        workspace=workspace or None)
     try:
-        result, real_sid = await b.run_agent(req)
+        timeout = float(b.AGENT_CFG.get("plugin_task_timeout_seconds", 600) or 600)
+    except (TypeError, ValueError):
+        timeout = 600.0
+    timeout = max(1.0, timeout)
+    try:
+        result, real_sid = await asyncio.wait_for(b.run_agent(req), timeout=timeout)
         return {"session_id": real_sid, "content": (result.content or "")[:4000],
                 "steps": len(result.steps), "error": None}
     except Exception as exc:
