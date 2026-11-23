@@ -5,6 +5,22 @@
 
 ## [Unreleased]
 
+## [0.11.0-beta.49] - 2026-11-23
+
+### Added
+- `scripts/ensure_corp_ca.py`：公司网络 SSL 审查（SSL inspection）抓取兜底工具。
+  公司代理用内部根证书重签站点证书导致 Python certifi/requests 一律
+  `CERTIFICATE_VERIFY_FAILED`（curl 走 Windows 证书库不受影响）。三层兜底：
+  合并 bundle 校验（`data/ca-bundle.pem` = certifi + 收录证书）→ 失败自动抓
+  对端证书链把公司根收入 `data/corp-ca.pem` 后重试 → 仍失败退 curl(schannel)；
+- 环境变量自举：脚本每次运行幂等补写 `REQUESTS_CA_BUNDLE` / `SSL_CERT_FILE`
+  （winreg 写 `HKCU\Environment`；沙箱禁写时自动退 `setx`，再失败仅警告），
+  全新机器跑一次即完成部署，更新 bundle 无需手动设置。
+
+### Tests
+- `tests/test_corp_ca.py`：bundle 去重/坏块跳过/收录幂等/环境变量自举（假 winreg）
+  4 项；工具实测可抓 github.com/trending 全页。
+
 ## [0.11.0-beta.48] - 2026-11-23
 
 ### Added
