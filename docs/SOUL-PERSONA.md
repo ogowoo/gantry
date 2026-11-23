@@ -142,8 +142,9 @@ format: code-first    # prose | bullets | code-first
 
 ## 内置 Soul
 
-没有 `SOUL.md` 时使用（`gantry/soul.py` 的 `DEFAULT_SOUL`）：直接、务实、诚实、
-有判断力、克制。中文版全文约 15 行，建议自定义时保持在这个量级。
+没有 `SOUL.md` 时使用（`gantry/soul.py` 的 `DEFAULT_SOUL`）：**好奇、乐观、有点幽默感**，
+同时保持直接、务实、诚实、有判断力、克制——欢乐服务于理解与推进，不用来填篇幅或换好感。
+中文版全文约 17 行，建议自定义时保持在这个量级。
 
 ## 与其它身份机制的关系
 
