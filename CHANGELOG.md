@@ -5,6 +5,51 @@
 
 ## [Unreleased]
 
+## [0.12.0-beta.1] - 2026-11-23
+
+### Added
+- **Soul / Persona 身份层**：Soul 定义部署级自我（名字/价值观/判断原则/边界，
+  全局唯一 `SOUL.md`，工作区不可覆盖），Persona 定义可切换表达风格（内置库 +
+  全局 + 工作区覆盖，`X-Gantry-Persona` 头按会话切换，`config.agent.persona`
+  给默认）。注入顺序 language → soul → protocol → … → profile → persona；
+  支持 `## zh` / `## en` 分节与简繁自动转换，Soul 6000 / Persona 4000 字符
+  上限并留可见截断提示。API `/v1/agent/soul`、`/v1/agent/personas[/{name}]`，
+  WebUI 设置新增「身份」页签（默认/本次会话 persona、Soul 与 Persona 编辑器）。
+  内置 5 个 persona：default / engineer / reviewer / teacher / terse。
+  （`docs/SOUL-PERSONA.md`）
+- **Excel 读取提速 40 倍**：python-calamine（Rust）快速引擎 + openpyxl 兜底；
+  常驻 worker 进程（serve 模式行协议、空闲 300s 回收、崩溃重启、Job Object
+  内存上限）把 50k 行 xlsx 分块读 20 块从 ~22s 降到 0.49s；worker 内物化行
+  缓存、探测结果缓存；`excel_guard` sharedStrings 流式解析、扫描预算只计
+  有值单元格；`xlsx_patch` 快路径改流式条目复制。（`docs/OFFICE-EXCEL-ANALYSIS.md`）
+- 新增 `read_csv` / `write_csv` 工具（编码自动探测、公式注入转义、原子写）；
+  `read_pptx` 补表格与组合形状提取；`.xls/.xlsb/.ods` 经 calamine 解锁。
+
+### Fixed
+- 分模块全面 review 的 56 项缺陷全部修复（`docs/REVIEW-2026-11-23-modules.md`），
+  含 5 项高危：子代理失败被计为成功、窗口池异常路径不归还（可致通道死锁）、
+  memory_write 英文描述默认值写反、插件目录穿越（任意文件读写/代码执行）、
+  `.env` 引号值带行尾注释时密钥被静默截断。
+- 安全：请求体大小上限（413）、probe/SSE 错误不再回传堆栈、token 脱敏过滤器
+  下沉到 handler 层（子 logger 也覆盖）、代理 URL 剥离 user:pass、插件 entry
+  限定纯文件名、power-automate import 限制在工作区。
+- 正确性：run_agent 捕获 CancelledError 落库 cancelled、adversarial_audit
+  单员失败不再整体崩、projection 代次匹配去 `or ci` 恒真、auto_team agent_id
+  序号、error_taxonomy 状态码词边界、未知验收类型 fail-closed。
+- 资源与一致性：routes 会话读取改 to_thread、下载/文件预览不再全量进内存、
+  写文件工具全部原子落盘（`_atomic.py`）、updater 备份保留 5 份、KB 导入
+  截断有 `truncated` 信号、grep/job_output 增量与统计口径修正。
+
+### Changed
+- 依赖新增 `python-calamine>=0.3,<1`（可选加速层，缺失自动回退 openpyxl）。
+- Excel worker 超时配置下限 50ms（亚 50ms 直接判超时，避免 RPC 抖动）。
+
+### Tests
+- 新增：`test_soul_persona`（21）、`test_subagent_gate_blocked`、
+  `test_agentrun_cancel`、`test_office_tools`、ARG_EN 反向扫描、envfile 变体、
+  worker 重启/serve 协议、跨代 projection 等；全量 1985 用例通过，
+  失败项与基线一致（10 个环境类遗留）。
+
 ## [0.11.0-beta.50] - 2026-11-23
 
 ### Added
