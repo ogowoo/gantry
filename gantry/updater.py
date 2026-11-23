@@ -342,8 +342,9 @@ class Updater:
         except Exception as exc:                 # noqa: BLE001
             log.warning("无法排定重启: %s", exc)
 
-    def _resolve_tag_commit(self, target: str, branch: str) -> str:
-        """解析目标 tag 对应的 commit。
+    def _resolve_tag_commit(self, target: str, branch: str,
+                            force: bool = False) -> tuple[str, bool]:
+        """解析目标 tag 对应的 commit，返回 (commit, fallback)。
 
         为什么需要单独做：更新器**只 fetch 分支、不 fetch 全部 tag**（全量
         `git fetch --tags` 在本地 tag 与远端分叉时会以 "would clobber existing
@@ -353,27 +354,37 @@ class Updater:
 
         顺序：本地 → 强制抓单个 tag（`+refs/tags/x:refs/tags/x`，"+" 允许覆盖
         已存在的同名 tag，因此不会再撞 clobber）→ 远端分支头兜底。
+
+        兜底策略：target 是明确版本号（v1.2.3 形态可解析）时，静默退到远端
+        分支头意味着实际安装的并非所请求的 tag，禁止该兜底、直接报错；
+        仅 force=True 允许兜底，且返回 fallback=True 让调用方在结果中标记。
         """
         ref = f"refs/tags/v{target}"
         try:
             out = self._git(["rev-parse", "--verify", f"{ref}^{{commit}}"], timeout=20)
             if out:
-                return out
+                return out, False
         except UpdateError:
             pass                                     # 本地没有这个 tag：正常
         try:
             self._git(["fetch", "--force", "origin", f"+{ref}:{ref}"], timeout=90)
             out = self._git(["rev-parse", "--verify", f"{ref}^{{commit}}"], timeout=20)
             if out:
-                return out
+                return out, False
         except UpdateError as exc:
             log.warning("抓取 tag v%s 失败（改用远端分支头）: %s", target, exc)
+        explicit_tag = bool(_TAG_RE.match(str(target)))
+        if explicit_tag and not force:
+            raise UpdateError(
+                f"无法解析 v{target} 的提交：本地与远端都没有对应 tag。"
+                f"目标是明确版本号，拒绝静默回退到远端分支头"
+                f"（那样安装的并非所请求的版本）；如确需兜底请显式 force=True")
         remote_ref = f"refs/remotes/origin/{branch}"
         try:
             out = self._git(["rev-parse", remote_ref], timeout=20)
             if out:
                 log.warning("未解析到 tag v%s，改用 %s（%s）", target, remote_ref, out[:12])
-                return out
+                return out, True
         except UpdateError:
             pass
         raise UpdateError(f"无法解析 v{target} 的提交：本地与远端都没有对应 tag，且远端分支不可用")
@@ -392,7 +403,7 @@ class Updater:
         # 只 fetch 分支：`git fetch --tags` 在 tag 分叉时会 "would clobber existing tag"
         # 失败（exit 1）；需要的 tag 由 _resolve_tag_commit 单独强制抓取。
         self._git(["fetch", "origin", branch], timeout=90)
-        commit = self._resolve_tag_commit(target, branch)
+        commit, fallback = self._resolve_tag_commit(target, branch, force=force)
         bdir, record = self._new_backup("git", previous_commit=previous, branch=branch,
                                         target=target, target_commit=commit)
         self._save_backup(bdir, record)
@@ -403,9 +414,13 @@ class Updater:
                 f"无法快进到 v{target}：本地 {branch} 可能已有自己的提交、或与远端分叉。"
                 f"（{exc}）\n可在安装目录手动执行：git fetch origin && "
                 f"git reset --hard v{target}，然后再更新依赖。") from exc
-        return {"changed": True, "backup": bdir.name,
-                "previous_commit": previous[:12], "target_commit": commit[:12],
-                "branch": branch}
+        res = {"changed": True, "backup": bdir.name,
+               "previous_commit": previous[:12], "target_commit": commit[:12],
+               "branch": branch}
+        if fallback:
+            # 安装的不是所请求 tag 的提交，而是远端分支头——必须显式暴露给调用方。
+            res["fallback"] = True
+        return res
 
     def _apply_zip(self, target: str, *, force: bool = False) -> dict[str, Any]:
         info = self._release_info(target)
@@ -420,7 +435,14 @@ class Updater:
         self._download(url, zpath)
         expected = self._digest(info.get("sha256"))
         got = _sha256(zpath)
-        if expected and expected != got:
+        if not expected:
+            # release 未提供 digest 时不能静默跳过校验——那样等于完全不校验。
+            # 默认拒绝安装，仅显式 force=True 放行（调用方自担风险）。
+            if not force:
+                raise UpdateError(
+                    f"release v{target} 未提供 SHA256 digest，拒绝安装；"
+                    f"确认来源可信后可显式传 force=True 放行")
+        elif expected != got:
             raise UpdateError("下载文件 SHA256 与 release digest 不一致")
         staging = self.update_dir / "staging" / f"{target}-{_now()}"
         if staging.exists():
@@ -578,6 +600,12 @@ class Updater:
 
     # ── 回滚 ────────────────────────────────────────────────────
     def rollback(self, backup: str = "") -> dict[str, Any]:
+        # 与 apply() 同一把锁：apply 持锁拷贝文件期间 rollback 若并发执行，
+        # 会在文件树拷贝到一半时 git reset / 解 zip，得到混杂的安装（实测风险点）。
+        with self._lock:
+            return self._rollback_locked(backup)
+
+    def _rollback_locked(self, backup: str = "") -> dict[str, Any]:
         rows = self.backups()
         if not rows:
             raise UpdateError("没有可回滚的更新备份")

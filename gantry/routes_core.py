@@ -15,7 +15,7 @@ from fastapi import APIRouter, HTTPException, Request as HttpRequest
 from .version import VERSION as _APP_VERSION
 from .brand import APP_NAME as _APP_NAME
 from fastapi.responses import (StreamingResponse, FileResponse, RedirectResponse,
-                               JSONResponse)
+                               HTMLResponse, JSONResponse)
 from pydantic import BaseModel, Field
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
@@ -140,11 +140,18 @@ async def root():
 
 
 @router.get("/health")
-async def health():
+async def health(request: HttpRequest):
     try:
         page_url = b.page.url if b.page else None
     except Exception:
         page_url = None  # 浏览器异常时健康检查不应自己 500
+    # page_url 含 Copilot 会话标识：只对回环请求返回（局域网可达的 /health 不鉴权，
+    # 不能把会话 URL 也开放出去）；其余健康字段对监控/托盘保持免鉴权。
+    try:
+        _host = (request.client.host if request is not None and request.client else "") or ""
+        _loopback = _host in ("127.0.0.1", "::1", "localhost") or _host.startswith("127.")
+    except Exception:                       # noqa: BLE001
+        _loopback = False
     # 起始状态与"页面是否可用"分开表达：没有 Copilot 时服务仍是 ok（提供商可用），
     # 只是 copilot_ready=false，WebUI 据此显示提示与「重试浏览器」。
     return {
@@ -160,7 +167,7 @@ async def health():
         "busy": b.any_window_busy(),
         # 窗口池现状（max/windows/busy/waiting/running）：预览分支的多窗口排障入口
         "windows": b.WINDOWS.stats(),
-        "page_url": page_url,
+        "page_url": page_url if _loopback else None,
         "default_model": b.DEFAULT_MODEL,
         "headless": b.HEADLESS_CURRENT,
     }
@@ -414,7 +421,14 @@ async def web_ui():
 
 @router.get("/ui/", include_in_schema=False)
 async def web_ui_index():
-    return FileResponse(b.BASE / "webui" / "index.html", headers={"Cache-Control": "no-cache, must-revalidate"})
+    # 目录形式提供服务：页面里 style.css / js/*.js 用相对路径引用，
+    # 必须以 /ui/ 结尾的基地址解析，否则相对引用会落到站点根路径。
+    # index.html 里的 {{VERSION}} 换成当前版本号：脚本 URL 随版本变化，
+    # 否则浏览器 heuristic 缓存会长期持有旧 JS（实测：ESM 迁移后用户仍拿到
+    # 旧的 app.js，/self-upgrade 与插件面板丢失）。
+    html = (b.BASE / "webui" / "index.html").read_text(encoding="utf-8")
+    return HTMLResponse(html.replace("{{VERSION}}", _APP_VERSION),
+                        headers={"Cache-Control": "no-cache, must-revalidate"})
 
 
 @router.get("/ui/{asset:path}", include_in_schema=False)

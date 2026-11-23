@@ -336,17 +336,32 @@ _WRITE_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
 
 
 def _is_local_origin(value: str) -> bool:
-    """origin/referer 是否属于本机回环（含端口比较由调用方完成）。"""
+    """origin/referer 是否属于本机回环（只判主机；端口校验见 _local_port_mismatch）。"""
     try:
         from urllib.parse import urlsplit
         parts = urlsplit(value)
         host = (parts.hostname or "").lower()
         if host not in ("127.0.0.1", "localhost", "::1", "[::1]"):
             return False
-        # 端口必须与请求一致（同源）；未写端口时按同主机放行
         return True
     except Exception:
         return False
+
+
+def _local_port_mismatch(value: str, want_port: int) -> bool:
+    """回环 origin/referer 的端口是否与服务端口一致（跨源则拒）。
+
+    浏览器在 Origin/Referer 里总是带上非默认端口；不写端口 = 该 scheme 的默认端口。
+    旧逻辑把\"没写端口\"当\"放行\"：本机 80 端口的任意页面伪造 Origin: http://127.0.0.1
+    即可绕过 CSRF 防护打到 8188 的写接口，这里显式补上默认值再比较。
+    """
+    try:
+        from urllib.parse import urlsplit
+        parts = urlsplit(value)
+        got = parts.port or (443 if parts.scheme == "https" else 80)
+        return int(got) != int(want_port)
+    except Exception:                        # noqa: BLE001
+        return True                        # 解析不出端口的回环来源一律拒
 
 
 @app.middleware("http")
@@ -366,15 +381,18 @@ async def origin_guard(request, call_next):
                 pass
             elif _is_local_origin(origin):
                 want = request.url.port or (443 if request.url.scheme == "https" else 80)
-                from urllib.parse import urlsplit
-                got = urlsplit(origin).port
-                if got and int(got) != int(want):
+                if _local_port_mismatch(origin, want):
                     return JSONResponse({"detail": "拒绝来自其它端口的写入请求（跨源）"},
                                         status_code=403)
             else:
                 return JSONResponse({"detail": "拒绝跨站写入请求（Origin 非本机）"}, status_code=403)
         elif referer and not _is_local_origin(referer) and referer not in allow_extra:
             return JSONResponse({"detail": "拒绝跨站写入请求（Referer 非本机）"}, status_code=403)
+        elif referer and _is_local_origin(referer) and referer not in allow_extra:
+            want = request.url.port or (443 if request.url.scheme == "https" else 80)
+            if _local_port_mismatch(referer, want):
+                return JSONResponse({"detail": "拒绝来自其它端口的写入请求（跨源）"},
+                                    status_code=403)
     resp = await call_next(request)
     # 安全响应头：CSP 里保留 'unsafe-inline' 是因为 UI 目前用了内联 onclick，
     # 去掉会直接让界面失效（已记为后续重构项）；其余指令仍然收紧可加载源。

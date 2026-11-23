@@ -6,7 +6,7 @@ api.py，这里经 ``a.xxx`` 访问（保持测试对 api 模块的打桩语义�
 """
 from __future__ import annotations
 
-import asyncio, hmac, json, logging, re, threading, time, uuid
+import asyncio, hmac, json, logging, os, re, threading, time, uuid
 from pathlib import Path
 from typing import Any
 
@@ -73,7 +73,15 @@ async def session_file(sid: str, path: str, download: int = 0):
         raise HTTPException(404, "Session 不存在")
     root = Path(str(st.get("workspace") or b.BASE / "workspace")).resolve()
     target = (root / str(path).replace("\\", "/")).resolve()
-    if not str(target).startswith(str(root)) or not target.is_file():
+    # 防目录穿越：resolve 后必须仍落在工作区内。不能用 startswith——会被同前缀
+    # 兄弟目录绕过（root=/ws、target=/ws_evil/x）；Windows 盘符/目录名不区分大小写，
+    # 用 normcase 统一后比较（与 atrefs.py 的 _resolve 同一思路）。
+    try:
+        if os.path.normcase(str(target)) != os.path.normcase(str(root)):
+            target.relative_to(root)
+    except ValueError:
+        raise HTTPException(404, "文件不存在或不在工作区内")
+    if not target.is_file():
         raise HTTPException(404, "文件不存在或不在工作区内")
     return FileResponse(str(target), filename=target.name if download else None,
                         headers=None if download else {"Content-Disposition": "inline"})
@@ -277,6 +285,29 @@ async def session_deletion_plan(sid: str):
     }
 
 
+_COPILOT_DELETE_HOSTS = ("copilot.cloud.microsoft", "copilot.microsoft.com")
+
+
+def _copilot_delete_urls(raw: list[str] | None) -> list[str]:
+    """校验待导航删除的 URL 只允许 Copilot 域名。
+
+    「重试远程并强制清理本地记录」分支的 urls 来自请求参数（本机任意进程可伪造），
+    而删除流程会用带企业 SSO 登录态的自动化浏览器 goto 这些 URL——不校验就是
+    借浏览器访问任意地址。会话记录里的 conversation_urls 是服务端自己写的，
+    但统一过一遍白名单无害（反正非 Copilot 域名删了也是失败）。
+    """
+    from urllib.parse import urlparse
+    out: list[str] = []
+    for u in list(dict.fromkeys(raw or [])):
+        try:
+            host = (urlparse(str(u)).hostname or "").lower()
+        except Exception:                        # noqa: BLE001
+            continue
+        if host in _COPILOT_DELETE_HOSTS:
+            out.append(str(u))
+    return out
+
+
 @router.delete("/v1/agent/sessions/{sid}")
 async def delete_session(sid: str, delete_remote: bool = False, force_local: bool = False,
                          urls: list[str] | None = Query(default=None),
@@ -288,6 +319,9 @@ async def delete_session(sid: str, delete_remote: bool = False, force_local: boo
         if delete_remote and urls:
             if b.session_running(sid):
                 raise HTTPException(409, "Session 正在运行，不能删除")
+            urls = _copilot_delete_urls(urls)
+            if not urls:
+                raise HTTPException(400, "urls 里没有可识别的 Copilot 会话地址")
             remote_results = []
             if b.current_page() is not None:
                 async with b._window("", wait_timeout=15):
