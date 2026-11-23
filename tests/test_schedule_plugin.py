@@ -152,5 +152,39 @@ class ScheduleUpdateTests(unittest.TestCase):
         asyncio.run(scenario())
 
 
+class ScheduleEveryTests(unittest.TestCase):
+    """_parse_every：拒 nan/inf/非正/超一年的间隔（否则任务静默永不触发）。"""
+
+    def setUp(self):
+        self.mod = load_plugin()
+
+    def test_nan_inf_rejected(self):
+        for bad in ("nand", "infd", "nanm", "infs", "-infh"):
+            with self.assertRaises(ValueError, msg=f"{bad!r} 应被拒绝"):
+                self.mod._parse_every(bad)
+
+    def test_non_positive_rejected(self):
+        for bad in ("0m", "0s", "-5m", "-1d"):
+            with self.assertRaises(ValueError, msg=f"{bad!r} 应被拒绝"):
+                self.mod._parse_every(bad)
+
+    def test_upper_bound(self):
+        self.assertEqual(self.mod._parse_every("366d"), 366 * 86400, "边界值应接受")
+        for bad in ("367d", "1000d", "1e9s"):
+            with self.assertRaises(ValueError, msg=f"{bad!r} 超上限应被拒绝"):
+                self.mod._parse_every(bad)
+
+    def test_garbage_rejected(self):
+        for bad in ("", "abc", "10x", "m"):
+            with self.assertRaises(ValueError, msg=f"{bad!r} 应被拒绝"):
+                self.mod._parse_every(bad)
+
+    def test_valid_unchanged(self):
+        self.assertEqual(self.mod._parse_every("30s"), 30)
+        self.assertEqual(self.mod._parse_every("10m"), 600)
+        self.assertEqual(self.mod._parse_every("2h"), 7200)
+        self.assertEqual(self.mod._parse_every("1d"), 86400)
+
+
 if __name__ == "__main__":
     unittest.main()

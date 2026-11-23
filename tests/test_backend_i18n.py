@@ -17,8 +17,24 @@ class TranslateTests(unittest.TestCase):
         out = i18n.translate("没有名为 mcp2 的插件", "en")
         self.assertEqual(out, "No plugin named mcp2")
 
-    def test_generic_not_found_pattern(self):
-        self.assertEqual(i18n.translate("工作区目录不存在", "en"), "工作区目录 not found")
+    def test_generic_not_found_fallback_removed(self):
+        """「不存在$」兜底正则已删除：复合句不再被错译成中英混杂。
+
+        「该文件已被移动或不存在」会被译成「该文件已被移动或 not found」的假阳性；
+        表里没有的文案按约定保持中文原样（宁见中文，不丢信息）。
+        """
+        msg = "该文件已被移动或不存在"
+        self.assertEqual(i18n.translate(msg, "en"), msg)
+        # 未登记的「XX不存在」也不再走兜底翻译
+        msg2 = "工作区目录不存在"
+        self.assertEqual(i18n.translate(msg2, "en"), msg2)
+
+    def test_high_frequency_not_found_exact(self):
+        """高频「不存在」文案改走 EXACT 精确表。"""
+        self.assertEqual(i18n.translate("文件不存在", "en"), "File not found")
+        self.assertEqual(i18n.translate("目标文件不存在", "en"), "Target file does not exist")
+        self.assertEqual(i18n.translate("文件不存在或不在工作区内", "en"),
+                         "File not found or outside the workspace")
 
     def test_unknown_message_stays(self):
         msg = "某个还没翻译的消息"

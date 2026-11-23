@@ -26,7 +26,12 @@ async function api(u,o={}){
     const tk=await tokenPrompting;
     if(tk)r=await call(tk);
   }
-  let t=await r.text();if(!r.ok)throw new ApiError(r.status,t,u);return t?JSON.parse(t):{}}
+  let t=await r.text();if(!r.ok)throw new ApiError(r.status,t.slice(0,300),u);
+  // 非 JSON 响应（网关错误页/空 body）不能变成裸 SyntaxError：包成 ApiError，
+  // 保住状态码 / URL / 响应片段，toast 与重试逻辑才有上下文。
+  if(!t)return{};
+  try{return JSON.parse(t)}
+  catch(e){throw new ApiError(r.status,'响应不是合法 JSON: '+t.slice(0,300),u)}}
 /* tr() 由 i18n.js 提供（该文件在 app.js 之前加载）。若它加载失败，这里兜底成"原样返回"，
    否则每个用了 tr() 的交互都会抛 ReferenceError。 */
 if (typeof tr !== 'function') { window.tr = (k) => String(k == null ? '' : k); }

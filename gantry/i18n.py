@@ -58,6 +58,13 @@ EXACT: dict[str, str] = {
     "content 或 model 至少提供一个": "Provide at least one of content or model",
     "需要 tool 与 args_hash（或先用 approval_pending 记录）":
         "tool and args_hash are required (or record approval_pending first)",
+    # 高频「不存在」文案走 EXACT；不用「不存在$」兜底正则——它会把
+    # 「该文件已被移动或不存在」这类复合句错译成中英混杂的「该文件已被移动或 not found」。
+    "文件不存在": "File not found",
+    "目标文件不存在": "Target file does not exist",
+    "文件不存在或不在工作区内": "File not found or outside the workspace",
+    "本地记录已不存在，本次只重试远端删除。":
+        "The local record no longer exists; only the remote deletion was retried this time.",
 }
 
 # 模式匹配：中文正则 → 英文模板（用 {1} {2} 引用捕获组）
@@ -66,7 +73,6 @@ PATTERNS: list[tuple[str, str]] = [
     (r"没有名为 (.+?) 的插件", "No plugin named {1}"),
     (r"没有名为 (.+?) 的记忆", "No memory entry named {1}"),
     (r"未知操作[:：]?\s*(.+)", "Unknown operation: {1}"),
-    (r"^(.{1,40}?)不存在$", "{1} not found"),
 ]
 
 _TW_EXTRA = {

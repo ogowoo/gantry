@@ -14,23 +14,32 @@
 
 import asyncio
 import datetime as _dt
+import math
 import time
 import uuid
 
 _TICK = 20.0
+# 间隔上限：一年（366 天）。再大就是规格写错（或 nan/inf 混入），静默排一个
+# 永不触发的任务比直接报错更难排查。
+_MAX_EVERY_SECONDS = 366 * 86400
 
 
 def _parse_every(text):
-    """'30s' / '10m' / '2h' / '1d' → 秒。"""
+    """'30s' / '10m' / '2h' / '1d' → 秒。拒 nan/inf/非正/超一年的值。"""
     t = str(text or "").strip().lower()
     if not t:
         raise ValueError("every 不能为空")
     unit = t[-1]
-    num = float(t[:-1])
+    try:
+        num = float(t[:-1])
+    except ValueError:
+        raise ValueError(f"无法解析间隔: {text}（示例: 30s / 10m / 2h / 1d）") from None
     mult = {"s": 1, "m": 60, "h": 3600, "d": 86400}.get(unit)
-    if mult is None or num <= 0:
-        raise ValueError(f"无法解析间隔: {text}（示例: 30s / 10m / 2h / 1d）")
-    return num * mult
+    secs = num * mult if mult is not None else None
+    if secs is None or not math.isfinite(secs) or not (0 < secs <= _MAX_EVERY_SECONDS):
+        raise ValueError(f"无法解析间隔: {text}（示例: 30s / 10m / 2h / 1d；"
+                         f"0 < 数值 ≤ {_MAX_EVERY_SECONDS // 86400}d 且必须有限）")
+    return secs
 
 
 def _next_run(spec, now=None):

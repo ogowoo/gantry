@@ -141,11 +141,16 @@ def _read_manifest(plugin_dir: Path) -> PluginManifest | None:
         unknown = [p for p in perms if p not in ALLOWED_PERMISSIONS]
         if unknown:
             raise PluginError(f"{name}: 未知权限 {unknown}（可用: {sorted(ALLOWED_PERMISSIONS)}）")
+        # entry 只允许纯文件名：清单是第三方代码，"../../x.py" 这类相对路径会让
+        # load() 执行插件目录之外的任意文件（目录遍历 → 任意代码执行）。
+        entry = str(block.get("entry") or "plugin.py")
+        if not re.fullmatch(r"[A-Za-z0-9_.-]+", entry):
+            raise PluginError(f"{name}: entry 只能是纯文件名（[A-Za-z0-9_.-]+），收到 {entry!r}")
         return PluginManifest(
             name=name,
             version=str(block.get("version") or raw.get("version") or "0.1.0"),
             description=str(block.get("description") or raw.get("description") or ""),
-            entry=str(block.get("entry") or "plugin.py"),
+            entry=entry,
             i18n={str(k): {str(a): str(bb) for a, bb in (v or {}).items()}
                   for k, v in (block.get("i18n") or {}).items()
                   if isinstance(v, dict) and k in ("en", "tw")},
@@ -169,7 +174,8 @@ class PluginContext:
         self.manifest = manifest
         self.name = manifest.name
         self.config = dict(manifest.config)
-        self.dir = manifest.dir
+        # 先 resolve 存下插件目录边界：read_text/write_text 用它做越界校验。
+        self.dir = Path(manifest.dir).resolve() if manifest.dir is not None else None
         self.registered: dict[str, list[str]] = {"tools": [], "providers": [], "api": [], "events": []}
         self._handlers: list[tuple[str, Callable[..., Any]]] = []
 
@@ -315,15 +321,26 @@ class PluginContext:
             raise PluginError(f"{self.name}: 未声明 'storage' 权限")
         self.host.save_state(self.name, **kw)
 
+    def _resolve_within(self, rel: str) -> Path:
+        """把 rel 解析到插件目录内；越界（../、绝对路径、符号链接逃逸）抛 PluginError。"""
+        if self.dir is None:
+            raise PluginError(f"{self.name}: 插件目录未知")
+        target = (self.dir / rel).resolve()
+        try:
+            target.relative_to(self.dir)
+        except ValueError:
+            raise PluginError(f"{self.name}: 路径越界（必须位于插件目录内）: {rel}") from None
+        return target
+
     def read_text(self, rel: str) -> str:
         if "files" not in self.manifest.permissions:
             raise PluginError(f"{self.name}: 未声明 'files' 权限")
-        return (self.dir / rel).resolve().read_text(encoding="utf-8")
+        return self._resolve_within(rel).read_text(encoding="utf-8")
 
     def write_text(self, rel: str, text: str) -> None:
         if "files" not in self.manifest.permissions:
             raise PluginError(f"{self.name}: 未声明 'files' 权限")
-        target = (self.dir / rel).resolve()
+        target = self._resolve_within(rel)
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(text, encoding="utf-8")
 
@@ -450,7 +467,13 @@ class PluginHost:
         manifest = next((m for m in self.discover() if m.name == name), None)
         if manifest is None:
             raise PluginError(f"没有名为 {name} 的插件")
+        # entry 已在清单解析时限定为纯文件名；这里再校验解析结果不越出插件目录
+        # （防符号链接逃逸：插件目录内一个指向外部的软链 entry）。
         entry = (manifest.dir / manifest.entry).resolve()
+        try:
+            entry.relative_to(manifest.dir.resolve())
+        except ValueError:
+            raise PluginError(f"{name}: entry 越界（必须位于插件目录内）: {manifest.entry}") from None
         if not entry.is_file():
             raise PluginError(f"{name}: 入口文件不存在 {manifest.entry}")
         mod_name = f"cbp_plugin_{name.replace('-', '_')}"

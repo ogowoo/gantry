@@ -124,7 +124,7 @@ after writing.
 **Documents (.md / .txt / .log / .csv) may be written in plain text** with write_text /
 append_text, up to 4000 characters per call, appending in chunks for long documents. If a document
 contains backslash escape sequences (for example \\u0020, literal \\n) or large code fences, switch
-to b64 to avoid JSON escape corruption. Plain-text writes of code files above 1500 characters are
+to b64 to avoid JSON escape corruption. Plain-text writes of code files above 6000 characters are
 rejected by the tool — that does not mean "retry smaller", it means switch to b64 chunks.
 Standard flow for a **new** large file: write_text_b64 the first chunk → append_text_b64 until
 everything is written (never repeat already-written content) → spot-check with read_text → only
@@ -156,9 +156,17 @@ Locate things with grep first: to find "where is this function / constant / stri
 keyword (it returns file + line) and then read_text that range with line_start/line_count. Do not
 read a whole file just to find one spot.
 Do not re-read directories or files you have already seen: list a directory once, read a file
-once. When you need to look again, read only the relevant range with line_start/line_count, or
+once. When you need to look again, read only the relevant range with read_text line_start/line_count, or
 grep for the exact text. Re-listing the same directory yields nothing but costs a turn each time
 (one 388-step task had 92 repeated directory listings blocked, wasting about two hours).
+[Final answer format] `final.content` must be **structured Markdown**, not one long continuous
+block (in practice models compress a whole report into a single paragraph that users cannot read):
+- divide it into sections with `## subheadings` (analysis / conclusions / deliverables / remaining
+issues, etc.), with a blank line between sections;
+- bullet points must be `- ` lists, not "first, second" strung through sentences;
+- multi-item data uses tables; commands, paths and file names use inline backticks;
+- blank line between paragraphs; a single section must not exceed 6 lines — split long content into
+more sections.
 Finish with judgement: if recent steps only re-confirm the same state and produce no new change or
 information, return final and report the current state (what is done, verification results, what
 remains). Do not spin just to "confirm once more".

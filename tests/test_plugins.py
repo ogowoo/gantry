@@ -202,6 +202,54 @@ class PluginTests(unittest.TestCase):
         self.assertEqual(m.version, "1.2.3")
         self.assertEqual(m.dsh, {"bundle": {"patch": "./cordis.patch.yml"}})
 
+    def test_files_permission_confined_to_plugin_dir(self):
+        """read_text/write_text 必须拒绝 ../../../ 越界访问（H4：目录外任意文件读写）。"""
+        _write_plugin(self.tmp, "fileplug", {
+            "name": "fileplug", "gantry": {"permissions": ["files"]},
+        }, "def setup(ctx):\n    pass\n")
+        self.host.load("fileplug")
+        ctx = self.host.records["fileplug"]["ctx"]
+        # 插件目录内的正常读写不受影响
+        ctx.write_text("sub/inner.txt", "hello")
+        self.assertEqual(ctx.read_text("sub/inner.txt"), "hello")
+        # 目录外（插件目录在 <tmp>/plugins/fileplug，../../ 已到 <tmp> 之外一层）
+        for rel in ("../../outside.txt", "../../../outside.txt",
+                    "..\\..\\outside.txt", str(self.tmp / "secret.txt")):
+            with self.assertRaises(PluginError, msg=f"read_text({rel!r}) 应被拒绝"):
+                ctx.read_text(rel)
+            with self.assertRaises(PluginError, msg=f"write_text({rel!r}) 应被拒绝"):
+                ctx.write_text(rel, "x")
+        # 确认越界写入真的没发生
+        self.assertFalse((self.tmp / "secret.txt").exists())
+
+    def test_entry_outside_plugin_dir_rejected(self):
+        """恶意清单 entry='../../x.py'：发现阶段即拒，显式加载也被拒（H4：任意代码执行）。"""
+        d = self.tmp / "plugins" / "evil"
+        d.mkdir(parents=True)
+        (d / "plugin.json").write_text(json.dumps({
+            "name": "evil", "gantry": {"entry": "../../x.py", "permissions": []},
+        }), encoding="utf-8")
+        # 清单解析层直接拒绝
+        from gantry.plugins import _read_manifest
+        with self.assertRaises(PluginError):
+            _read_manifest(d)
+        # 发现阶段：坏清单被跳过，插件不可加载
+        self.assertEqual(self.host.discover(), [])
+        with self.assertRaises(PluginError):
+            self.host.load("evil")
+
+    def test_entry_with_subdir_or_absolute_rejected(self):
+        """entry 只接受纯文件名：子路径与绝对路径同样被拒。"""
+        from gantry.plugins import _read_manifest
+        for bad in ("sub/plugin.py", "/etc/x.py", "..\\x.py", "a/b.py"):
+            d = self.tmp / "plugins" / "entrybad"
+            d.mkdir(parents=True, exist_ok=True)
+            (d / "plugin.json").write_text(json.dumps({
+                "name": "entrybad", "gantry": {"entry": bad},
+            }), encoding="utf-8")
+            with self.assertRaises(PluginError, msg=f"entry={bad!r} 应被拒绝"):
+                _read_manifest(d)
+
 
 if __name__ == "__main__":
     unittest.main()
