@@ -5,11 +5,27 @@
 
 ## [Unreleased]
 
+## [0.11.0-beta.48] - 2026-11-23
+
 ### Added
-- 
+- 全面代码审查报告（`REVIEW_REPORT.md`）：8 个 HIGH 全部确认并修复，P1 逐项落实；
+- 回归测试：`test_config_raw_redact` / `test_teams_api_security` / `test_power_apps_ui` /
+  `test_xlsx_patch` 新建，`test_api_hardening` / `test_task_verify` /
+  `test_copilot_file` / `test_chat_windows` 扩展。
 
 ### Changed
-- 
+- `/v1/config/raw`：敏感键（token/secret/password 等）GET 返回打码 `***`，
+  POST 遇占位符保留旧值，配置不再明文出网；
+- CSRF 校验从"是否本机"收紧为"本机且同端口"（origin/referer 端口与服务端口比较）；
+- `delete_session` 的远程 URL 限定 Copilot 域名白名单；
+- `/health` 的 `page_url` 仅回环请求返回；
+- Teams/Power 平台：删除 Bearer 探测的 `verify=False`，恢复 CA 校验；抓包钩子
+  仅限 Teams 域名并取数即清页缓存；skypeToken 按 JWT exp 计算 TTL；
+  `pa-auth` cookie 域边界匹配 + 文件权限 0o600；
+- 下载响应统一 512MB 上限；
+- `task_plan` 写操作 `BEGIN IMMEDIATE`；任务验收对错误与详情脱敏
+  （AWS key/PEM 私钥/token 等模式）；
+- 前端 4 个脚本加 `?v={{VERSION}}` 版本戳，根治浏览器缓存旧 ESM。
 
 ### Fixed
 - `visual-design` 渲染器在**没装 Playwright 自带 Chromium** 的机器上直接失败
@@ -17,7 +33,18 @@
   现在先试自带 Chromium，失败后自动退回 `config.json` 的 `browser_channel`
   （Windows 上默认 `msedge`，本服务本来就必须有 Edge），两条路都不通时才报错，
   错误信息同时给出两个原因。`tests/test_visual_design_plugin` /
-  `test_visual_design_e2e` 在只有 Edge 的机器上恢复通过。
+  `test_visual_design_e2e` 在只有 Edge 的机器上恢复通过；
+- envfile 解析：先判引号值再剥注释，引号内 `#` 不再被截断；
+- xlsx 补丁写出改用 `writestr(ZipInfo, data)`，保留原条目时间戳/压缩方式，
+  Excel 不再报"整包被改"；原句柄内一次读完，避免 close 后读句柄；
+- 子会话超时取消（CancelledError）先落库 `failed` 再 re-raise，
+  不再永远停留 running；
+- 测试临时目录统一 redirect 到仓库外 `.gantry-test-tmp`（跑完即清），
+  仓库根不再出现 `cbp_*/gantry_*/vi_test_*` 等 200+ 种前缀的残留；
+  跑完兜底清理改为从 `tests/*.py` 动态抓 `mkdtemp(prefix=...)` 清单，新前缀零维护。
+
+### Tests
+- 全量回归 254 模块，0 异常（redirect 双保险 + 动态前缀清理验证通过）。
 
 ## [0.11.0-beta.47] - 2026-11-21
 
