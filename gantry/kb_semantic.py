@@ -238,6 +238,15 @@ class SemanticIndex:
         for i in range(0, len(todo), max(1, batch)):
             part = todo[i:i + max(1, batch)]
             vecs = self.embedder.embed([p["text"] or " " for p in part])
+            # 嵌入器返回数量与请求数量不符时继续写库会留下"缺块"索引
+            # （检索永远召不回这些 chunk，且很难排查）。立即失败并指出
+            # 批次与 chunk_id，比静默写坏库好排查得多。
+            if len(vecs) != len(part):
+                ids = [p["id"] for p in part]
+                raise RuntimeError(
+                    f"嵌入器返回数量不符：请求 {len(part)} 条，实际 {len(vecs)} 条"
+                    f"（批次起始 chunk_id={ids[0] if ids else '?'}，"
+                    f"本批 chunk_id={ids}）；未写入任何向量")
             for item, vec in zip(part, vecs):
                 con.execute(
                     f"INSERT OR REPLACE INTO {self.table}"

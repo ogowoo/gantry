@@ -124,34 +124,50 @@ class MemoryStore:
         norm = _norm(text)
         now = time.time()
         expires = now + ttl * 86400 if ttl > 0 else 0.0
+
+        def _update_existing(con: sqlite3.Connection, row: sqlite3.Row) -> tuple[int, str]:
+            # 重复写入视为更新：默认 kind=fact 不应把已标注的 preference/pitfall 覆盖掉
+            keep_kind = kind if kind != "fact" else row["kind"]
+            _prev_sid = row["source_session"] if "source_session" in row.keys() else None
+            con.execute("UPDATE memories SET text=?, kind=?, tags=?, updated=?, "
+                        "pinned=MAX(pinned, ?), source_session=?, "
+                        "verified=MAX(verified, ?), source=CASE WHEN ? != '' THEN ? ELSE source END, "
+                        "expires_at=CASE WHEN ? > 0 THEN ? ELSE expires_at END, "
+                        "confidence=MAX(confidence, ?) WHERE id=?",
+                        (text, keep_kind, json.dumps(tags or [], ensure_ascii=False), now,
+                         1 if pinned else 0, source_session or _prev_sid,
+                         1 if verified else 0, str(source or ""), str(source or ""),
+                         float(expires), float(expires), confidence, row["id"]))
+            return row["id"], keep_kind
+
         with self._connect() as con:
             row = con.execute(
                 "SELECT id, use_count, kind, source_session, verified, expires_at "
                 "FROM memories WHERE scope=? AND norm=?", (scope, norm)).fetchone()
             if row:
-                # 重复写入视为更新：默认 kind=fact 不应把已标注的 preference/pitfall 覆盖掉
-                keep_kind = kind if kind != "fact" else row["kind"]
-                _prev_sid = row["source_session"] if "source_session" in row.keys() else None
-                con.execute("UPDATE memories SET text=?, kind=?, tags=?, updated=?, "
-                            "pinned=MAX(pinned, ?), source_session=?, "
-                            "verified=MAX(verified, ?), source=CASE WHEN ? != '' THEN ? ELSE source END, "
-                            "expires_at=CASE WHEN ? > 0 THEN ? ELSE expires_at END, "
-                            "confidence=MAX(confidence, ?) WHERE id=?",
-                            (text, keep_kind, json.dumps(tags or [], ensure_ascii=False), now,
-                             1 if pinned else 0, source_session or _prev_sid,
-                             1 if verified else 0, str(source or ""), str(source or ""),
-                             float(expires), float(expires), confidence, row["id"]))
-                mid, created, updated = row["id"], False, True
-                kind = keep_kind
+                mid, kind = _update_existing(con, row)
+                created, updated = False, True
             else:
-                cur = con.execute(
-                    "INSERT INTO memories(scope,kind,text,tags,source_session,pinned,use_count,"
-                    "verified,source,expires_at,confidence,created,updated,norm) "
-                    "VALUES(?,?,?,?,?,?,0,?,?,?,?,?,?,?)",
-                    (scope, kind, text, json.dumps(tags or [], ensure_ascii=False),
-                     source_session, 1 if pinned else 0, 1 if verified else 0,
-                     str(source or ""), float(expires), confidence, now, now, norm))
-                mid, created, updated = cur.lastrowid, True, False
+                try:
+                    cur = con.execute(
+                        "INSERT INTO memories(scope,kind,text,tags,source_session,pinned,use_count,"
+                        "verified,source,expires_at,confidence,created,updated,norm) "
+                        "VALUES(?,?,?,?,?,?,0,?,?,?,?,?,?,?)",
+                        (scope, kind, text, json.dumps(tags or [], ensure_ascii=False),
+                         source_session, 1 if pinned else 0, 1 if verified else 0,
+                         str(source or ""), float(expires), confidence, now, now, norm))
+                    mid, created, updated = cur.lastrowid, True, False
+                except sqlite3.IntegrityError:
+                    # 并发写入竞争：另一连接刚插入了同 (scope, norm) 行，
+                    # 本事务的 INSERT 撞了唯一约束。回滚后按"已存在"重试一次。
+                    con.rollback()
+                    row = con.execute(
+                        "SELECT id, use_count, kind, source_session, verified, expires_at "
+                        "FROM memories WHERE scope=? AND norm=?", (scope, norm)).fetchone()
+                    if row is None:
+                        raise
+                    mid, kind = _update_existing(con, row)
+                    created, updated = False, True
             self._trim(con, scope)
         return {"id": mid, "created": created, "updated": updated, "scope": scope,
                 "kind": kind, "text": text, "pinned": bool(pinned),

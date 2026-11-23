@@ -101,6 +101,32 @@ class LocalizeTests(unittest.TestCase):
         self.assertIn("提供商", prompt_lang.routing_text(False, zh_text, "tw"))
 
 
+class ProtocolConsistencyTests(unittest.TestCase):
+    """英文协议是中文原文的译本：数字常量不能漂移（如明文上限 1500 vs 6000）。
+
+    只比 ≥10 的多位常量：一位数混在「动作1」「action1」这类编号里，中英文
+    写法天然不同（动作1 vs action1），不是真正的常量漂移。
+    """
+
+    @staticmethod
+    def _big_numbers(text: str) -> list[int]:
+        return sorted(int(x) for x in re.findall(
+            r"(?<![A-Za-z0-9_.])\d{2,}(?![A-Za-z0-9_])", text))
+
+    def test_numeric_constants_match_between_zh_and_en(self):
+        zh = prompt.AGENT_PROTOCOL
+        en = prompt_lang.EN.get("protocol") or ""
+        self.assertEqual(self._big_numbers(zh), self._big_numbers(en),
+                         "中英文协议的数字常量不一致（改了中文阈值记得同步英文译本）")
+
+    def test_final_answer_format_section_translated(self):
+        """中文协议的【最终答复格式】段落（prompt.py:102-106）必须有英文对应段。"""
+        en = prompt_lang.EN.get("protocol") or ""
+        self.assertIn("Final answer format", en)
+        self.assertIn("structured Markdown", en)
+        self.assertIn("## subheadings", en)
+
+
 class TraditionalTests(unittest.TestCase):
     def test_table_generated_from_frontend(self):
         self.assertGreater(len(S2T), 300, "简繁对照表条目过少，可能没从 i18n.js 生成")
@@ -236,6 +262,15 @@ class ToolDescriptionTests(unittest.TestCase):
                         for k in (x.get("arguments") or {}) if f'{x["name"]}.{k}' not in ARG_EN]
         self.assertEqual(missing_desc, [], "这些工具缺英文描述")
         self.assertEqual(missing_args, [], "这些参数缺英文提示")
+
+    def test_arg_en_has_no_stale_keys(self):
+        """反向检查：ARG_EN 里不能残留已不存在的工具/参数（如删掉的参数）。"""
+        from gantry.tool_i18n import ARG_EN
+        real = {f'{x["name"]}.{k}' for x in self.tools.descriptions()
+                for k in (x.get("arguments") or {})}
+        names = {x["name"] for x in self.tools.descriptions()}
+        stale = [k for k in ARG_EN if k.split(".", 1)[0] in names and k not in real]
+        self.assertEqual(stale, [], "ARG_EN 里这些键指向不存在的参数")
 
     def test_identifiers_untouched(self):
         prompt_lang.set_request_lang("en")

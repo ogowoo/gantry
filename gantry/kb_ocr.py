@@ -224,7 +224,14 @@ def ocr_file_bytes(data: bytes) -> str:
     return ocr_image_bytes(data)
 
 
-def ocr_pdf_bytes(data: bytes) -> str:
+def _note_truncation(stats: dict[str, Any] | None, original_chars: int) -> None:
+    """截断时往 stats 里记 truncated=true 与原始字符数（stats 为 None 时跳过）。"""
+    if stats is not None and original_chars > MAX_TEXT_CHARS:
+        stats["truncated"] = True
+        stats["original_chars"] = original_chars
+
+
+def ocr_pdf_bytes(data: bytes, stats: dict[str, Any] | None = None) -> str:
     """扫描版 PDF：逐页取内嵌图片做 OCR（无文本层的页才做）。"""
     try:
         from pypdf import PdfReader
@@ -254,7 +261,9 @@ def ocr_pdf_bytes(data: bytes) -> str:
             pages.append(f"## 第 {i} 页（OCR）\n" + "\n".join(got))
     if not pages:
         raise IngestError("这个 PDF 没有文本层，OCR 也没识别出内容（可能是空白页或图片质量太差）")
-    return "\n\n".join(pages)[:MAX_TEXT_CHARS]
+    joined = "\n\n".join(pages)
+    _note_truncation(stats, len(joined))
+    return joined[:MAX_TEXT_CHARS]
 
 
 # ── Xiaomi-OCR-0（0.8B VLM，文档解析/表格/公式）────────────────────────────

@@ -32,9 +32,10 @@ DESC_EN: dict[str, str] = {
     "write_text": ("Write a UTF-8 plain-text file. **New files only**: existing files are rejected "
                    "unless overwrite=true; read_text first and edit with apply_patch/replace_text/"
                    "replace_lines. Documents (.md/.txt/.log) may be written whole; code files only "
-                   "up to 1500 characters (use b64 chunks for more)"),
+                   "up to 6000 characters (the plain_code_limit default; use b64 chunks for more)"),
     "append_text": ("Append UTF-8 plain text. Use it to continue documents in chunks; code files "
-                    "only up to 1500 characters (use append_text_b64 for more)"),
+                    "only up to 6000 characters (the plain_code_limit default; use append_text_b64 "
+                    "for more)"),
     "write_text_b64": ("Base64-decode and write as UTF-8. **New files only**: existing files are "
                        "rejected unless overwrite=true; read_text first and edit with apply_patch/"
                        "replace_text/replace_lines"),
@@ -111,6 +112,10 @@ DESC_EN: dict[str, str] = {
     "write_docx": "Create or append paragraphs in a Word document",
     "read_pptx": "Extract slide text and speaker notes from a presentation",
     "read_pdf": "Extract per-page text from a PDF",
+    "read_csv": ("Read a CSV file (auto-detects utf-8/gb18030 encoding); "
+                 "preview big files with a small max_rows first"),
+    "write_csv": ("Write 2-D rows to CSV (utf-8-sig with BOM opens cleanly in Excel); "
+                  "mode=append to append; escape_formulas prefixes ' onto =,+,-,@ cells"),
     "tool_list": ("List every available tool and its group (the prompt only lists tools relevant "
                   "to the current task; others can still be called directly)"),
     "self_read_text": "Read the service's own code (install-dir relative path, within whitelist)",
@@ -184,6 +189,7 @@ ARG_EN: dict[str, str] = {
     "make_directory.path": "Relative path",
     "copy_path.source": "Relative path",
     "copy_path.destination": "Relative path",
+    "copy_path.overwrite": "true = allow merging into an existing destination directory (covered files are snapshotted)",
     "move_path.source": "Relative path",
     "move_path.destination": "Relative path",
     "delete_path.path": "Relative path",
@@ -266,6 +272,15 @@ ARG_EN: dict[str, str] = {
     "write_docx.mode": "append or overwrite, default append",
     "read_pptx.path": "Relative path",
     "read_pdf.path": "Relative path",
+    "read_csv.path": "Relative path",
+    "read_csv.max_rows": "Max rows, default 2000",
+    "read_csv.max_cols": "Max columns per row, default 200",
+    "read_csv.encoding": "Encoding, default auto (utf-8-sig/utf-8/gb18030)",
+    "write_csv.path": "Relative path",
+    "write_csv.rows": "2-D array",
+    "write_csv.mode": "append or overwrite, default overwrite",
+    "write_csv.encoding": "Encoding, default utf-8-sig (BOM keeps Excel happy)",
+    "write_csv.escape_formulas": "Default true: prefix ' onto text cells starting with =,+,-,@ (blocks CSV formula injection)",
     "self_read_text.path": "e.g. gantry/agent.py",
     "self_read_text.line_start": "1-based first line (recommended)",
     "self_read_text.line_count": "how many lines to read",
@@ -316,7 +331,7 @@ DESC_EN.update({
     'outlook_search': 'Search a folder by subject keyword and date (inbox / sent / outbox / deleted / drafts)',
     'skill_list': 'List available skills (global + project level; same-name project skills override global)',
     'skill_read': 'Read the full SKILL.md of a skill (global skills live outside the workspace; only this tool can read them)',
-    'memory_write': 'Record one long-term memory useful across sessions (fact / preference / decision / pitfall). Write only when it really helps later tasks; verified=true means actually verified, unverified entries are marked; ttl_days can expire it. scope=global is visible to every task, project (default) only to this workspace',
+    'memory_write': 'Record one long-term memory useful across sessions (fact / preference / decision / pitfall). Write only when it really helps later tasks; verified=true means actually verified, unverified entries are marked; ttl_days can expire it. scope=global (default) is visible to every task, project only to this workspace',
     'memory_search': 'Search long-term memory by keywords plus recency/verification status; expired entries are excluded',
     'memory_forget': 'Delete one outdated or wrong long-term memory entry',
     'skill_create': 'Turn a method that proved itself in this task into a skill (SKILL.md). scope=project writes the workspace skills/ (default); scope=global writes the service install dir; verified=true only after actual validation',
@@ -388,7 +403,7 @@ ARG_EN.update({
     'memory_write.kind': 'fact / preference / decision / pitfall',
     'memory_write.tags': 'Tag array',
     'memory_write.pinned': 'true = always visible to every turn',
-    'memory_write.scope': 'project (default) or global',
+    'memory_write.scope': 'global (default) or project',
     'memory_write.verified': 'true only if actually verified',
     'memory_write.source': 'Evidence source (URL/file/command), optional',
     'memory_write.ttl_days': 'Expire after N days; 0 = never',
@@ -410,11 +425,12 @@ ARG_EN.update({
     'grep.pattern': 'Regex',
     'grep.path': 'Directory to search, defaults to .',
     'grep.include': 'Filename filter, e.g. *.py',
-    'grep.max_results': 'Max matches, default 200',
+    'grep.max_results': 'Max matches, default 100',
     'job_kill.job_id': 'Job id',
     'job_output.job_id': 'Job id',
     'job_output.wait': 'true = wait for completion',
     'job_output.timeout_seconds': 'Wait timeout in seconds',
+    'job_output.since_chars': 'Character offset: only return output after this position (pair with total_chars for incremental polling)',
     'present.files': 'Array of {path, description}',
     'pwsh.command': 'Command line',
     'pwsh.workdir': 'Working directory (optional)',
@@ -480,7 +496,6 @@ ARG_EN.update({
     'task_run.max_concurrency': 'Max concurrency (defaults to agent.task_run_max_concurrency or 4)',
     'task_run.timeout_seconds': 'Per-task timeout in seconds (default 600)',
     'task_run.max_steps': 'Step cap per sub-agent (defaults to agent.subagent_max_steps)',
-    'task_run.allow_commands': 'Allow acceptance command/test/API execution (default false)',
     'task_run.independent': 'Add an independent verification agent cross-check (default false)',
     'update_goal.action': 'complete / blocked / pause / resume / edit',
     'update_goal.objective': 'New goal (only with action=edit)',

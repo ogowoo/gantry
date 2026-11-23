@@ -4,6 +4,7 @@ from __future__ import annotations
 from typing import Any
 from .. import editmatch
 from ..tools import ToolError
+from ._atomic import atomic_write_text
 from ._files_utils import diff_payload, hash_file, require_read
 
 
@@ -79,8 +80,7 @@ async def apply_patch(registry, path: str, patch: str = "", edits: Any = None,
                 "note": "应用后内容没有变化（补丁的 new 与 old 等价）"}
     before = hash_file(target)
     registry._snap("apply_patch", path, target)
-    with target.open("w", encoding="utf-8", newline="") as f:
-        f.write(current)
+    atomic_write_text(target, current, encoding="utf-8", newline="")
     after = hash_file(target)
     fuzzy = [a["index"] for a in applied if a["match"] != editmatch.STRATEGY_EXACT]
     out: dict[str, Any] = {

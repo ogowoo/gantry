@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from typing import Any
 from ..tools import ToolError
+from ._atomic import atomic_write_text
 from ._files_utils import check_plain_code_size, diff_payload, hash_file, require_read
 
 
@@ -32,7 +33,7 @@ async def write_text(registry, path: str, content: str, via_b64: bool = False,
     target.parent.mkdir(parents=True, exist_ok=True)
     before=hash_file(target)
     # newline=""：原样写入，Windows 下不把 \n 静默转成 \r\n
-    with target.open("w", encoding="utf-8", newline="") as f: f.write(content)
+    atomic_write_text(target, content, encoding="utf-8", newline="")
     after=hash_file(target)
     out = {"path":path,"written_chars":len(content),
            "file_event":{"tool":"write_text","path":path,"before_hash":before,"after_hash":after,"result":"ok"}}

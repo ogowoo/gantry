@@ -18,6 +18,11 @@ def load_tool_plugins(registry, config=None, package="gantry.tool_plugins"):
             continue
         tools = getattr(registry, '_tools', {})
         before = dict(tools)
+        # register() 不止写 _tools：还会覆盖 _extra_descriptions（同名工具的最新
+        # 描述）与 _approval_extra（approval=True 声明）。加载失败回滚时这三处
+        # 必须一起恢复，否则半注册的插件会留下幽灵描述/审批标记。
+        descs_before = list(getattr(registry, '_extra_descriptions', []))
+        approval_before = set(getattr(registry, '_approval_extra', set()))
         try:
             module = importlib.import_module(f'{package}.{name}')
             register = getattr(module, 'register')
@@ -34,5 +39,7 @@ def load_tool_plugins(registry, config=None, package="gantry.tool_plugins"):
                 registry.unregister(tool_name)
             for tool_name, fn in before.items():
                 tools[tool_name] = fn
+            registry._extra_descriptions = descs_before
+            registry._approval_extra = approval_before
             report['failed'].append({'plugin': name, 'error': str(exc)})
     return report

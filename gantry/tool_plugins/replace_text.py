@@ -5,6 +5,7 @@ import re
 from typing import Any
 from .. import editmatch
 from ..tools import ToolError
+from ._atomic import atomic_write_text
 from ._files_utils import diff_payload, hash_file, nearest_hint, require_read
 
 
@@ -75,8 +76,7 @@ async def replace_text(registry, path: str, old: str, new: str, count: int = 1) 
                   else text.replace(old_used, new_used, count))
     before=hash_file(target)
     registry._snap("replace_text", path, target)
-    with target.open("w", encoding="utf-8", newline="") as f:
-        f.write(after_text)
+    atomic_write_text(target, after_text, encoding="utf-8", newline="")
     after=hash_file(target)
     _left = max(0, found - replaced)
     _out = {"path":path,"replaced":replaced,"remaining_matches":_left,"match":strategy,

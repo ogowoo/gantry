@@ -33,6 +33,8 @@ import urllib.request
 from pathlib import Path
 from typing import Any
 
+from .tool_plugins._atomic import atomic_write_text
+
 MAX_TEXT_CHARS = 2_000_000          # 单文档上限（约 200 万字符，足够放一本手册）
 URL_TIMEOUT = 30.0
 BROWSER_FETCH_TIMEOUT = 60_000      # ms，Playwright goto 超时
@@ -151,7 +153,7 @@ def _pptx_text(data: bytes) -> str:
     return "\n".join(out)
 
 
-def _pdf_text(data: bytes) -> str:
+def _pdf_text(data: bytes, stats: dict[str, Any] | None = None) -> str:
     import io
 
     from pypdf import PdfReader
@@ -170,7 +172,7 @@ def _pdf_text(data: bytes) -> str:
         # 扫描件：交给 OCR（没装 rapidocr 时由 kb_ocr 给出 pip install 提示）
         from .kb_ocr import ocr_pdf_bytes
 
-        return ocr_pdf_bytes(data)
+        return ocr_pdf_bytes(data, stats=stats)
     return "\n\n".join(out)
 
 
@@ -199,8 +201,13 @@ def _mhtml_text(data: bytes) -> str:
     return _html_to_text(html)[1]
 
 
-def extract_text(name: str, data: bytes) -> str:
-    """按扩展名提取正文（Markdown 风格）。不支持的格式给出可行动错误。"""
+def extract_text(name: str, data: bytes,
+                 stats: dict[str, Any] | None = None) -> str:
+    """按扩展名提取正文（Markdown 风格）。不支持的格式给出可行动错误。
+
+    `stats` 可选：发生截断时写入 {"truncated": True, "original_chars": N}，
+    供 ingest_bytes/ingest_url 透传给调用方。
+    """
     ext = Path(str(name or "")).suffix.lower()
     if not data:
         raise IngestError("文件内容为空")
@@ -220,7 +227,7 @@ def extract_text(name: str, data: bytes) -> str:
         elif ext == ".pptx":
             text = _pptx_text(data)
         elif ext == ".pdf":
-            text = _pdf_text(data)
+            text = _pdf_text(data, stats=stats)
         elif ext in IMAGE_EXTS:
             from .kb_ocr import ocr_image_bytes
 
@@ -237,11 +244,21 @@ def extract_text(name: str, data: bytes) -> str:
     text = (text or "").strip()
     if not text:
         raise IngestError(f"{ext} 里没有提取到文本（可能是空文档或图片扫描件）")
-    return text[:MAX_TEXT_CHARS]
+    original_chars = len(text)
+    if original_chars > MAX_TEXT_CHARS:
+        if stats is not None:
+            stats["truncated"] = True
+            stats["original_chars"] = original_chars
+        return text[:MAX_TEXT_CHARS]
+    return text
 
 
-def fetch_url(url: str) -> tuple[str, str]:
-    """抓网页并转 Markdown 文本：返回 (标题, 正文)。"""
+def fetch_url(url: str, stats: dict[str, Any] | None = None) -> tuple[str, str]:
+    """抓网页并转 Markdown 文本：返回 (标题, 正文)。
+
+    `stats` 可选：正文超 MAX_TEXT_CHARS 被截断时写入
+    {"truncated": True, "original_chars": N}。
+    """
     u = str(url or "").strip()
     if not re.match(r"^https?://", u, re.I):
         raise IngestError("URL 必须以 http:// 或 https:// 开头")
@@ -264,7 +281,13 @@ def fetch_url(url: str) -> tuple[str, str]:
     title, text = _html_to_text(html)
     if not text.strip():
         raise IngestError("网页没有提取到正文（可能需要登录或者是纯 JS 渲染页面）")
-    return title or Path(u).stem, text[:MAX_TEXT_CHARS]
+    original_chars = len(text)
+    if original_chars > MAX_TEXT_CHARS:
+        if stats is not None:
+            stats["truncated"] = True
+            stats["original_chars"] = original_chars
+        text = text[:MAX_TEXT_CHARS]
+    return title or Path(u).stem, text
 
 
 def _should_browser_fallback(exc: BaseException) -> bool:
@@ -277,11 +300,13 @@ def _should_browser_fallback(exc: BaseException) -> bool:
 
 
 async def fetch_url_async(url: str, *, use_browser: bool = False,
-                          browser_fallback: bool = True) -> tuple[str, str]:
+                          browser_fallback: bool = True,
+                          stats: dict[str, Any] | None = None) -> tuple[str, str]:
     """异步抓网页，支持用自动化浏览器抓取（处理登录态 / JS 渲染）。
 
     - `use_browser=True`：直接走浏览器；
     - `browser_fallback=True`：普通抓取因登录/401/403/正文为空失败时，自动换浏览器。
+    - `stats` 可选：正文被截断时写入 {"truncated": True, "original_chars": N}。
     """
     u = str(url or "").strip()
     if not re.match(r"^https?://", u, re.I):
@@ -290,7 +315,7 @@ async def fetch_url_async(url: str, *, use_browser: bool = False,
     last_err: BaseException | None = None
     if not use_browser:
         try:
-            return fetch_url(u)
+            return fetch_url(u, stats=stats)
         except Exception as exc:                 # noqa: BLE001
             if not browser_fallback or not _should_browser_fallback(exc):
                 raise
@@ -323,7 +348,13 @@ async def fetch_url_async(url: str, *, use_browser: bool = False,
         title = (page_title or title or Path(u).stem).strip()
         if not text.strip():
             raise IngestError("浏览器抓取后没有提取到正文")
-        return title, text[:MAX_TEXT_CHARS]
+        original_chars = len(text)
+        if original_chars > MAX_TEXT_CHARS:
+            if stats is not None:
+                stats["truncated"] = True
+                stats["original_chars"] = original_chars
+            text = text[:MAX_TEXT_CHARS]
+        return title, text
     except IngestError:
         raise
     except Exception as exc:                     # noqa: BLE001
@@ -336,12 +367,14 @@ async def fetch_url_async(url: str, *, use_browser: bool = False,
 async def ingest_url_async(kb_dir: Path, url: str, *, use_browser: bool = False,
                            browser_fallback: bool = True) -> dict[str, Any]:
     """异步版 ingest_url，支持浏览器抓取。"""
+    stats: dict[str, Any] = {}
     title, text = await fetch_url_async(
-        url, use_browser=use_browser, browser_fallback=browser_fallback)
+        url, use_browser=use_browser, browser_fallback=browser_fallback,
+        stats=stats)
     path = save_document(kb_dir, url, text, title=title,
                          source=url, category="web")
     return {"path": str(path), "name": title, "title": title,
-            "chars": len(text), "source": url}
+            "chars": len(text), "source": url, **stats}
 
 
 # ── 落盘 ───────────────────────────────────────────────────────────────────
@@ -380,22 +413,32 @@ def save_document(kb_dir: Path, name: str, text: str, *, title: str = "",
             path = base / f"{stem}-{i}.md"
     body = _front_matter(title, source or str(name or ""), category)
     body += f"# {title}\n\n" + str(text or "").strip() + "\n"
-    path.write_text(body, encoding="utf-8")
+    # 原子替换（同目录临时文件 + os.replace），并保留原文件权限位：
+    # mkstemp 默认 0600，直接 replace 会把已有 .md 的权限改窄
+    atomic_write_text(path, body, encoding="utf-8", newline="",
+                      preserve_mode=True)
     return path
 
 
 def ingest_bytes(kb_dir: Path, name: str, data: bytes, *,
                  title: str = "", source: str = "") -> dict[str, Any]:
-    """一步到位：提取 → 落盘 → 返回摘要（是否重建索引由调用方决定）。"""
-    text = extract_text(name, data)
+    """一步到位：提取 → 落盘 → 返回摘要（是否重建索引由调用方决定）。
+
+    正文超过 MAX_TEXT_CHARS 被截断时，返回值带 truncated=true 与
+    original_chars（截断前的原始字符数）。
+    """
+    stats: dict[str, Any] = {}
+    text = extract_text(name, data, stats=stats)
     path = save_document(kb_dir, name, text, title=title,
                          source=source or str(name or ""))
     return {"path": str(path), "name": Path(str(name or "")).name,
-            "title": (title or Path(str(name or "")).stem), "chars": len(text)}
+            "title": (title or Path(str(name or "")).stem), "chars": len(text),
+            **stats}
 
 
 def ingest_url(kb_dir: Path, url: str) -> dict[str, Any]:
-    title, text = fetch_url(url)
+    stats: dict[str, Any] = {}
+    title, text = fetch_url(url, stats=stats)
     path = save_document(kb_dir, url, text, title=title, source=url, category="web")
     return {"path": str(path), "name": title, "title": title,
-            "chars": len(text), "source": url}
+            "chars": len(text), "source": url, **stats}

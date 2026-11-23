@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from typing import Any
 from ..tools import ToolError
+from ._atomic import atomic_write_text
 from ._files_utils import diff_payload, hash_file, require_read
 
 
@@ -41,7 +42,9 @@ async def replace_lines(registry, path: str, start: int = 0, count: int = 1,
         raise ToolError(f"start={start} 超出文件行数（共 {total} 行）")
     lo = start - 1
     hi = min(total, lo + count)
-    new_lines = content.split("\n") if content != "" else []
+    # 模型从 JSON 传进来的多行 content 可能带 \r\n：先归一成 \n 再按行拆，否则行尾残留的 \r 会混进文件（再按文件换行风格整体转换）
+    content_norm = content.replace("\r\n", "\n")
+    new_lines = content_norm.split("\n") if content_norm != "" else []
     out_lines = body[:lo] + new_lines + body[hi:]
     text = "\n".join(out_lines) + ("\n" if trailing_nl or not body else "")
     # 行尾风格跟随原文件：CRLF 文件不因为这次编辑被改成 LF（避免整文件 diff）
@@ -49,8 +52,7 @@ async def replace_lines(registry, path: str, start: int = 0, count: int = 1,
         text = text.replace("\n", "\r\n")
     before = hash_file(target)
     registry._snap("replace_lines", path, target)
-    with target.open("w", encoding="utf-8", newline="") as f:
-        f.write(text)
+    atomic_write_text(target, text, encoding="utf-8", newline="")
     after = hash_file(target)
     out = {"path": path, "replaced_lines": hi - lo, "start": start,
            "inserted_lines": len(new_lines), "total_lines": len(out_lines),

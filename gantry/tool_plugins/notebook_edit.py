@@ -5,6 +5,7 @@ import json
 from typing import Any
 
 from ..tools import ToolError
+from ._atomic import atomic_write_text
 from ._files_utils import diff_payload, hash_file, require_read
 
 _ALLOWED_TYPES = {"code", "markdown", "raw"}
@@ -77,7 +78,7 @@ async def notebook_edit(registry, path: str, cell_index: int, action: str = "rep
     new_text = json.dumps(data, ensure_ascii=False, indent=1) + "\n"
     before = hash_file(target)
     registry._snap("notebook_edit", path, target)
-    target.write_text(new_text, encoding="utf-8", newline="")
+    atomic_write_text(target, new_text, encoding="utf-8", newline="")
     after = hash_file(target)
     out: dict[str, Any] = {"path": path, "action": act, "cell_index": idx,
                            "cell_type": ctype, "cell_count": len(cells),
