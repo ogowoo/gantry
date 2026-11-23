@@ -12,7 +12,12 @@
 - 
 
 ### Fixed
-- 
+- `visual-design` 渲染器在**没装 Playwright 自带 Chromium** 的机器上直接失败
+  （`Executable doesn't exist ... chrome-headless-shell`，需要额外下 ~130 MB）。
+  现在先试自带 Chromium，失败后自动退回 `config.json` 的 `browser_channel`
+  （Windows 上默认 `msedge`，本服务本来就必须有 Edge），两条路都不通时才报错，
+  错误信息同时给出两个原因。`tests/test_visual_design_plugin` /
+  `test_visual_design_e2e` 在只有 Edge 的机器上恢复通过。
 
 ## [0.11.0-beta.47] - 2026-11-21
 

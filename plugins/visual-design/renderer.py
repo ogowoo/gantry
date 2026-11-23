@@ -37,6 +37,49 @@ class RenderError(RuntimeError):
 _RENDER_LOCK = asyncio.Semaphore(1)
 
 
+def _configured_channel() -> str:
+    """配置里的系统浏览器通道（如 msedge / chrome），取不到就返回空。
+
+    为什么需要：`p.chromium.launch()` 默认用 Playwright 自带的 Chromium。没跑
+    `playwright install chromium` 的机器（例如只靠系统 Edge 跑自动化的 Windows
+    用户）会直接 `Executable doesn't exist`。本服务本来就要求装 Edge/Chrome，
+    所以自带 Chromium 缺失时退回配置通道即可，不必额外下 130 MB。
+    """
+    try:
+        from gantry import bridge as _b
+
+        ch = str(_b.CFG.get("browser_channel") or "").strip()
+        return ch
+    except Exception:                            # noqa: BLE001 - 单独加载时没有 bridge
+        return ""
+
+
+async def _launch_browser(p, launch_kwargs: dict):
+    """先试自带 Chromium，失败再退回系统浏览器通道（Edge/Chrome）。"""
+    first_exc: Exception | None = None
+    try:
+        return await p.chromium.launch(**launch_kwargs)
+    except Exception as exc:                     # noqa: BLE001
+        first_exc = exc
+        if "Timeout" in str(exc) or exc.__class__.__name__.endswith("TimeoutError"):
+            raise
+    channel = _configured_channel()
+    if channel:
+        try:
+            return await p.chromium.launch(channel=channel, **launch_kwargs)
+        except Exception as exc:                 # noqa: BLE001
+            if "Timeout" in str(exc) or exc.__class__.__name__.endswith("TimeoutError"):
+                raise
+            raise RenderError(
+                "BROWSER_MISSING",
+                f"浏览器启动失败：自带 Chromium 与 {channel} 都不可用"
+                f"（Chromium: {first_exc}；{channel}: {exc}）",
+                "运行 python install.py 安装 Playwright Chromium，或确认系统已安装 Edge/Chrome",
+            ) from exc
+    raise RenderError("BROWSER_MISSING", f"Chromium 启动失败: {first_exc}",
+                      "请运行 python install.py 安装 Playwright Chromium") from first_exc
+
+
 def _require_pillow() -> None:
     if Image is None:
         raise RenderError("DEPENDENCY_MISSING",
@@ -130,14 +173,16 @@ async def _render_locked(project: Path, target: str, width: int, height: int,
     try:
         async with async_playwright() as p:
             try:
-                browser = await p.chromium.launch(
+                browser = await _launch_browser(p, dict(
                     headless=True,
                     timeout=max(1, int(timeout * 1000)),
                     args=[
                         "--disable-background-networking", "--disable-sync",
                         "--disable-extensions", "--no-first-run",
                     ],
-                )
+                ))
+            except RenderError:
+                raise
             except Exception as exc:
                 if "Timeout" in str(exc) or exc.__class__.__name__.endswith("TimeoutError"):
                     raise RenderError("RENDER_TIMEOUT",
