@@ -65,6 +65,11 @@ async def _message_worker(sid: str):
             finally:
                 _MSG_INFLIGHT.pop(sid, None)
         wake.clear()
+        # 丢失唤醒防护：clear 与 wait 之间若来了 enqueue（append+set），
+        # set 会被上面的 clear 抹掉——这里复查队列，非空就别睡。
+        # 单事件循环下本行到 wait() 之间没有 yield 点，复查是原子的。
+        if dq:
+            continue
         try:
             await wake.wait()        # 无待处理任务时挂起，等 enqueue 唤醒
         except asyncio.CancelledError:

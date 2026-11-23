@@ -113,6 +113,12 @@ async def _drive_child(child_sid: str, task: str, model_id: str, max_steps: int,
             return {"agent_id": child_sid, "description": (description or task)[:120],
                     "content": "", "steps": 0, "model": model_id, "error": str(exc)}
     _SUBAGENT_ACTIVE[child_sid] = time.time()
+    # 保存进入前的全局旧值：两个父会话并行扇出时全局只有一份，finally 必须
+    # 恢复"旧值"而不是硬编码父会话/True——否则子代理 A 先结束时会把全局改回
+    # 父会话 A，正在跑的子代理 B 看到的当前会话/网页工具开关立刻被覆盖（串台）。
+    _prev_active_sid = b.ACTIVE_SESSION_ID
+    _prev_tools_sid = b.AGENT_TOOLS.current_session_id
+    _prev_web_tools = b.AGENT_TOOLS.allow_web_copilot_tools
     # 任务级上下文：并发跑多个子代理时，会话 id / 网页工具开关 / 递归深度必须
     # 各自独立（全局单值会互相覆盖）。token 在 finally 里按任务复位。
     _tok_sid = b._SESSION_CTX.set(child_sid)
@@ -211,6 +217,17 @@ async def _drive_child(child_sid: str, task: str, model_id: str, max_steps: int,
                     "content": result.content, "steps": len(result.steps),
                     "model": model_id, "error": None,
                     "verification": _verification_from_steps(result.steps)}
+        except asyncio.CancelledError:
+            # 编排器 asyncio.wait_for 超时/整体取消会 Cancel 本协程：
+            # CancelledError 是 BaseException，下面的 except Exception 捕不到，
+            # 不处理的话子会话永远停在 running（面板一直显示"执行中"）。
+            # 先落库失败原因再原样上抛，保住取消语义。
+            try:
+                b.AGENT_SESSIONS.patch(child_sid, state="failed",
+                                       last_error="被编排器超时取消")
+            except Exception:
+                pass
+            raise
         except Exception as exc:
             b.AGENT_SESSIONS.patch(child_sid, state="failed", last_error=str(exc))
             return {"agent_id": child_sid, "description": (description or task)[:120],
@@ -233,11 +250,13 @@ async def _drive_child(child_sid: str, task: str, model_id: str, max_steps: int,
                 await _own_window.__aexit__(None, None, None)
             except Exception:
                 pass
-        b.ACTIVE_SESSION_ID = parent_sid
-        b.AGENT_TOOLS.current_session_id = parent_sid or ""
+        # 恢复**进入前**的旧值（见函数开头的保存）：并行扇出时不能硬编码
+        # parent_sid / True——那是别的会话此刻可能正在依赖的值。
+        b.ACTIVE_SESSION_ID = _prev_active_sid
+        b.AGENT_TOOLS.current_session_id = _prev_tools_sid or ""
         # 不再改全局 root：子代理用的是自己的 child_reg；改全局会把并行中的
         # 其它会话/接口看到的"当前工作区"改成父任务的工作区。
-        b.AGENT_TOOLS.set_web_copilot_tools(True)
+        b.AGENT_TOOLS.set_web_copilot_tools(bool(_prev_web_tools))
 
 
 async def continue_subagent(session_id: str, message: str, model: str = "",

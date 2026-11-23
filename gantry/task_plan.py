@@ -519,6 +519,10 @@ class TaskStore:
                     **changes: Any) -> dict[str, Any]:
         sid = str(session_id or "").strip()
         with self._connect() as con:
+            # 读-改-写必须包在同一个写事务里：sqlite3 默认隔离级别下 SELECT 不
+            # 在事务内，并行子代理会读到同一旧快照，随后各自全量 DELETE+INSERT
+            # 互相覆盖；BEGIN IMMEDIATE 在 WAL 下拿写锁，把 读+写 串行化。
+            con.execute("BEGIN IMMEDIATE")
             plan = self._load(con, self._find_plan_id(con, sid, plan_id))
             if not plan:
                 raise TaskPlanError("当前会话没有任务计划")
@@ -604,6 +608,8 @@ class TaskStore:
              *, plan_id: str = "") -> dict[str, Any]:
         """追加一条审查/编排历史，不改变任务状态。"""
         with self._connect() as con:
+            # 同 update_task：读-改-写包在 BEGIN IMMEDIATE 写事务内，防并行覆盖。
+            con.execute("BEGIN IMMEDIATE")
             pid = self._find_plan_id(con, str(session_id or ""), plan_id)
             plan = self._load(con, pid)
             if not plan:
@@ -629,6 +635,8 @@ class TaskStore:
 
     def cancel(self, session_id: str, *, task_id: str = "", plan_id: str = "") -> dict[str, Any]:
         with self._connect() as con:
+            # 同 update_task：读-改-写包在 BEGIN IMMEDIATE 写事务内，防并行覆盖。
+            con.execute("BEGIN IMMEDIATE")
             pid = self._find_plan_id(con, str(session_id or ""), plan_id)
             plan = self._load(con, pid)
             if not plan:
@@ -658,6 +666,8 @@ class TaskStore:
 
     def resume(self, session_id: str, *, task_id: str = "", plan_id: str = "") -> dict[str, Any]:
         with self._connect() as con:
+            # 同 update_task：读-改-写包在 BEGIN IMMEDIATE 写事务内，防并行覆盖。
+            con.execute("BEGIN IMMEDIATE")
             pid = self._find_plan_id(con, str(session_id or ""), plan_id)
             plan = self._load(con, pid)
             if not plan:
@@ -734,6 +744,8 @@ class TaskStore:
         if not isinstance(updates, list) or not updates:
             raise TaskPlanError("updates 必须是非空数组")
         with self._connect() as con:
+            # 同 update_task：读-改-写包在 BEGIN IMMEDIATE 写事务内，防并行覆盖。
+            con.execute("BEGIN IMMEDIATE")
             pid = self._find_plan_id(con, str(session_id or ""), plan_id)
             plan = self._load(con, pid)
             if not plan:
