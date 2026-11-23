@@ -166,12 +166,26 @@ async def debug_page_snapshot() -> dict:
     return out
 
 
+async def _copilot_file_max_bytes() -> int:
+    """copilot_file 单次下载上限（默认 512MB，config.json 可用 agent.copilot_file_max_mb 调整）。
+
+    blob:/data: 走页内 fetch + base64，http(s) 走 resp.body()——两条路都是整文件进内存，
+    没有 Range/分块。不封顶时一个超大文件直接把服务内存打爆（base64 还要再膨胀 1/3）。
+    """
+    try:
+        mb = int(b.AGENT_CFG.get("copilot_file_max_mb") or 512)
+    except Exception:                        # noqa: BLE001
+        mb = 512
+    return max(1, mb) * 1024 * 1024
+
+
 async def _save_from_href(href: str, target: Path) -> int:
     """把 blob:/data:/http(s) 内容写入目标文件，返回字节数。
 
     blob: 走页内 fetch + FileReader（页面上下文，天然带登录态）；
     http(s) 走浏览器上下文的 request（复用 Cookie）。
     """
+    _max = await _copilot_file_max_bytes()
     if href.startswith("blob:") or href.startswith("data:"):
         b64 = await b.page.evaluate(
             """async (url) => {
@@ -191,6 +205,9 @@ async def _save_from_href(href: str, target: Path) -> int:
         if not resp.ok:
             raise b.ToolError(f"下载失败 HTTP {resp.status}: {href[:120]}")
         data = await resp.body()
+    if len(data) > _max:
+        raise b.ToolError(f"下载内容 {len(data) / 1048576:.0f}MB 超过单次上限 "
+                          f"{_max // 1048576}MB（agent.copilot_file_max_mb 可调）")
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_bytes(data)
     return len(data)
@@ -295,6 +312,16 @@ async def _copilot_file(path: str, instruction: str) -> dict:
             download = await dl_info.value
             await download.save_as(str(target))
             size = target.stat().st_size
+            _max = await _copilot_file_max_bytes()
+            if size > _max:
+                try:
+                    target.unlink(missing_ok=True)   # 超限不留半截文件
+                except OSError:
+                    pass
+                raise b.ToolError(f"下载内容 {size / 1048576:.0f}MB 超过单次上限 "
+                                  f"{_max // 1048576}MB（agent.copilot_file_max_mb 可调）")
+        except b.ToolError:
+            raise
         except Exception as exc:
             raise b.ToolError(f"点击下载入口失败: {exc}") from exc
     if size <= 0:

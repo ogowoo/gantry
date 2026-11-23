@@ -113,14 +113,25 @@ async def _compose_text_unlocked(text: str, page=None, send: bool = False,
             out["error"] = "点了发送但输入框还有内容（可能未发出）"
         except Exception as exc:                 # noqa: BLE001
             out["error"] = f"点发送失败: {str(exc)[:120]}"
-    # 不发送：清空输入框（避免留下草稿）
+    # 不发送：清空输入框（避免留下草稿）。Teams 会把输入框内容存成服务端草稿，
+    # 清不干净 = 下次打开这个会话时旧消息又冒出来。清空失败不能静默吞掉——
+    # 至少要留下日志，否则"发送失败 + 草稿残留"看起来就像发送成功被丢了。
     try:
         await box.click()
         await page.keyboard.press("Control+a")
         await page.keyboard.press("Backspace")
+        try:
+            left = (await box.inner_text() or "").strip()
+        except Exception:                        # noqa: BLE001
+            left = ""
+        if left:
+            # 一次没清掉（框失焦/重渲染常见）：键盘再试一轮
+            await box.click()
+            await page.keyboard.press("Control+a")
+            await page.keyboard.press("Backspace")
         out["cleared"] = True
-    except Exception:                            # noqa: BLE001
-        pass
+    except Exception as exc:                     # noqa: BLE001
+        _b.log(f"teams 发送失败后清空输入框失败（可能残留草稿）: {exc}")
     return out
 
 async def send_message(text: str) -> None:

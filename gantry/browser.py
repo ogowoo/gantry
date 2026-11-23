@@ -275,16 +275,21 @@ async def ensure_browser_ready() -> bool:
 
 
 async def shutdown_browser():
-    """关闭浏览器上下文与 Playwright（服务退出时调用）。"""
+    """关闭浏览器上下文与 Playwright（服务退出时调用）。
+
+    用 BaseException 兜 CancelledError：本协程若在取消中执行，await close/stop
+    会立刻抛 CancelledError（不属于 Exception），旧写法会跳过置 None——
+    留下半死的 ctx/pw 引用，后续任何 touch 浏览器的路径都会踩到已停的对象。
+    """
     try:
         if b.ctx is not None:
             await b.ctx.close()
-    except Exception:
+    except BaseException:                        # noqa: BLE001
         pass
     b.ctx = None
     try:
         if b.pw is not None:
             await b.pw.stop()
-    except Exception:
+    except BaseException:                        # noqa: BLE001
         pass
     b.pw = None

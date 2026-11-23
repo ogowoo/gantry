@@ -12,10 +12,12 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import re
 import time
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
 PA_URL = "https://make.powerautomate.com/"
 PA_DOMAIN = "make.powerautomate.com"
@@ -24,6 +26,27 @@ _AUTH_COOKIE_MARKS = ("powerautomate.com", "powerapps.com", "powerplatform.com",
                       "microsoftonline.com", "microsoft.com", "office.com",
                       "teams.cloud.microsoft", "teams.microsoft.com")
 
+# goto_path 绝对 URL 的 host 白名单：maker 门户同源域 + 身份/登录域。
+# 与 power_platform_ui.open_portal 的白名单同源维护（那边 import 本模块，
+# 反向引用会造成循环导入，故常量放这里，power_apps_ui 经 core 复用）。
+_GOTO_HOSTS = frozenset({
+    "make.powerautomate.com", "make.powerapps.com", "make.powerpages.microsoft.com",
+    "copilotstudio.microsoft.com", "app.powerbi.com", "admin.powerplatform.microsoft.com",
+    "apps.powerapps.com", "preview.make.powerapps.com",
+    "flow.microsoft.com", "flow.microsoft.us",
+    "login.microsoftonline.com", "login.microsoft.com", "login.live.com",
+})
+
+
+def _nav_host_allowed(url: str) -> bool:
+    """绝对 URL 的 host 必须在白名单内；相对路径不受限。
+
+    浏览器上下文带着全租户 SSO 登录态，若允许导航到任意外站，会把
+    Entra 会话暴露给第三方站点。
+    """
+    host = (urlparse(str(url or "")).hostname or "").lower()
+    return host in _GOTO_HOSTS
+
 
 def _auth_state_path() -> Path:
     from . import bridge as b
@@ -31,14 +54,20 @@ def _auth_state_path() -> Path:
 
 
 def _cookie_allowed(domain: str) -> bool:
-    d = str(domain or "").lower()
-    return any(m in d for m in _AUTH_COOKIE_MARKS)
+    # 安全：必须精确匹配或以 "." + 域 结尾（点分边界）。子串匹配会让
+    # notmicrosoft.com.evil.com 之类域名"命中" microsoft.com。
+    d = str(domain or "").lower().lstrip(".")
+    return any(d == m or d.endswith("." + m) for m in _AUTH_COOKIE_MARKS)
 
 
 async def save_auth_state(ctx: Any) -> str:
     """把 Power Platform 相关 cookie 存到 data/pa-auth.json，供下次启动恢复。
 
     只保存 automation 相关域，避免把 Copilot/Teams 的其它 cookie 一起落盘。
+
+    威胁模型：该文件是明文 JSON，等于把 Entra 会话落盘——任何能读 data/
+    目录的进程/用户都可拷贝并复用该会话。写后 chmod 0o600 只是尽力而为
+    的缓解（Windows 上仅近似生效）；共享机器请勿依赖，必要时自行加密。
     """
     try:
         state = await ctx.storage_state()
@@ -51,6 +80,11 @@ async def save_auth_state(ctx: Any) -> str:
     out = _auth_state_path()
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps({"cookies": cookies}, ensure_ascii=False), encoding="utf-8")
+    try:
+        # 尽力而为：仅属主可读写（Windows 上效果有限，见 docstring 威胁模型）
+        os.chmod(out, 0o600)
+    except OSError:
+        pass
     return str(out)
 
 
@@ -338,6 +372,10 @@ async def goto_path(path: str, wait: float = 3.0) -> dict[str, Any]:
         return {"ok": False, "error": "浏览器未启动"}
     page = await _find_or_open(b.ctx)
     url = path if str(path).startswith("http") else ("https://make.powerautomate.com" + str(path))
+    # 安全：绝对 URL 必须命中白名单，否则带着全租户 SSO 登录态的浏览器
+    # 会被导航到任意外站（见 _nav_host_allowed）。
+    if str(url).startswith("http") and not _nav_host_allowed(url):
+        return {"ok": False, "error": f"目标域名不在白名单：{(urlparse(url).hostname or '')}"}
     try:
         await page.goto(url, wait_until="domcontentloaded", timeout=120000)
     except Exception as exc:

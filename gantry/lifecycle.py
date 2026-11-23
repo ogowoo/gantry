@@ -138,8 +138,10 @@ def _entry_argv() -> list[str]:
 def exec_restart() -> str:
     """就地重启：同一解释器重新执行入口脚本（PID 不变、无端口竞争）。
 
-    用 exec 而不是"起新进程再退出"：exec 替换进程映像，监听套接字随之关闭，
-    没有"新进程抢不到端口"的竞态窗口，用户点完几乎立刻能重连。
+    用 exec 而不是"起新进程再退出"：POSIX 上 exec 原地替换进程映像（PID 不变、
+    监听套接字随之关闭），没有"新进程抢不到端口"的竞态窗口。
+    Windows 上 os.execv 实际是"新建进程再退旧的"（新 PID），竞态由 start.py 的
+    绑定重试兜底（BIND_RETRIES），这里只是统一入口语义。
     exec 失败时退回"派生新进程 + 退出自己"。
     """
     import subprocess
@@ -171,8 +173,9 @@ def exec_restart() -> str:
                 flags = (getattr(subprocess, "DETACHED_PROCESS", 0)
                          | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0))
             subprocess.Popen([sys.executable] + argv,
-                             cwd=str(root),
-                             creationflags=flags, close_fds=True)
+                             cwd=str(root), creationflags=flags, close_fds=True,
+                             stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                             stderr=subprocess.DEVNULL)
         except Exception as exc2:           # noqa: BLE001
             log.error("派生新进程也失败：%s", exc2)
         os._exit(0)
