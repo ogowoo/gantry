@@ -5,6 +5,15 @@
 
 ## [Unreleased]
 
+### Added
+- schedule 插件 0.2.0：WebUI 定时任务面板从只读升级为完整管理——新建/编辑表单
+  （间隔/每天/一次性、任务描述、模型候选、工作区、启用开关）、每行 运行/启停/
+  编辑/删除/跳转会话；新增 `schedule_update` 工具与 `POST api/update`（部分更新，
+  改 spec 重排下次执行）；执行记录补 `last_session`/`last_error` 字段。
+
+### Changed
+- 定时任务列表展示上次失败原因，可从面板直接跳到任务产生的新会话。
+
 ## [0.11.0-beta.49] - 2026-11-23
 
 ### Added

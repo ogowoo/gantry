@@ -103,9 +103,42 @@ class Scheduler:
         self.save(items)
         return {"removed": name, "left": len(items)}
 
+    def update(self, name, spec=None, task=None, model=None, workspace=None, enabled=None):
+        """部分更新：只改传入的字段；改 spec 会重新计算 next_run，改 enabled
+        不重置已有 next_run（重新启用且从未排期时才补算），runs/历史保留。"""
+        items = self.items()
+        item = next((x for x in items if x.get("name") == name), None)
+        if item is None:
+            raise ValueError(f"任务不存在: {name}")
+        if spec is not None:
+            if not isinstance(spec, dict):
+                raise ValueError("spec 必须是对象，如 {\"every\":\"30m\"} 或 {\"daily\":\"09:00\"}")
+            item["spec"] = spec
+            item["next_run"] = _next_run(spec)
+        if task is not None:
+            task = str(task).strip()
+            if not task:
+                raise ValueError("task 不能为空")
+            item["task"] = task
+        if model is not None:
+            item["model"] = str(model or "")
+        if workspace is not None:
+            item["workspace"] = str(workspace or "")
+        if enabled is not None:
+            item["enabled"] = bool(enabled)
+            # 重新启用但还没有排期（比如 once 跑完被停用后再启用）→ 补算
+            if item["enabled"] and not item.get("next_run"):
+                try:
+                    item["next_run"] = _next_run(item.get("spec") or {})
+                except Exception:
+                    item["next_run"] = None
+        self.save(items)
+        return {**item, "next_run": _fmt(item.get("next_run")) if item.get("next_run") else None}
+
     def list(self):
-        return [{**{k: x.get(k) for k in ("name", "spec", "task", "model", "workspace",
-                                          "enabled", "runs", "last_result")},
+        return [{**{k: x.get(k) for k in (("name", "spec", "task", "model", "workspace",
+                                           "enabled", "runs", "last_result", "last_session",
+                                           "last_error"))},
                  "next_run": _fmt(x.get("next_run")) if x.get("next_run") else None,
                  "last_run": _fmt(x.get("last_run")) if x.get("last_run") else None}
                 for x in self.items()]
@@ -140,6 +173,8 @@ class Scheduler:
             x["last_run"] = time.time()
             x["runs"] = int(x.get("runs") or 0) + 1
             x["last_result"] = (res.get("content") or res.get("error") or "")[:300]
+            x["last_session"] = res.get("session_id") or None
+            x["last_error"] = res.get("error") or None
             spec = x.get("spec") or {}
             if "once" in spec:
                 x["enabled"] = False
@@ -177,6 +212,12 @@ def setup(ctx):
     async def _remove(name: str):
         return sched.remove(name)
 
+    async def _update(name: str, spec: dict | None = None, task: str | None = None,
+                      model: str | None = None, workspace: str | None = None,
+                      enabled: bool | None = None):
+        return sched.update(name, spec=spec, task=task, model=model,
+                            workspace=workspace, enabled=enabled)
+
     async def _run(name: str = ""):
         return {"results": await sched.run_now(name or None)}
 
@@ -188,6 +229,10 @@ def setup(ctx):
                        "enabled": "是否启用，默认 true"})
     ctx.register_tool("schedule_list", _list, "列出定时任务与下次执行时间", {})
     ctx.register_tool("schedule_remove", _remove, "删除定时任务", {"name": "任务名"})
+    ctx.register_tool("schedule_update", _update,
+                      "更新定时任务（只改传入字段；改 spec 会重排下次执行）",
+                      {"name": "任务名", "spec": "时间规格对象（可选）", "task": "任务描述（可选）",
+                       "model": "模型（可选）", "workspace": "工作目录（可选）", "enabled": "启用/停用（可选）"})
     ctx.register_tool("schedule_run", _run, "立即执行定时任务（不传 name 则执行所有到期项）",
                       {"name": "任务名（可选）"})
 
@@ -221,6 +266,16 @@ def setup(ctx):
             body = {}
         return sched.remove(body.get("name") or "")
 
+    async def _api_update(request):
+        try:
+            body = await request.json()
+        except Exception:
+            body = {}
+        return sched.update(body.get("name") or "",
+                            spec=body.get("spec"), task=body.get("task"),
+                            model=body.get("model"), workspace=body.get("workspace"),
+                            enabled=body.get("enabled"))
+
     ctx.register_panel({"id": "schedules", "title": "定时任务", "view": "table",
                         "api": {"method": "GET", "path": "api/list"},
                         "hint": "按间隔/每天/一次性时间点执行的任务"})
@@ -228,6 +283,7 @@ def setup(ctx):
     ctx.register_api("POST", "api/run", _api_run)
     ctx.register_api("POST", "api/add", _api_add)
     ctx.register_api("POST", "api/remove", _api_remove)
+    ctx.register_api("POST", "api/update", _api_update)
 
     async def _start():
         await asyncio.sleep(3)

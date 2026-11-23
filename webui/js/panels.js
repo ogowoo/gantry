@@ -225,6 +225,138 @@ async function _injectTeamsBotModelControl(body, data, panel){
     toast(tr('设置已保存（{n} 项）').replace('{n}','1'),'ok'); await loadPanel(panel); }catch(e){ toast(tr('保存失败: ')+(e.text||e),'err'); save.disabled=false; } };
  }catch(e){ sel.innerHTML='<option value="">'+esc(tr('读取失败: ')+(e.text||e))+'</option>'; }
 }
+async function _injectScheduleManager(body, data, panel){
+ /* 定时任务面板：在只读表格下补管理区——新建/编辑表单 + 每行 运行/启停/编辑/删除。
+ 数据与操作全走插件自己的 api/add|update|remove|run，与 schedule_add 等工具等价。 */
+ const wrap=document.createElement('div');
+ // 上方只读表格与下面管理区信息重复（且列宽难看），管理区接管展示
+ const oldTable=body.querySelector('table.ptable');
+ if(oldTable) oldTable.remove();
+ wrap.style.cssText='margin-top:12px;padding-top:10px;border-top:1px solid var(--line);display:flex;flex-direction:column;gap:8px';
+ const list=(data&&data.schedules)||[];
+ // ── 表单（新建 & 编辑共用） ──
+ const form=document.createElement('div');
+ form.style.cssText='display:flex;flex-direction:column;gap:6px;padding:8px;border:1px solid var(--line);border-radius:6px';
+ form.innerHTML=
+  '<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">'+
+   '<input class="kbinput" id="schName" placeholder="'+esc(tr('任务名（必填）'))+'" style="flex:1;min-width:120px">'+
+   '<select class="kbinput" id="schType">'+
+    '<option value="every">'+esc(tr('按间隔'))+'</option>'+
+    '<option value="daily">'+esc(tr('每天'))+'</option>'+
+    '<option value="once">'+esc(tr('一次性'))+'</option>'+
+   '</select>'+
+   '<input class="kbinput" id="schWhen" placeholder="'+esc(tr('30m / 09:00 / 2026-01-01T09:00:00'))+'" style="width:190px">'+
+   '<label style="display:inline-flex;align-items:center;gap:4px;font-size:12px"><input type="checkbox" id="schEnabled" checked>'+esc(tr('启用'))+'</label>'+
+  '</div>'+
+  '<textarea class="kbinput" id="schTask" rows="3" placeholder="'+esc(tr('到点执行的完整任务描述（必填）'))+'" style="width:100%;resize:vertical"></textarea>'+
+  '<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">'+
+   '<input class="kbinput" id="schModel" list="schModels" placeholder="'+esc(tr('模型（留空跟随配置）'))+'" style="flex:1;min-width:140px">'+
+   '<datalist id="schModels"></datalist>'+
+   '<input class="kbinput" id="schWs" placeholder="'+esc(tr('工作区（可选）'))+'" style="flex:1;min-width:140px">'+
+  '</div>'+
+  '<div style="display:flex;gap:6px;justify-content:flex-end">'+
+   '<button type="button" class="btn ghost" id="schCancel" style="display:none">'+esc(tr('取消编辑'))+'</button>'+
+   '<button type="button" class="btn" id="schSave">'+esc(tr('新建任务'))+'</button>'+
+  '</div>';
+ wrap.appendChild(form);
+ const el=(id)=>form.querySelector('#'+id);
+ let editing=null;   // 编辑中的任务名（null = 新建模式）
+ function fillForm(it){
+  editing=it?it.name:null;
+  el('schName').value=it?it.name:'';
+  el('schName').disabled=!!it;
+  const spec=it?it.spec:{};const t=spec.every?'every':(spec.daily?'daily':'once');
+  el('schType').value=t;
+  el('schWhen').value=spec[t]||'';
+  el('schEnabled').checked=it?!!it.enabled:true;
+  el('schTask').value=it?it.task:'';
+  el('schModel').value=it?it.model||'':'';
+  el('schWs').value=it?it.workspace||'':'';
+  el('schSave').textContent=tr(it?'保存修改':'新建任务');
+  el('schCancel').style.display=it?'':'none';
+ }
+ el('schCancel').onclick=()=>fillForm(null);
+ el('schSave').onclick=async()=>{
+  const name=el('schName').value.trim(), when=el('schWhen').value.trim(), task=el('schTask').value.trim();
+  if(!name||!task){ toast(tr('任务名与任务描述都不能为空'),'err'); return }
+  const type=el('schType').value;
+  const payload={name, spec:{[type]:when}, task, model:el('schModel').value.trim(),
+                 workspace:el('schWs').value.trim(), enabled:el('schEnabled').checked};
+  const btn=el('schSave'); btn.disabled=true;
+  try{
+   await api(_panelUrl({plugin:panel.plugin, path:editing?'api/update':'api/add'}),
+             {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload)});
+   toast(tr('已保存: ')+name,'ok'); await loadPanel(panel);
+  }catch(e){ toast(tr('保存失败: ')+(e.text||e.detail||e),'err'); btn.disabled=false }
+ };
+ // 模型候选
+ try{
+  const models=await api('/v1/models');
+  const ids=(models&&models.data||[]).map(m=>m.id).filter(Boolean);
+  el('schModels').innerHTML=ids.map(id=>'<option value="'+esc(id)+'">').join('');
+ }catch(e){}
+ // ── 任务行 + 操作 ──
+ const rows=document.createElement('div');
+ rows.style.cssText='display:flex;flex-direction:column;gap:6px';
+ function specText(spec){
+  if(!spec)return '';
+  if(spec.every)return tr('每 ')+spec.every;
+  if(spec.daily)return tr('每天 ')+spec.daily;
+  if(spec.once)return tr('一次 ') + spec.once;
+  return JSON.stringify(spec);
+ }
+ if(!list.length) rows.innerHTML='<div class="meta">'+esc(tr('（还没有定时任务，用上方表单创建）'))+'</div>';
+ list.forEach(it=>{
+  const row=document.createElement('div');
+  row.style.cssText='display:flex;flex-direction:column;gap:3px;padding:7px 9px;border:1px solid var(--line);border-radius:6px';
+  const head=document.createElement('div');
+  head.style.cssText='display:flex;gap:8px;align-items:center;flex-wrap:wrap';
+  const bad=it.last_error;
+  head.innerHTML='<b>'+esc(it.name)+'</b>'+
+   '<span class="meta">'+esc(specText(it.spec))+'</span>'+
+   '<span class="meta">'+esc(tr('下次'))+': '+esc(it.next_run||'—')+'</span>'+
+   '<span class="meta">'+esc(tr('已跑'))+': '+(it.runs||0)+'</span>'+
+   (it.last_run?'<span class="meta">'+esc(tr('上次'))+': '+esc(it.last_run)+'</span>':'')+
+   '<span class="pstat '+(it.enabled?'on':'')+'">'+(it.enabled?esc(tr('启用')):esc(tr('已停用')))+'</span>';
+  if(it.model) head.innerHTML+='<span class="meta">'+esc(it.model)+'</span>';
+  if(it.workspace) head.innerHTML+='<span class="meta">'+esc(it.workspace)+'</span>';
+  const acts=document.createElement('div');
+  acts.style.cssText='display:flex;gap:6px;flex-wrap:wrap';
+  const mk=(label,cls,fn)=>{
+   const b=document.createElement('button'); b.type='button'; b.className='btn '+cls;
+   b.textContent=tr(label); b.onclick=fn; acts.appendChild(b); return b;
+  };
+  const post=async(path,payload,confirmMsg)=>{
+   if(confirmMsg && !await window.dlgConfirm(confirmMsg, tr('定时任务'), true)) return false;
+   await api(_panelUrl({plugin:panel.plugin, path}),{method:'POST',
+    headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload||{})});
+   return true;
+  };
+  mk('运行','ghost',async(e)=>{ e.target.disabled=true;
+   try{ await post('api/run',{name:it.name}); toast(tr('已触发: ')+it.name,'ok'); await loadPanel(panel); }
+   catch(err){ toast(tr('触发失败: ')+(err.text||err),'err'); e.target.disabled=false } });
+  mk(it.enabled?'停用':'启用','ghost',async(e)=>{ e.target.disabled=true;
+   try{ await post('api/update',{name:it.name, enabled:!it.enabled}); await loadPanel(panel); }
+   catch(err){ toast(tr('操作失败: ')+(err.text||err),'err'); e.target.disabled=false } });
+  mk('编辑','ghost',()=>{ fillForm(it); form.scrollIntoView({block:'nearest',behavior:'smooth'}); });
+  if(it.last_session && typeof window.load==='function')
+   mk('会话','ghost',()=>{ window.load(it.last_session); closeMask('panelMask'); });
+  mk('删除','danger',async(e)=>{ e.target.disabled=true;
+   try{
+    if(await post('api/remove',{name:it.name}, tr('确定删除定时任务 {name}？',{name:it.name})))
+     { toast(tr('已删除: ')+it.name,'ok'); await loadPanel(panel); }
+    else e.target.disabled=false;
+   }catch(err){ toast(tr('删除失败: ')+(err.text||err),'err'); e.target.disabled=false } });
+  row.appendChild(head);
+  if(it.task){ const t=document.createElement('div'); t.className='meta'; t.style.cssText='white-space:pre-wrap'; t.textContent=it.task; row.appendChild(t); }
+  if(bad){ const d=document.createElement('div'); d.className='meta'; d.style.color='var(--bad,#d33)'; d.textContent=tr('上次失败: ')+bad; row.appendChild(d); }
+  else if(it.last_result){ const d=document.createElement('div'); d.className='meta'; d.style.cssText='white-space:pre-wrap'; d.textContent=it.last_result; row.appendChild(d); }
+  row.appendChild(acts);
+  rows.appendChild(row);
+ });
+ wrap.appendChild(rows);
+ body.appendChild(wrap);
+}
 async function loadPanel(p){
  const body=document.getElementById('panelBody');
  if(!body)return;
@@ -234,6 +366,8 @@ async function loadPanel(p){
   _renderPanel(p,data);
   if(p.plugin==='teams-bot' && p.id==='status'){
    await _injectTeamsBotModelControl(body, data, p);
+  }else if(p.plugin==='schedule' && p.id==='schedules'){
+   await _injectScheduleManager(body, data, p);
   }
  }catch(e){
   body.innerHTML='<div class="meta">'+esc(tr('读取失败: ')+(e.text||e))+'</div>';

@@ -1,7 +1,7 @@
 {
   "name": "schedule",
-  "version": "0.1.0",
-  "description": "定时任务：按间隔/每天定时/一次性时间点跑 Agent 任务（结果写进新会话，可在会话列表查看；可指定工作区）",
+  "version": "0.2.0",
+  "description": "定时任务：按间隔/每天定时/一次性时间点跑 Agent 任务（结果写进新会话，可查看/运行/启停/编辑/删除；可指定工作区与模型）",
   "dsh": {
     "bundle": {
       "patch": "./cordis.patch.yml"
@@ -20,6 +20,7 @@
       "tools": [
         "schedule_add",
         "schedule_list",
+        "schedule_update",
         "schedule_remove",
         "schedule_run"
       ],
@@ -27,6 +28,7 @@
         "GET api/list",
         "POST api/run",
         "POST api/add",
+        "POST api/update",
         "POST api/remove"
       ],
       "panels": [
@@ -40,7 +42,42 @@
     "i18n": {
       "en": {
         "定时任务": "Scheduled tasks",
-        "按间隔/每天/一次性时间点执行的任务": "Tasks that run on an interval, daily, or once at a set time"
+        "按间隔/每天/一次性时间点执行的任务": "Tasks that run on an interval, daily, or once at a set time",
+        "任务名（必填）": "Task name (required)",
+        "按间隔": "Interval",
+        "每天": "Daily",
+        "一次性": "Once",
+        "30m / 09:00 / 2026-01-01T09:00:00": "30m / 09:00 / 2026-01-01T09:00:00",
+        "启用": "Enabled",
+        "到点执行的完整任务描述（必填）": "Full task prompt (required)",
+        "模型（留空跟随配置）": "Model (blank = config default)",
+        "工作区（可选）": "Workspace (optional)",
+        "取消编辑": "Cancel edit",
+        "新建任务": "New task",
+        "保存修改": "Save changes",
+        "任务名与任务描述都不能为空": "Name and task are both required",
+        "已保存: ": "Saved: ",
+        "保存失败: ": "Save failed: ",
+        "每 ": "every ",
+        "每天 ": "daily ",
+        "一次 ": "once at ",
+        "（还没有定时任务，用上方表单创建）": "(No scheduled tasks yet — create one with the form above)",
+        "下次": "Next",
+        "已跑": "Runs",
+        "上次": "Last",
+        "已停用": "Disabled",
+        "运行": "Run",
+        "停用": "Pause",
+        "编辑": "Edit",
+        "会话": "Session",
+        "删除": "Delete",
+        "已触发: ": "Triggered: ",
+        "触发失败: ": "Trigger failed: ",
+        "操作失败: ": "Operation failed: ",
+        "确定删除定时任务 {name}？": "Delete scheduled task {name}?",
+        "已删除: ": "Deleted: ",
+        "删除失败: ": "Delete failed: ",
+        "上次失败: ": "Last error: "
       }
     },
     "allow_uninstall": true

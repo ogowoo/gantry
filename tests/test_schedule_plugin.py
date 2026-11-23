@@ -85,5 +85,72 @@ class ScheduleWorkspaceTests(unittest.TestCase):
         self.assertEqual(self.ctx.calls[0]["workspace"], "")
 
 
+class ScheduleUpdateTests(unittest.TestCase):
+    """schedule_update 工具与 POST api/update：部分更新、重排期、历史保留。"""
+
+    def setUp(self):
+        self.mod = load_plugin()
+        self.ctx = FakeCtx()
+        self.mod.setup(self.ctx)
+
+    def tearDown(self):
+        task = getattr(getattr(self.ctx, "_scheduler", None), "_task", None)
+        if task is not None:
+            task.cancel()
+
+    def test_update_tool_partial_and_rerun(self):
+        async def scenario():
+            await self.ctx.tools["schedule_add"](name="u", spec={"every": "1d"}, task="old")
+            before = (await self.ctx.tools["schedule_list"]())["schedules"][0]["next_run"]
+            out = await self.ctx.tools["schedule_update"](name="u", task="new", enabled=False)
+            self.assertFalse(out["enabled"])
+            listed = (await self.ctx.tools["schedule_list"]())["schedules"]
+            self.assertEqual(listed[0]["task"], "new")
+            self.assertFalse(listed[0]["enabled"])
+            # 没改 spec 就不重排 next_run（display 字符串相同）
+            self.assertEqual(listed[0]["next_run"], before)
+            with self.assertRaises(ValueError):
+                await self.ctx.tools["schedule_update"](name="不存在", task="x")
+
+        asyncio.run(scenario())
+
+    def test_update_spec_recomputes_next_run(self):
+        async def scenario():
+            await self.ctx.tools["schedule_add"](name="s", spec={"daily": "09:00"}, task="t")
+            out = await self.ctx.tools["schedule_update"](name="s", spec={"every": "30m"})
+            self.assertEqual(out["spec"], {"every": "30m"})
+            self.assertIsNotNone(out["next_run"])
+
+        asyncio.run(scenario())
+
+    def test_api_update_registered(self):
+        self.assertIn(("POST", "api/update"), self.ctx.apis)
+
+    def test_last_session_and_error_recorded(self):
+        async def scenario():
+            await self.ctx.tools["schedule_add"](name="r", spec={"every": "1d"}, task="t")
+            await self.ctx.tools["schedule_run"](name="r")
+            listed = (await self.ctx.tools["schedule_list"]())["schedules"]
+            self.assertEqual(listed[0]["last_session"], "cron-test")
+            self.assertIsNone(listed[0]["last_error"])
+
+        asyncio.run(scenario())
+
+    def test_failure_records_last_error(self):
+        async def boom(task, model="", workspace="", prefix="plugin"):
+            raise RuntimeError("模型炸了")
+
+        self.ctx.run_task = boom
+
+        async def scenario():
+            await self.ctx.tools["schedule_add"](name="f", spec={"every": "1d"}, task="t")
+            await self.ctx.tools["schedule_run"](name="f")
+            listed = (await self.ctx.tools["schedule_list"]())["schedules"]
+            self.assertIn("模型炸了", listed[0]["last_error"])
+            self.assertIsNone(listed[0]["last_session"])
+
+        asyncio.run(scenario())
+
+
 if __name__ == "__main__":
     unittest.main()
