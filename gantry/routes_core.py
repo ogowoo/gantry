@@ -35,6 +35,13 @@ def sse(data):
     return "data: " + json.dumps(data, ensure_ascii=False) + "\n\n"
 
 
+# 客户端可见的错误摘要：只保留第一行（去掉堆栈），剥离本地路径细节，截断到 limit。
+_PATH_TOKEN_RE = re.compile(r"(?:[A-Za-z]:[\\/][^\s\"']+|(?:/Users/|/home/)[^\s\"']+)")
+def _client_error_summary(text: str, limit: int = 200) -> str:
+    first = (str(text or "").strip().splitlines() or [""])[0]
+    return _PATH_TOKEN_RE.sub("<path>", first)[:limit]
+
+
 def _chat_sid() -> str:
     """普通对话（/v1/chat/completions）的窗口簿记 id。
 
@@ -80,8 +87,9 @@ async def stream_response(req, prompt):
                 raise
             except Exception as e:
                 await b.diagnostics("error")
-                b.log(f"失败: {e}")
-                yield sse({"error": {"message": str(e), "type": "bridge_error"}})
+                import traceback as _tb
+                b.log(f"失败: {e}\n{_tb.format_exc()}")
+                yield sse(_sse_error(e, "bridge_error"))
                 yield sse("[DONE]")
     except b.CopilotBusy as exc:
         # 窗口全忙：明确告诉调用方是"等不到窗口"，而不是"Copilot 报错"
@@ -97,7 +105,9 @@ async def stream_agent(req: a.AgentRequest):
         yield sse({"session_id": sid, "agent_steps": result.steps,
                    "choices": [{"index": 0, "delta": {"role": "assistant", "content": result.content}, "finish_reason": "stop"}]})
     except Exception as exc:
-        yield sse({"error": {"message": str(exc), "type": "agent_error"}})
+        import traceback as _tb
+        b.log(f"stream_agent 失败: {exc}\n{_tb.format_exc()}")
+        yield sse(_sse_error(exc, "agent_error"))
     yield sse("[DONE]")
 
 
@@ -127,7 +137,9 @@ async def stream_provider(p, model: str, messages: list, tools=None, tool_choice
                        "model": model_id,
                        "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}]})
     except Exception as exc:
-        yield sse({"error": {"message": str(exc), "type": "provider_error"}})
+        import traceback as _tb
+        b.log(f"stream_provider 失败: {exc}\n{_tb.format_exc()}")
+        yield sse(_sse_error(exc, "provider_error"))
     yield sse("[DONE]")
 
 
@@ -300,7 +312,9 @@ async def stream_copilot_tool(req: a.Request):
     try:
         decision = await copilot_tools.decide(req)
     except Exception as exc:                     # noqa: BLE001
-        yield sse({"error": {"message": str(exc), "type": "tool_shim_error"}})
+        import traceback as _tb
+        b.log(f"stream_copilot_tool 失败: {exc}\n{_tb.format_exc()}")
+        yield sse(_sse_error(exc, "tool_shim_error"))
         yield sse("[DONE]")
         return
     calls = decision.get("tool_calls") or None
@@ -388,7 +402,7 @@ async def chat(req: a.Request):
             except b.CopilotBusy as exc:
                 raise HTTPException(409, f"{exc}（稍后再试，或调大「Copilot 自动化窗口数」）")
             except Exception as exc:             # noqa: BLE001
-                raise HTTPException(500, str(exc))
+                raise _map_agent_error(exc)
             return _tool_decision_payload(decision, req.model)
     prompts = [b.message_text(m).strip() for m in req.messages
                if m.role == "user" and b.message_text(m).strip()]
@@ -409,7 +423,7 @@ async def chat(req: a.Request):
         raise
     except Exception as e:
         await b.diagnostics("error")
-        raise HTTPException(500, str(e)) from e
+        raise _map_agent_error(e) from e
 
 
 @router.get("/ui", include_in_schema=False)
@@ -511,6 +525,18 @@ def _map_agent_error(exc: Exception) -> Exception:
     return HTTPException(500, str(exc))
 
 
+def _sse_error(exc: Exception, kind: str) -> dict:
+    """SSE 错误帧：经 _map_agent_error 归类，客户端只拿到类别 + 截断摘要。
+
+    完整堆栈/本地路径留在服务端日志（b.log），不回传给调用方。
+    """
+    mapped = _map_agent_error(exc)
+    detail = getattr(mapped, "detail", None) or str(exc)
+    return {"error": {"message": _client_error_summary(detail),
+                      "type": kind,
+                      "status": getattr(mapped, "status_code", 500)}}
+
+
 @router.post("/v1/agent/completions")
 async def agent_completions(req: a.AgentRequest, request: HttpRequest = None):
     prompt_lang.set_request_lang(request.headers.get(a._LANG_HEADER) if request is not None else None)
@@ -553,8 +579,10 @@ async def power_automate_probe():
         return await power_automate_ui.probe()
     except Exception as exc:
         import traceback
-        return {"ok": False, "error": f"{type(exc).__name__}: {exc}",
-                "traceback": traceback.format_exc()[-2500:]}
+        # 完整堆栈只进服务端日志，客户端只拿异常类型 + 截断摘要（见 _client_error_summary）。
+        b.log(f"/v1/power-automate/probe 异常:\n{traceback.format_exc()}")
+        return {"ok": False,
+                "error": f"{type(exc).__name__}: {_client_error_summary(str(exc))}"}
 
 
 @router.post("/v1/power-automate/dom")
@@ -650,9 +678,17 @@ async def power_automate_import_run(payload: dict):
     raw = str(payload.get("zip") or "")
     if not raw:
         raise HTTPException(400, "缺少 zip")
+    # 强制限制在会话工作区内（resolve 后 relative_to 校验）：越界一律 400，
+    # 防止用 ../../ 读到工作区外的任意 zip。
+    root = _Path(str(b.AGENT_TOOLS.root)).resolve()
     target = _Path(raw)
     if not target.is_absolute():
-        target = _Path(str(b.AGENT_TOOLS.root)) / target
+        target = root / target
+    target = target.resolve()
+    try:
+        target.relative_to(root)
+    except ValueError:
+        raise HTTPException(400, "zip 路径必须位于会话工作区内")
     return await power_automate_ui.import_run(str(target),
                                               dry_run=bool(payload.get("dry_run", True)))
 

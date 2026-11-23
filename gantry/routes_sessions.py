@@ -98,11 +98,11 @@ async def session_turns(sid: str):
 
 @router.get("/v1/agent/sessions/{sid}")
 async def session(sid: str):
-    x = b.AGENT_SESSIONS.get(sid)
+    x = await asyncio.to_thread(b.AGENT_SESSIONS.get, sid)
     if not x:
         raise HTTPException(404, "Session 不存在")
     try:
-        _sub = b.AGENT_SESSIONS.subagent_stats(sid)
+        _sub = await asyncio.to_thread(b.AGENT_SESSIONS.subagent_stats, sid)
     except Exception:
         _sub = {"count": 0, "steps": 0, "tokens": 0}
     x = dict(x)
@@ -114,10 +114,11 @@ async def session(sid: str):
     x["subagent_running"] = _sub.get("running", 0)
     x["subagent_steps"] = _sub.get("steps", 0)
     x["subagent_tokens"] = _sub.get("tokens", 0)
-    return {"session": x, "steps": b.AGENT_SESSIONS.steps(sid),
-            "files": b.AGENT_SESSIONS.file_events(sid),
-            "messages": b.AGENT_SESSIONS.messages(sid),
-            "token_budget": b.TOKEN_BUDGET, "conv_stats": b.AGENT_SESSIONS.conv_stats(sid),
+    return {"session": x, "steps": await asyncio.to_thread(b.AGENT_SESSIONS.steps, sid),
+            "files": await asyncio.to_thread(b.AGENT_SESSIONS.file_events, sid),
+            "messages": await asyncio.to_thread(b.AGENT_SESSIONS.messages, sid),
+            "token_budget": b.TOKEN_BUDGET,
+            "conv_stats": await asyncio.to_thread(b.AGENT_SESSIONS.conv_stats, sid),
             "snapshots": b.SNAPSHOTS.summary(sid)}
 
 
@@ -666,7 +667,10 @@ async def session_events(sid: str):
     """
     if not b.AGENT_SESSIONS.get(sid):
         raise HTTPException(404, "Session 不存在")
-    queue = b.subscribe_events(sid)
+    try:
+        queue = b.subscribe_events(sid)
+    except b.EventSubscriptionLimit as exc:
+        raise HTTPException(429, str(exc)) from exc
 
     async def gen():
         try:
@@ -701,9 +705,14 @@ async def agent_answer(sid: str, payload: dict | None = None):
         b.runtime_update(sid, question=None)
         raise HTTPException(404, "该会话没有等待回答的问题")
     answer = str((payload or {}).get("answer") or "")
-    fut.set_result(answer)
+    try:
+        fut.set_result(answer)
+    except asyncio.InvalidStateError as exc:
+        # 并发回答/超时已抢先完成：这是冲突而不是成功，别覆盖别人的结果。
+        raise HTTPException(409, "该提问已被回答或已取消") from exc
     b.runtime_update(sid, question=None)   # 立刻清，别等轮询
-    return {"ok": True, "session_id": sid, "answer": answer}
+    # 不回显 answer 全文（可能很长/敏感）：客户端只需要确认已被接受。
+    return {"ok": True, "session_id": sid}
 
 
 @router.get("/v1/agent/sessions/{sid}/runtime")

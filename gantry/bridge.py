@@ -463,6 +463,14 @@ def model_is_provider(model: str) -> bool:
 _EVENT_SUBS: dict[str, set] = {}
 _EVENT_LOOPS: dict = {}          # 队列 -> 创建它的事件循环（跨线程推送要用）
 _EVENT_QUEUE_MAX = 64
+# 订阅连接上限：每会话 5、全局 100。超限由路由层转 HTTP 429——
+# 没上限时，反复重连的 EventSource（浏览器标签页不关）会把订阅集合撑爆（内存泄漏）。
+_EVENT_SUBS_PER_SESSION_MAX = 5
+_EVENT_SUBS_GLOBAL_MAX = 100
+
+
+class EventSubscriptionLimit(RuntimeError):
+    """SSE 订阅数超限（每会话/全局），路由层据此返回 HTTP 429。"""
 
 
 def _safe_put(q, payload: dict) -> None:
@@ -478,6 +486,14 @@ def _safe_put(q, payload: dict) -> None:
 
 
 def subscribe_events(sid: str):
+    existing = _EVENT_SUBS.get(sid)
+    if existing is not None and len(existing) >= _EVENT_SUBS_PER_SESSION_MAX:
+        raise EventSubscriptionLimit(
+            f"会话 {sid} 的实时订阅数已达上限 {_EVENT_SUBS_PER_SESSION_MAX}")
+    total = sum(len(s) for s in _EVENT_SUBS.values())
+    if total >= _EVENT_SUBS_GLOBAL_MAX:
+        raise EventSubscriptionLimit(
+            f"全局实时订阅数已达上限 {_EVENT_SUBS_GLOBAL_MAX}")
     q: asyncio.Queue = asyncio.Queue(maxsize=_EVENT_QUEUE_MAX)
     _EVENT_SUBS.setdefault(sid, set()).add(q)
     try:

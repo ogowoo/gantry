@@ -27,6 +27,7 @@ from . import prompt_lang
 from . import bridge as b
 from . import copilot_delete as cd
 from . import lifecycle
+from . import logcfg
 from .bridge import Message, Request, SessionMessageRequest, AgentRequest
 
 # ── 访问控制 ──
@@ -302,6 +303,54 @@ def _lang_of(request) -> str:
 
 
 
+# ── 请求体大小限制：超限 413 ──
+# 聊天类端点（消息/附件大）给 32MB，其余 8MB；可用 config.json 的
+# limits.body_chat_mb / limits.body_other_mb 覆盖。先按 Content-Length 预判，
+# 没有长度头（chunked/流式）时用累计读兜底。
+_LIMITS_CFG = (b.CFG.get("limits") or {})
+BODY_LIMIT_CHAT_MB = int(_LIMITS_CFG.get("body_chat_mb", 32))
+BODY_LIMIT_OTHER_MB = int(_LIMITS_CFG.get("body_other_mb", 8))
+_BODY_LIMIT_CHAT = BODY_LIMIT_CHAT_MB * 1024 * 1024
+_BODY_LIMIT_OTHER = BODY_LIMIT_OTHER_MB * 1024 * 1024
+_BODY_LIMIT_CHAT_PATHS = ("/v1/chat/completions", "/v1/agent/completions")
+
+
+class _BodyTooLarge(Exception):
+    """流式读取时累计超过上限，由中间件转成 413。"""
+
+
+@app.middleware("http")
+async def body_size_limit(request, call_next):
+    limit = (_BODY_LIMIT_CHAT if request.url.path in _BODY_LIMIT_CHAT_PATHS
+             else _BODY_LIMIT_OTHER)
+    raw_len = request.headers.get("content-length")
+    if raw_len:
+        try:
+            if int(raw_len) > limit:
+                return JSONResponse({"detail": "请求体超过大小限制"}, status_code=413)
+        except ValueError:
+            pass
+        return await call_next(request)
+    # 无 Content-Length：包一层 receive 累计计数，超限抛 _BodyTooLarge 转成 413。
+    received = 0
+    original_receive = request._receive
+
+    async def _counting_receive():
+        nonlocal received
+        message = await original_receive()
+        if message["type"] == "http.request":
+            received += len(message.get("body") or b"")
+            if received > limit:
+                raise _BodyTooLarge()
+        return message
+
+    request._receive = _counting_receive
+    try:
+        return await call_next(request)
+    except _BodyTooLarge:
+        return JSONResponse({"detail": "请求体超过大小限制"}, status_code=413)
+
+
 # ── 提示词语言：每个请求按语言头设一次 contextvar ────────────────────────
 # 由它决定发给模型的提示词用简体/繁體/English（见 gantry/prompt_lang.py）。
 # 放在中间件里设，端点与它创建的后台任务（asyncio 任务继承 context）都能读到。
@@ -428,23 +477,11 @@ async def token_auth(request, call_next):
     return await call_next(request)
 
 
-class _RedactTokenFilter(logging.Filter):
-    """把访问日志里的 token=xxx 抹掉：?token= 便捷用法不能让密钥进日志。"""
-
-    _RE = re.compile(r"(token=)[^&\s\"]+", re.I)
-
-    def filter(self, record: logging.LogRecord) -> bool:
-        """按**最终文本**脱敏：uvicorn 的 args 既可能是 tuple、也可能是 dict，
-        只处理 tuple 会漏（dict 形式的访问日志会把 ?token= 原样写盘）。"""
-        try:
-            text = record.getMessage()
-            if "token=" in text.lower():
-                record.msg = self._RE.sub(r"\1***", text)
-                record.args = ()          # 已合并进 msg，避免二次格式化
-        except Exception:
-            pass
-        return True
-
+# 脱敏 filter 本体在 logcfg（handler 层挂载在 setup_logging 创建的
+# RotatingFileHandler/StreamHandler 上，覆盖子 logger 传播路径）；这里在
+# logger 层再挂一份作为纵深防御。保留 _RedactTokenFilter 名字：
+# tests/test_api_hardening.py 直接引用它。
+_RedactTokenFilter = logcfg.RedactTokenFilter
 
 _redact = _RedactTokenFilter()
 for _name in ("uvicorn.access", "uvicorn.error", "gantry", ""):
@@ -525,7 +562,7 @@ from .routes_config import (  # noqa: F401
     list_plugins,
     plugin_action,
     plugin_api,
-    agent_debug_page,
+    agent_debug_snapshot,
     browser_state,
     set_browser_mode,
     pick_directory,

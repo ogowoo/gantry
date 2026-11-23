@@ -450,8 +450,8 @@ async def plugin_api(plugin: str, path: str, request: HttpRequest):
         raise HTTPException(404, str(exc))
 
 
-@router.get("/v1/agent/debug/page")
-async def agent_debug_page():
+@router.get("/v1/agent/debug/snapshot")
+async def agent_debug_snapshot():
     """诊断：当前自动化页面截图 + 下载入口（只读，排障用）。"""
     return await b.debug_page_snapshot()
 
