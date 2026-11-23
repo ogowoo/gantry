@@ -12,9 +12,16 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Any
+import re
 
 RETRYABLE = {"network", "timeout", "rate_limit", "internal"}
 STOP_KINDS = {"permission", "argument", "business"}
+
+
+def _status_code(s: str, *codes: str) -> bool:
+    """HTTP 状态码必须词边界匹配：裸子串会把 \"24000 字节\"里的 400、
+    \"14290ms\"里的 429 误判成 rate_limit/permission，改变重试决策。"""
+    return any(re.search(rf"\b{re.escape(c)}\b", s) for c in codes)
 
 
 @dataclass(frozen=True)
@@ -31,18 +38,21 @@ class ErrorInfo:
 
 def classify_text(text: Any) -> ErrorInfo:
     s = str(text or "").lower()
-    if any(x in s for x in ("rate limit", "too many requests", "429", "限流", "quota")):
+    if any(x in s for x in ("rate limit", "too many requests", "限流", "quota")) \
+            or _status_code(s, "429"):
         return ErrorInfo("rate_limit", True, "retry", "限流/配额，退避后重试")
     if any(x in s for x in ("timed out", "timeout", "超时", "deadline exceeded")):
         return ErrorInfo("timeout", True, "retry", "超时，可有限重试")
     if any(x in s for x in ("permission denied", "access denied", "sandbox", "unauthorized",
-                            "forbidden", "403", "401", "权限", "拒绝访问", "沙箱")):
+                            "forbidden", "权限", "拒绝访问", "沙箱")) \
+            or _status_code(s, "403", "401"):
         return ErrorInfo("permission", False, "stop", "权限/沙箱拒绝，需人工处理")
     if any(x in s for x in ("connection", "network", "dns", "ssl", "econn", "断开",
                             "无法连接", "网络")):
         return ErrorInfo("network", True, "retry", "网络异常，可有限重试")
-    if any(x in s for x in ("invalid argument", "missing required", "bad request", "400",
-                            "参数", "不合法", "缺少", "无法解析", "syntaxerror")):
+    if any(x in s for x in ("invalid argument", "missing required", "bad request",
+                            "参数", "不合法", "缺少", "无法解析", "syntaxerror")) \
+            or _status_code(s, "400"):
         return ErrorInfo("argument", False, "fix", "参数/输入错误，修改后重试")
     if any(x in s for x in ("not found", "不存在", "业务", "规则", "conflict", "already")):
         return ErrorInfo("business", False, "fix", "业务规则失败，需要改变方案")

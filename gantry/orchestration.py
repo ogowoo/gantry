@@ -180,7 +180,18 @@ async def adversarial_audit(target: str = "", objective: str = "", auditors: int
                     return await b.run_subagent(task, description=f"审计员{i}·第{rnd}轮",
                                                 model=model)
 
-            results = list(await asyncio.gather(*(_one(i + 1, t) for i, t in enumerate(tasks))))
+            # return_exceptions=True：一名审计员抛错（CancelledError 等
+            # BaseException 或未知缺陷）只记为该审计员失败，其余审计会话照常跑完，
+            # 循环继续——不能让 gather 把整轮审计一起崩掉（参考 orchestrator.py
+            # 批处理的写法）。占位 dict 带 error 字段，走下面统一的失败登记分支。
+            recs = await asyncio.gather(*(_one(i + 1, t) for i, t in enumerate(tasks)),
+                                        return_exceptions=True)
+            for rec in recs:
+                if isinstance(rec, BaseException):
+                    results.append({"agent_id": "", "content": "",
+                                    "error": f"{type(rec).__name__}: {rec}"})
+                else:
+                    results.append(rec)
         else:
             for i, t in enumerate(tasks):
                 results.append(await b.run_subagent(t, description=f"审计员{i+1}·第{rnd}轮",

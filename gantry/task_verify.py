@@ -317,7 +317,9 @@ def _check_one_impl(raw: Any, result: dict[str, Any], root: Path,
         sub = _check_one(raw.get("check") or {}, result, root, allow_commands)
         return {"name": "not", "ok": not sub["ok"], "detail": "inverted",
                 "children": [sub]}
-    return {"name": kind or "unknown", "ok": True, "manual": True,
+    # 未知验收类型按不通过处理：类型名拼错时若返回 ok=True+manual，验收条件会
+    # 静默失效（review_task 对 manual 只不标 verified，整体仍可能 ok）。
+    return {"name": kind or "unknown", "ok": False,
             "detail": f"unsupported check type: {kind}"}
 
 

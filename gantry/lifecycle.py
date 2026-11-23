@@ -55,7 +55,14 @@ def schedule(kind: str, delay: float = 0.4) -> bool:
     if kind in _pending:
         return False
     fn = request_restart if kind == "restart" else request_shutdown
-    t = threading.Timer(max(0.05, float(delay)), fn)
+
+    def _fire():
+        # 触发时把自己从 _pending 移除：否则每种 kind 只能排一次队，触发后再
+        # 点击"重启/关机"无反应（schedule 看到 kind 仍在 _pending 里直接返回 False）。
+        _pending.pop(kind, None)
+        fn()
+
+    t = threading.Timer(max(0.05, float(delay)), _fire)
     t.daemon = True
     _pending[kind] = t
     t.start()

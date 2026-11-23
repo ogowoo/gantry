@@ -113,18 +113,29 @@ async def maybe_dispatch(session_store: Any, sid: str, config: dict[str, Any] | 
                           max_steps=int((config or {}).get("auto_team_max_steps", 30) or 30),
                           parent_title=f"自动派发：{str(state.get('title') or sid)[:20]}")
     agents = [x.get("agent_id") for x in (res.get("results") or []) if x.get("agent_id")]
-    # 把 agent_id 记回对应待办，面板/清单能看出"这项由谁在跑"
-    by_content = {str(t.get("content") or "").strip(): t for t in picked}
+    # 把 agent_id 记回对应待办，面板/清单能看出"这项由谁在跑"。
+    # fanout 的 results 与 tasks（= picked 顺序）一一对应，所以按下标对齐：
+    # 旧写法用 len(updated) 当下标——updated 里混着未选中项（blocked/completed），
+    # todos 前面有未选中项时序号错位（B 拿到 A 的 agent_id）。
+    # key 带序号：两条 content 完全相同的待办也不会在 dict 里塌缩成一条。
+    agent_of = {i: a for i, a in enumerate(agents)}
+    pos_of: dict[Any, int] = {}
+    content_first: dict[str, int] = {}
+    for i, t in enumerate(picked):
+        pos_of[id(t)] = i
+        pos_of[f"{i}|{str(t.get('content') or '').strip()}"] = i
+        content_first.setdefault(str(t.get("content") or "").strip(), i)
     updated = []
     for t in todos:
-        key = str(t.get("content") or "").strip()
-        if key in by_content and agents:
+        pos = pos_of.get(id(t))
+        if pos is None:
+            # identity 对不上（待办是被拷贝/重建过的 dict）：按内容找回首个匹配
+            pos = content_first.get(str(t.get("content") or "").strip())
+        if pos is not None and pos in agent_of:
             t = dict(t)
             t["status"] = "in_progress"
-            t["agent_id"] = agents[min(len(updated), len(agents) - 1)]
-            updated.append(t)
-        else:
-            updated.append(t)
+            t["agent_id"] = agent_of[pos]
+        updated.append(t)
     if updated:
         session_store.patch(sid, todos=updated)
     return len(agents)

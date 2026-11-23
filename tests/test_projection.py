@@ -70,6 +70,44 @@ class ProjectionUnitTests(unittest.TestCase):
                                                  "status": "done"}])
         self.assertTrue(any("inflight" in x for x in problems))
 
+    def test_step_done_index_zero_closes_own_generation(self):
+        """ci=0 是 falsy：旧写法 `or ci` 恒真，会误收尾别的代次。"""
+        events = [
+            {"id": 1, "kind": "step_begin", "payload": {"step_no": 1, "tool": "read_text",
+                                                        "conversation_index": 1}},
+            {"id": 2, "kind": "step_begin", "payload": {"step_no": 1, "tool": "read_text",
+                                                        "conversation_index": 0}},
+            {"id": 3, "kind": "step_done", "payload": {"step_no": 1, "status": "done",
+                                                       "conversation_index": 0}},
+        ]
+        p = project(events)
+        by_ci = {s["conversation_index"]: s["status"] for s in p["steps"]}
+        self.assertEqual(by_ci, {1: "inflight", 0: "done"})
+
+    def test_step_done_missing_conversation_index_closes_unique_inflight(self):
+        """缺失 conversation_index 时，仅当同 step_no 只有一条 inflight 才收尾（旧事件兼容）。"""
+        events = [
+            {"id": 1, "kind": "step_begin", "payload": {"step_no": 1, "tool": "read_text",
+                                                        "conversation_index": 1}},
+            {"id": 2, "kind": "step_done", "payload": {"step_no": 1, "status": "done"}},
+        ]
+        p = project(events)
+        self.assertEqual(p["steps"][0]["status"], "done")
+        self.assertEqual(p["warnings"], [])
+
+    def test_step_done_missing_conversation_index_ambiguous_warns(self):
+        """同 step_no 有跨代多条 inflight 时无法判定代次：不收尾，计告警。"""
+        events = [
+            {"id": 1, "kind": "step_begin", "payload": {"step_no": 1, "tool": "read_text",
+                                                        "conversation_index": 1}},
+            {"id": 2, "kind": "step_begin", "payload": {"step_no": 1, "tool": "read_text",
+                                                        "conversation_index": 0}},
+            {"id": 3, "kind": "step_done", "payload": {"step_no": 1, "status": "done"}},
+        ]
+        p = project(events)
+        self.assertEqual([s["status"] for s in p["steps"]], ["inflight", "inflight"])
+        self.assertIn("step_done missing conversation_index (ambiguous)", p["warnings"])
+
 
 class ProjectionAgainstRealRunTests(unittest.TestCase):
     """跑一次真实 runner 流程（假聊天函数），再检查"事件能重建列里的状态"。"""

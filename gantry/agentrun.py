@@ -620,6 +620,20 @@ async def run_agent(req: b.AgentRequest, attach_paths: list | None = None):
             b.runtime_update(sid, phase="completed", detail=result.content, answer_preview=result.content)
             b.SNAPSHOTS.prune()
             return result, sid
+        except asyncio.CancelledError:
+            # 客户端断开/服务停机会 Cancel 本回合：CancelledError 是 BaseException，
+            # 下面的 except Exception 捕不到，不处理的话会话永久停在 running——
+            # auto_resume（只捞 paused）捞不回，界面一直显示"执行中"。
+            # 落库 cancelled + 原因后原样上抛，保住取消语义。
+            try:
+                b.AGENT_SESSIONS.patch(sid, state="cancelled",
+                                       last_error="回合被取消（客户端断开或服务停机）")
+                b.runtime_update(sid, phase="cancelled",
+                                 detail="回合被取消（客户端断开或服务停机）")
+                b.SNAPSHOTS.prune()  # 与失败路径一致：按保留数回收
+            except Exception:
+                pass
+            raise
         except b.AgentPaused:
             # 用户暂停不是失败：写 failed 会让 AgentRunner 的停放逻辑（只认
             # paused）失效、重启后的 auto_resume（只捞 paused）也捞不回来，

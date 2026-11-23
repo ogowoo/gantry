@@ -61,6 +61,9 @@ async def _await_interruptible(sid: str, coro, what: str):
         raise
     if task in done:
         waiter.cancel()
+        # 收尾被取消的 waiter：不 await 的话被取消的协程一直悬置，事件循环
+        # 回收时刷 "Task was destroyed while pending" 泄漏告警。
+        await asyncio.gather(waiter, return_exceptions=True)
         return await task
     task.cancel()
     try:

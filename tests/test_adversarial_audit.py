@@ -163,6 +163,48 @@ class AuditFlowTests(unittest.TestCase):
         self.assertEqual(b.AGENT_SESSIONS.get(out["session_id"])["state"], "completed")
 
 
+class AuditParallelFailureTests(unittest.TestCase):
+    """并行 gather（return_exceptions=True）：一名审计员抛错只记为它自己失败，
+    其余审计会话照常跑完、循环继续（修前：gather 直接崩掉整轮审计）。"""
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp(prefix="cbp_audit_par_"))
+        self.ws = self.tmp / "ws"
+        self.ws.mkdir()
+        self.saved = (b.AGENT_SESSIONS, b.AGENT_TOOLS.root, b.run_subagent, dict(b.PROVIDERS))
+        b.AGENT_SESSIONS = SessionStore(self.tmp / "a.db")
+        b.AGENT_TOOLS.set_root(self.ws, False)
+        b.PROVIDERS["fakeprov"] = object()   # 走并行 gather 分支需要 pm[0] in PROVIDERS
+
+    def tearDown(self):
+        b.AGENT_SESSIONS, root, b.run_subagent, provs = self.saved
+        b.AGENT_TOOLS.set_root(root, False)
+        b.PROVIDERS.clear()
+        b.PROVIDERS.update(provs)
+
+    def test_one_auditor_raising_does_not_crash_round(self):
+        async def fake(task, description="", model="", max_steps=0):
+            if "审计员1" in description:
+                raise RuntimeError("boom")
+            if "审计员" in description:
+                return {"agent_id": "a2", "content": "[]"}
+            if "裁判" in description:
+                return {"agent_id": "j",
+                        "content": '{"issues":[],"false_positives":[],"verdict":"clean"}'}
+            return {"agent_id": "f", "content": "{}"}
+
+        b.run_subagent = fake
+        out = run(b.adversarial_audit(objective="验证", auditors=2, max_rounds=3,
+                                      auto_fix=True, model="fakeprov/m1"))
+        self.assertTrue(out["complete"], "一名审计员抛错不能崩掉整轮审计")
+        self.assertEqual(out["verdict"], "clean", "其余审计员的 clean 结论仍应采用")
+        steps = b.AGENT_SESSIONS.steps(out["session_id"])
+        errs = [s for s in steps if s.get("tool") == "audit_auditor"
+                and s.get("status") == "error"]
+        self.assertTrue(errs, "抛错的审计员要逐条登记为错误步骤")
+        self.assertIn("boom", str((errs[0].get("result") or {})))
+
+
 class AuditApiTests(unittest.TestCase):
     def setUp(self):
         self.tmp = Path(tempfile.mkdtemp(prefix="cbp_audit_api_"))

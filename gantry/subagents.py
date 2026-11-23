@@ -212,6 +212,19 @@ async def _drive_child(child_sid: str, task: str, model_id: str, max_steps: int,
                                              str(result.content or ""), b._conv_index(child_sid))
             except Exception:
                 pass
+            # runner.run 正常返回 ≠ 成功：验证门被拒（gate_blocked）、无进展循环
+            # （no_progress）、任务图验收不通过（task_gate_blocked）、要求工具未调用
+            # （required_tool_blocked）、步数耗尽等失败出口在返回**之前**已把会话置
+            # failed。必须读当前 state，仅当非 failed/cancelled 才收尾 completed；
+            # 否则把失败原因透传出去——fanout/orchestrator 以 error 字段判 ok，
+            # 这里若不报，被拒的子任务会被父会话当作成功。
+            st = get() or {}
+            if str(st.get("state")) in ("failed", "cancelled"):
+                err = str(st.get("last_error") or result.content or "子任务失败")[:300]
+                return {"agent_id": child_sid, "description": (description or task)[:120],
+                        "content": result.content, "steps": len(result.steps),
+                        "model": model_id, "error": err,
+                        "verification": _verification_from_steps(result.steps)}
             b.AGENT_SESSIONS.patch(child_sid, state="completed")
             return {"agent_id": child_sid, "description": (description or task)[:120],
                     "content": result.content, "steps": len(result.steps),

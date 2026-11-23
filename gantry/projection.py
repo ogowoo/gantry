@@ -31,6 +31,7 @@ def project(events: list[dict[str, Any]]) -> dict[str, Any]:
     changed_files: list[str] = []
     queues: dict[str, dict[str, Any]] = {}
     unknown: dict[str, int] = {}
+    warnings: list[str] = []
 
     for ev in events:
         kind = ev.get("kind")
@@ -55,11 +56,29 @@ def project(events: list[dict[str, Any]]) -> dict[str, Any]:
                 "conversation_index": payload.get("conversation_index"),
                 "args_hash": payload.get("args_hash"), "status": "inflight"}
         elif kind == "step_done":
-            for (ci, no, _tool), item in steps.items():
-                if (no == int(payload.get("step_no") or 0) and item["status"] == "inflight"
-                        and ci == int(payload.get("conversation_index") or ci)):
-                    item["status"] = payload.get("status") or "done"
-                    break
+            pci = payload.get("conversation_index")
+            if pci is None:
+                # 缺失代次（旧事件）：仅当同 step_no 只有一条 inflight 时才收尾，
+                # 否则无法判定代次，跳过并计告警（`or ci` 会让比较恒真）。
+                cands = [(k, it) for k, it in steps.items()
+                         if int(it["step_no"] or 0) == int(payload.get("step_no") or 0)
+                         and it["status"] == "inflight"]
+                if len(cands) == 1:
+                    cands[0][1]["status"] = payload.get("status") or "done"
+                elif len(cands) > 1:
+                    warnings.append(
+                        "step_done missing conversation_index (ambiguous)")
+            else:
+                try:
+                    pci_int = int(pci)
+                except (TypeError, ValueError):
+                    warnings.append("step_done bad conversation_index")
+                else:
+                    for (ci, no, _tool), item in steps.items():
+                        if (no == int(payload.get("step_no") or 0) and item["status"] == "inflight"
+                                and ci == pci_int):
+                            item["status"] = payload.get("status") or "done"
+                            break
         elif kind == "step_recorded":
             recorded_steps.append(int(payload.get("step_no") or 0))
         elif kind == "approval_granted":
@@ -99,6 +118,7 @@ def project(events: list[dict[str, Any]]) -> dict[str, Any]:
         "changed_files": changed_files,
         "queues": queues,
         "unknown_kinds": unknown,
+        "warnings": warnings,
         "event_count": len(events),
         "last_event_id": max((int(e.get("id") or 0) for e in events), default=0),
         "current_state": (states[-1]["to"] if states else None),
