@@ -54,9 +54,13 @@ class PromptMixin:
             _ttl, _stext = _soul.soul_text(_grooot, _lang)
             if _stext:
                 reg.add("soul", (str(_ttl) + "\n" if _ttl else "") + _stext, order=-1500)
+            # 硬编码冲突裁决：安全/协议 > Soul > Persona，不可被 SOUL.md 覆盖
+            reg.add("soul_guard", _soul.safety_clause(_lang), order=-1400)
             _pname, _ptext = _soul.persona_text(
-                _soul.effective_persona((self.config or {}).get("persona")),
-                _grooot, _wsroot, _lang)
+                _soul.effective_persona((self.config or {}).get("persona"),
+                                        getattr(self, "persona_override", None)),
+                _grooot, _wsroot, _lang,
+                allow_workspace=bool((self.config or {}).get("allow_workspace_personas", True)))
             if _ptext:
                 reg.add("persona", _ptext, order=280)
         except Exception:                         # noqa: BLE001

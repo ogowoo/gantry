@@ -187,8 +187,10 @@ class AgentRunner(PromptMixin, ParseMixin, TextMixin):
     def __init__(self, tools: ToolRegistry, chat: ChatFunction, config: dict[str, Any],
                  state_getter, state_saver, step_saver, file_event_saver, conv_stat_saver=None,
                  step_begin=None, step_finish=None, approval_check=None,
-                 final_gate=None):
+                 final_gate=None, persona: str | None = None):
         self.tools, self.chat, self.config = tools, chat, config
+        # 身份层 persona 覆盖（会话记录/子代理显式指定）；None = 走默认优先级链
+        self.persona_override = persona
         self.state_getter, self.state_saver = state_getter, state_saver
         self.step_saver, self.file_event_saver = step_saver, file_event_saver
         self.conv_stat_saver = conv_stat_saver

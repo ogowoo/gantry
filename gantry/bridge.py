@@ -433,6 +433,17 @@ def web_subagent_parallel() -> int:
     return max(1, min(subagent_parallel(), windows))
 
 
+def subagent_persona() -> str:
+    """子代理的表达风格：默认 terse（省 token，子代理不需要长语气说明）。
+
+    子代理会把系统提示词整份发给模型，persona 文本每回合都在烧 token；
+    而它们的产出主要是工具调用与结论，长风格说明没有收益。
+    可用 `agent.subagent_persona` 覆盖（如继承父会话可不配）。
+    """
+    raw = str(AGENT_CFG.get("subagent_persona") or "terse").strip().lower()
+    return raw if raw and raw != "inherit" else ""
+
+
 def subagent_max_steps() -> int:
     """子代理默认步数上限（用户实测：默认 40 步常在做完前就用尽）。
 

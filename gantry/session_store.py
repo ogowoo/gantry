@@ -196,6 +196,12 @@ CREATE TABLE IF NOT EXISTS conv_stats (
                 con.execute("ALTER TABLE sessions ADD COLUMN approval_pending TEXT")
             except Exception:
                 pass  # 列已存在
+            # 迁移：会话级身份——persona 在创建时固化，之后不随请求头漂移
+            # （cron/重启续跑/子代理请求没有头，若只看头会掉回默认风格）。
+            try:
+                con.execute("ALTER TABLE sessions ADD COLUMN persona TEXT")
+            except Exception:
+                pass  # 列已存在
             try:
                 con.execute("ALTER TABLE sessions ADD COLUMN initial_prompt TEXT")
             except Exception:
@@ -254,14 +260,24 @@ CREATE TABLE IF NOT EXISTS conv_stats (
         "s.last_view_file",
     )
 
-    def create(self, sid: str, task: str, workspace: str, model: str, title: str | None = None):
+    def create(self, sid: str, task: str, workspace: str, model: str, title: str | None = None,
+               persona: str | None = None):
         now = time.time()
         title = (title or task.splitlines()[0] or sid)[:120]
         with self.lock, self._connect() as con:
             con.execute("""INSERT OR IGNORE INTO sessions
-                (id,title,original_task,state,created,updated,workspace,model)
-                VALUES(?,?,?,?,?,?,?,?)""", (sid,title,task,"ready",now,now,workspace,model))
+                (id,title,original_task,state,created,updated,workspace,model,persona)
+                VALUES(?,?,?,?,?,?,?,?,?)""",
+                        (sid, title, task, "ready", now, now, workspace, model,
+                         (persona or None)))
         return self.get(sid)
+
+    def set_persona(self, sid: str, persona: str | None) -> dict:
+        """改会话的表达风格（空值 = 回到默认链）。"""
+        with self.lock, self._connect() as con:
+            con.execute("UPDATE sessions SET persona=?, updated=? WHERE id=?",
+                        (persona or None, time.time(), sid))
+        return self.get(sid) or {}
 
     def get(self, sid: str):
         with self.lock, self._connect() as con:

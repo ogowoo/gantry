@@ -101,7 +101,13 @@ CONFIG_SCHEMA: dict[str, dict] = {
   "agent.prompt_language": {"kind": "enum", "values": ["auto", "zh", "tw", "en"],
                             "label": "提示词语言", "group": "exec"},
   # 表达风格：文件库在 personas/*.md，请求头 X-Gantry-Persona 可按会话覆盖
-  "agent.persona": {"kind": "str", "group": "exec", "label": "默认 Persona（表达风格）"},
+  "agent.persona": {"kind": "str", "group": "identity", "label": "默认 Persona（表达风格）"},
+  # 子代理的 persona：默认 terse 省 token；填 inherit = 跟随默认链
+  "agent.subagent_persona": {"kind": "str", "group": "identity",
+                             "label": "子代理 Persona（默认 terse）"},
+  # 工作区 personas/ 来自仓库，属提示词注入面；不信任仓库时关掉
+  "agent.allow_workspace_personas": {"kind": "bool", "group": "identity",
+                                     "label": "允许工作区 Persona 覆盖全局（仓库文件会进提示词）"},
   "sandbox_mode": {"kind": "enum", "values": ["read-only", "workspace-write",
                                                 "danger-full-access"],
                      "group": "exec", "label": "权限档位（工具能改什么）"},

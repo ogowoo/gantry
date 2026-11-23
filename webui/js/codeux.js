@@ -61,6 +61,14 @@ function applySessionChrome(s){
  parentOfCurrent=s.parent_id||null;
  const _ms=document.getElementById('model');
  if(_ms&&currentModel&&[..._ms.options].some(o=>o.value===currentModel))_ms.value=currentModel;
+ // 会话级 persona 徽章：让"这个会话用什么语气"可见（localStorage 覆盖最容易忘）
+ const _pc=document.getElementById('personaChip');
+ if(_pc){
+  const _pn=String(s.persona||'').trim();
+  _pc.textContent=_pn?('🎭 '+_pn):'🎭 '+tr('默认');
+  _pc.style.display='';
+  _pc.title=tr('本会话的表达风格：{m}（点击打开身份设置）',{m:_pn||tr('默认')});
+ }
  try{refreshSessModelOptions()}catch(e){}
  try{updateChannelUI()}catch(e){}
  document.getElementById('emptyState').style.display='none';

@@ -5,6 +5,31 @@
 
 ## [Unreleased]
 
+## [0.12.0-beta.2] - 2026-11-23
+
+### Added
+- **身份层增强（Soul / Persona）**：
+  - 会话级固化：创建会话时把 persona 写进 `sessions.persona`，cron/重启续跑/
+    子代理即使不带请求头也不再漂移回默认；会话头部新增 🎭 徽章可查看与切换；
+  - 冲突裁决硬编码：`soul_guard` 条款（安全规则与协议 > Soul > Persona）
+    紧随 Soul 注入，SOUL.md 无法覆盖；
+  - 静态检查 lint：取消审批/验证、诱导删除、泄露密钥、压过安全规则、空分节、
+    超长都会被保存接口点名（只警告不阻止），WebUI 就地显示；
+  - Soul 历史：每次修改前自动快照到 `data/soul-history/`（保留 50 份），
+    API 与 WebUI 可列出、查看、回滚（回滚前也快照）；
+  - 结构化 frontmatter：`extends`（最多 3 层防循环）+ `verbosity`/`tone`/
+    `format`，渲染为中英同构的风格约束；内置 terse/engineer/reviewer 已示范；
+  - 工作区信任：`agent.allow_workspace_personas` 可关闭工作区文件（仓库属
+    提示词注入面），选中工作区来源时 UI 警告并首次确认；
+  - 子代理 persona：`agent.subagent_persona` 默认 `terse` 省 token（`inherit`
+    跟随默认链）；
+  - token 预算：Soul/Persona 接口与设置页显示字符数与估算 token/回合。
+
+### Tests
+- `test_soul_persona` 扩展到 48 项：frontmatter/extends/循环保护、lint 各规则、
+  工作区信任开关、会话 persona 优先级、恶意 Soul 下的裁决条款、历史快照与回滚、
+  会话 persona API；全量 2012 用例通过，失败项与基线一致。
+
 ## [0.12.0-beta.1] - 2026-11-23
 
 ### Added

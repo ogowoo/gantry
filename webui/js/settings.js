@@ -295,10 +295,14 @@ async function renderSettings(){
    <h4>${esc(tr('Soul（部署级自我，SOUL.md）'))}</h4>
    <p class="sethint" id="idSoulPath"></p>
    <textarea id="idSoulText" class="kbinput" rows="10" spellcheck="false" placeholder="${esc(tr('留空 = 使用内置默认 Soul；填写后覆盖内置身份（建议 ≤40 行）'))}"></textarea>
+   <p class="sethint" id="idSoulMeta"></p>
+   <p class="sethint warn" id="idSoulLint"></p>
    <div class="setbtns">
      <button type="button" class="btn" data-act="soulSave">${esc(tr('保存 Soul'))}</button>
      <button type="button" class="btn ghost" data-act="soulReset">${esc(tr('恢复内置默认'))}</button>
    </div>
+   <h5 class="setsection">${esc(tr('Soul 历史（改动前自动快照，可回滚）'))}</h5>
+   <div id="idSoulHistory" class="meta">${esc(tr('加载中…'))}</div>
    <h4>${esc(tr('Persona 文本'))}</h4>
    <label class="setrow"><span>${esc(tr('编辑哪个'))}</span>
      <select id="idPersonaEdit" class="kbinput"></select></label>
@@ -369,7 +373,13 @@ async function renderSettings(){
 
  box.innerHTML=visible.map(([gid,label])=>{
   if(gid==='ui')return pane('ui',uiHtml);
-  if(gid==='identity')return pane('identity',identityHtml);
+  if(gid==='identity'){
+   // 身份页 = 自定义编辑器 + 白名单开关（agent.persona 由上方下拉框负责，避免两个控件打架）
+   const rows=(groups.identity||[]).filter(([k])=>k!=='agent.persona')
+     .map(([k,spec])=>_cfgInput(k,spec,window.settingsValues[k])).join('');
+   const extra=rows?`<h5 class="setsection">${esc(tr('子代理与来源'))}</h5>${rows}`:'';
+   return pane('identity',identityHtml+extra);
+  }
   if(gid==='danger'){
    // 危险区：先渲染 schema 里登记的高风险开关（如"允许自升级"），再放操作按钮
    const rows=(groups[gid]||[]).map(([k,spec])=>_cfgInput(k,spec,window.settingsValues[k])).join('');
@@ -433,22 +443,46 @@ async function loadIdentity(){
   const r=await api('/v1/agent/personas');
   _identityPersonas=r.items||[];
   const cur=r.selected||'default';
-  if(dflt){dflt.innerHTML=_identityOpts(cur,false);
-   dflt.onchange=async()=>{
+  const sessCur=(()=>{try{return localStorage.getItem('gantry-persona')||''}catch(e){return ''}})();
+  if(dflt)dflt.innerHTML=_identityOpts(cur,false);
+  // 有打开的会话时，"本次会话"显示的是会话记录里的 persona（权威值）
+  let sessVal=sessCur;
+  if(window.current){
+   try{
+    const st=(window.sessCache||[]).find(x=>x.id===window.current);
+    if(st)sessVal=st.persona||'';
+    else{const d=await api('/v1/agent/sessions/'+encodeURIComponent(window.current));sessVal=(d&&d.persona)||'';}
+   }catch(e){sessVal=''}
+  }
+  if(sess){sess.innerHTML=_identityOpts(sessVal,true);
+   sess.onchange=async()=>{
+    // 有当前会话：写会话记录（权威来源，cron/续跑不漂移）；否则只记 localStorage，
+    // 作为下次创建会话时的请求头选择。
+    const sid=window.current||'';
+    if(sid){
+     try{
+      const r=await api('/v1/agent/sessions/'+encodeURIComponent(sid)+'/persona',
+       {method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({persona:sess.value||''})});
+      toast(sess.value?tr('本会话使用 {m}',{m:sess.value}):tr('本会话跟随默认 Persona'),'ok');
+      try{localStorage.removeItem('gantry-persona')}catch(e){}
+      const _pc=document.getElementById('personaChip');
+      if(_pc){_pc.textContent=(sess.value?('🎭 '+sess.value):('🎭 '+tr('默认')));}
+      return r;
+     }catch(e){toast(tr('切换失败: ')+fmtErr(e),'err');return}
+    }
+    try{
+     if(sess.value)localStorage.setItem('gantry-persona',sess.value);
+     else localStorage.removeItem('gantry-persona');
+    }catch(e){}
+    toast(sess.value?tr('新会话将使用 {m}',{m:sess.value}):tr('新会话跟随默认 Persona'),'ok');
+   };}
+  if(dflt){dflt.onchange=async()=>{
     try{
      await api('/v1/config',{method:'POST',headers:{'Content-Type':'application/json'},
       body:JSON.stringify({values:{'agent.persona':dflt.value},persist:true})});
      toast(tr('默认 Persona 已切换为 {m}',{m:dflt.value}),'ok');
     }catch(e){toast(tr('切换失败: ')+fmtErr(e),'err')}
-   };}
-  const sessCur=(()=>{try{return localStorage.getItem('gantry-persona')||''}catch(e){return ''}})();
-  if(sess){sess.innerHTML=_identityOpts(sessCur,true);
-   sess.onchange=()=>{
-    try{
-     if(sess.value)localStorage.setItem('gantry-persona',sess.value);
-     else localStorage.removeItem('gantry-persona');
-    }catch(e){}
-    toast(sess.value?tr('本次会话使用 {m}',{m:sess.value}):tr('本次会话跟随默认 Persona'),'ok');
    };}
   if(edit){edit.innerHTML=_identityOpts(cur,false);
    edit.onchange=()=>loadPersonaText(edit.value);}
@@ -459,8 +493,48 @@ async function loadIdentity(){
   if(ta)ta.value=s.exists?(s.text||''):'';
   const hint=document.getElementById('idSoulPath');
   if(hint)hint.textContent=s.exists?(tr('当前来源：')+s.path):(tr('当前使用内置默认 Soul；保存后写入 ')+s.path);
+  _renderSoulMeta(s); _renderLint('idSoulLint', s.warnings);
  }catch(e){}
+ loadSoulHistory();
  if(edit&&edit.value)loadPersonaText(edit.value);
+}
+function _renderSoulMeta(s){
+ const el=document.getElementById('idSoulMeta');
+ if(!el)return;
+ const eff=String(s&&s.effective_text||'').length;
+ el.textContent=tr('生效文本 {n} 字符，约 {t} token/回合（上限 {m} 字符）',
+  {n:String(eff),t:String(s&&s.tokens||0),m:String(s&&s.max_chars||0)});
+}
+function _renderLint(id, warns){
+ const el=document.getElementById(id);
+ if(!el)return;
+ const list=(warns||[]);
+ el.textContent=list.length?(tr('检查提示：')+list.join('；')):'';
+ el.style.display=list.length?'':'none';
+}
+async function loadSoulHistory(){
+ const host=document.getElementById('idSoulHistory');
+ if(!host)return;
+ try{
+  const r=await api('/v1/agent/soul/history');
+  const items=r.items||[];
+  if(!items.length){host.textContent=tr('暂无历史（第一次改 Soul 时会自动快照）');return}
+  host.innerHTML=items.slice(0,8).map(x=>
+   `<div class="setrow"><span>${esc(x.id)} · ${esc(tr('{n} 字符',{n:String(x.chars)}))}</span>
+    <button type="button" class="btn ghost" data-act="soulRestore" data-arg="${esc(x.id)}">${esc(tr('回滚'))}</button></div>`
+  ).join('');
+ }catch(e){host.textContent=''}
+}
+async function _soulRestore(id){
+ if(!id)return;
+ if(!confirm(tr('回滚到 {id}？当前版本会先自动快照，可再撤销。',{id})))return;
+ try{
+  const r=await api('/v1/agent/soul/restore',{method:'POST',
+   headers:{'Content-Type':'application/json'},body:JSON.stringify({id})});
+  toast(tr('已回滚到 {id}',{id}),'ok');
+  _renderLint('idSoulLint', r.warnings);
+  loadIdentity();
+ }catch(e){toast(tr('回滚失败: ')+fmtErr(e),'err')}
 }
 async function loadPersonaText(name){
  if(!name)return;
@@ -469,7 +543,18 @@ async function loadPersonaText(name){
   const ta=document.getElementById('idPersonaText');
   const hint=document.getElementById('idPersonaHint');
   if(ta)ta.value=r.text||'';
-  if(hint)hint.textContent=tr('来源：{s}；实际注入时截断到 {n} 字符',{s:r.source,n:String(r.max_chars||0)});
+  const wsWarn=r.source==='workspace'?tr('来源：当前工作区（仓库里的这个文件会进入系统提示词，属提示词注入面，确认可信再用）'):
+    tr('来源：{s}；注入约 {t} token；实际截断到 {n} 字符',{s:r.source,t:String(r.tokens||0),n:String(r.max_chars||0)});
+  if(hint){hint.textContent=wsWarn;hint.classList.toggle('warn',r.source==='workspace')}
+  _renderLint('idSoulLint', []);
+  const fl=r.fields&&Object.keys(r.fields).length?tr('结构化：')+Object.entries(r.fields).map(([k,v])=>k+'='+v).join('，'):'';
+  if(fl&&hint)hint.textContent=wsWarn+' · '+fl;
+  if(r.source==='workspace'){
+   const key='gantry-wspersona-ok:'+name;
+   try{
+    if(localStorage.getItem(key)!=='1'&&confirm(tr('{m} 来自当前工作区（可能是 clone 来的仓库文件）。确认可信并继续？',{m:name})))localStorage.setItem(key,'1');
+   }catch(e){}
+  }
  }catch(e){toast(tr('读取 persona 失败: ')+fmtErr(e),'err')}
 }
 async function _soulSave(restore){
@@ -479,6 +564,7 @@ async function _soulSave(restore){
   const r=await api('/v1/agent/soul',{method:'PUT',headers:{'Content-Type':'application/json'},
    body:JSON.stringify({text})});
   toast(r.restored_default?tr('已恢复内置默认 Soul'):tr('Soul 已保存'),'ok');
+  _renderLint('idSoulLint', r.warnings);
   if(restore&&ta)ta.value='';
   loadIdentity();
  }catch(e){toast(tr('保存 Soul 失败: ')+fmtErr(e),'err')}
@@ -852,6 +938,8 @@ const ACTIONS={
  personaSaveWs:()=>_personaSave('workspace'),
  personaSaveGlobal:()=>_personaSave('global'),
  personaDelete:()=>_personaDelete(),
+ soulRestore:(el)=>_soulRestore(el.dataset.arg||''),
+ openPersonaSettings:()=>{try{openSettings()}catch(e){};try{setSettingsTab('identity')}catch(e){}} ,
  toggleTodos:()=>toggleTodos(),
  imgZoom:(el)=>imgZoom(el),
  openPreview:(el)=>openPreview(el.dataset.arg||el.dataset.path||''),

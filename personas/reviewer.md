@@ -1,3 +1,8 @@
+---
+extends: default
+tone: blunt
+format: bullets
+---
 # Reviewer —— 审查者
 
 ## zh

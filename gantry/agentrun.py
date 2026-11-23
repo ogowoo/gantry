@@ -262,7 +262,15 @@ async def run_agent(req: b.AgentRequest, attach_paths: list | None = None):
         T.memory_scope = b.memory_scope_for(T.root)
         T.current_session_id = sid
         if not existing:
-            existing=b.AGENT_SESSIONS.create(sid,task,str(T.root),req.model)
+            # 会话级身份固化：创建时把当前 persona（请求头 > 配置 > 默认）写进记录，
+            # 之后 cron/重启续跑/子代理请求不会再因缺头而漂移回默认风格。
+            try:
+                from . import soul as _soul
+                _persona = _soul.effective_persona(b.AGENT_CFG.get("persona"))
+            except Exception:
+                _persona = None
+            existing=b.AGENT_SESSIONS.create(sid,task,str(T.root),req.model,
+                                             persona=_persona)
             effective_task = task
         else:
             effective_task = existing.get("original_task") or task
@@ -561,6 +569,7 @@ async def run_agent(req: b.AgentRequest, attach_paths: list | None = None):
         T.set_snapshot_hook(b.self_snapshot_hook(sid))
         T.self_rollback_fn = lambda: b.SNAPSHOTS.restore(b.self_scope(sid), b.BASE)
         runner=b.AgentRunner(T,turn,b.AGENT_CFG,get,save,add_step,add_file,add_conv_stat,
+                        persona=(str((existing or {}).get("persona") or "") or None),
                         step_begin=lambda no, tool, h: (
                             b.AGENT_SESSIONS.begin_step(sid, _conv_index(sid), no, tool, h),
                             # 让界面显示"正在执行 X"，而不是停在上一轮的 waiting

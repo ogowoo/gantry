@@ -1,3 +1,7 @@
+---
+verbosity: minimal
+format: bullets
+---
 # Terse —— 极简
 
 ## zh

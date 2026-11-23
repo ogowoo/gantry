@@ -221,6 +221,31 @@ async def set_session_model(sid: str, req: b.SessionModelRequest):
             "applies_code": "next_turn", "note": note}
 
 
+@router.post("/v1/agent/sessions/{sid}/persona")
+async def set_session_persona(sid: str, payload: dict | None = None):
+    """切换该会话的表达风格（写进会话记录，下一回合生效）。
+
+    会话级是权威：cron/重启续跑/子代理请求都不带请求头，只看头会漂移回默认。
+    传空字符串 = 回到默认优先级链（请求头 > 配置 > default）。
+    """
+    from . import soul as _soul
+    if not b.AGENT_SESSIONS.get(sid):
+        raise HTTPException(404, "Session 不存在")
+    raw = (payload or {}).get("persona")
+    name = _soul.normalize_name(raw) if raw is not None else ""
+    if raw is not None and str(raw).strip() and not name:
+        raise HTTPException(400, "persona 名不合法")
+    if name:
+        g = getattr(b.AGENT_TOOLS, "global_root", None) or getattr(b, "BASE", None)
+        ws = getattr(b.AGENT_TOOLS, "root", None)
+        known = _soul.list_personas(g, ws, bool((b.AGENT_CFG or {}).get(
+            "allow_workspace_personas", True)))
+        if name not in known:
+            raise HTTPException(404, f"没有这个 persona: {name}")
+    updated = b.AGENT_SESSIONS.set_persona(sid, name or None)
+    return {**updated, "applies": "下一回合生效", "applies_code": "next_turn"}
+
+
 @router.post("/v1/agent/sessions/{sid}/actions/{action}")
 async def control(sid: str, action: str):
     if not b.AGENT_SESSIONS.get(sid):

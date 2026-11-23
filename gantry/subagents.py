@@ -75,7 +75,8 @@ async def run_subagent(task: str, description: str = "", model: str = "",
     child_model = b.normalize_model_soft((model or parent_state.get("model") or b.DEFAULT_MODEL).strip())
     pm = b.providers_mod.split_provider_model(child_model)
     is_provider = bool(pm and pm[0] in b.PROVIDERS)
-    b.AGENT_SESSIONS.create(child_sid, task, parent_root, child_model)
+    b.AGENT_SESSIONS.create(child_sid, task, parent_root, child_model,
+                            persona=b.subagent_persona())
     # 父子关系与短标签：子代理面板据此列出"谁派生的、在跑什么"
     b.AGENT_SESSIONS.patch(child_sid, parent_id=parent_sid,
                            description=(description or task)[:120])
@@ -195,6 +196,7 @@ async def _drive_child(child_sid: str, task: str, model_id: str, max_steps: int,
         cfg_child["max_total_steps"] = max(3, min(int(max_steps or b.subagent_max_steps()), 200))
         runner = b.AgentRunner(child_reg, turn, cfg_child, get, save, add_step, add_file,
                                add_conv_stat,
+                               persona=b.subagent_persona(),
                                step_begin=lambda no, tool, h: (
                                    b.AGENT_SESSIONS.begin_step(
                                        child_sid, b._conv_index(child_sid), no, tool, h),

@@ -956,6 +956,36 @@ Object.assign(I18N_EN, {
     "Delete the workspace copy of {m}? Built-in and global copies are untouched.",
   "来源：{s}；实际注入时截断到 {n} 字符": "Source: {s}; truncated to {n} chars when injected",
   "加载中…": "Loading…",
+  "默认": "Default",
+  "子代理与来源": "Subagents and sources",
+  "子代理 Persona（默认 terse）": "Subagent persona (default: terse)",
+  "允许工作区 Persona 覆盖全局（仓库文件会进提示词）": "Allow workspace personas to override global ones (repo files enter the prompt)",
+  "Soul 历史（改动前自动快照，可回滚）": "Soul history (auto-snapshot before each change, rollback supported)",
+  "生效文本 {n} 字符，约 {t} token/回合（上限 {m} 字符）":
+    "Effective text: {n} chars, about {t} tokens per turn (cap {m} chars)",
+  "检查提示：": "Checks: ",
+  "暂无历史（第一次改 Soul 时会自动快照）":
+    "No history yet (a snapshot is taken automatically on the first Soul change)",
+  "{n} 字符": "{n} chars",
+  "回滚": "Rollback",
+  "回滚到 {id}？当前版本会先自动快照，可再撤销。":
+    "Roll back to {id}? The current version is snapshotted first, so this can be undone.",
+  "已回滚到 {id}": "Rolled back to {id}",
+  "回滚失败: ": "Rollback failed: ",
+  "来源：当前工作区（仓库里的这个文件会进入系统提示词，属提示词注入面，确认可信再用）":
+    "Source: current workspace (this repo file enters the system prompt - a prompt-injection surface; only use it if you trust it)",
+  "来源：{s}；注入约 {t} token；实际截断到 {n} 字符":
+    "Source: {s}; about {t} tokens injected; truncated to {n} chars",
+  "结构化：": "Structured: ",
+  "{m} 来自当前工作区（可能是 clone 来的仓库文件）。确认可信并继续？":
+    "{m} comes from the current workspace (possibly a cloned repo file). Trust it and continue?",
+  "本会话使用 {m}": "This session now uses {m}",
+  "本会话跟随默认 Persona": "This session follows the default persona",
+  "新会话将使用 {m}": "New sessions will use {m}",
+  "新会话跟随默认 Persona": "New sessions follow the default persona",
+  "本会话的表达风格：{m}（点击打开身份设置）":
+    "This session's voice: {m} (click to open identity settings)",
+  "本会话的表达风格（Persona）：点击切换": "This session's persona: click to switch",
  "（旧回合未存档）": "(not archived for older turns)",
  "显示更早的 {n} 个回合": "Show {n} earlier turns",
  "显示更早的步骤（还有 {n} 条）": "Show earlier steps ({n} more)",

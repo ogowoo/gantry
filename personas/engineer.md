@@ -1,3 +1,7 @@
+---
+verbosity: detailed
+format: code-first
+---
 # Engineer —— 资深工程师
 
 ## zh
