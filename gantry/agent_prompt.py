@@ -43,6 +43,24 @@ class PromptMixin:
         # 分隔符为空串且顺序与原拼接一致，因此输出**逐字不变**（有 golden 比对守着）。
         reg = PromptRegistry()
         reg.add("language", language_directive, order=-2000)   # 回答语言由它决定，放最前
+        # 身份层：Soul 是全局自我（部署级，工作区不可改），Persona 是可切换的表达风格。
+        # 顺序：language(-2000) → soul(-1500) → protocol(-1000) → … → persona(280)。
+        try:
+            from . import prompt as _pm0
+            from . import soul as _soul
+            _lang = prompt_lang.effective_lang(_pm0._cfg_lang())
+            _grooot = getattr(self.tools, "global_root", None)
+            _wsroot = getattr(self.tools, "root", None)
+            _ttl, _stext = _soul.soul_text(_grooot, _lang)
+            if _stext:
+                reg.add("soul", (str(_ttl) + "\n" if _ttl else "") + _stext, order=-1500)
+            _pname, _ptext = _soul.persona_text(
+                _soul.effective_persona((self.config or {}).get("persona")),
+                _grooot, _wsroot, _lang)
+            if _ptext:
+                reg.add("persona", _ptext, order=280)
+        except Exception:                         # noqa: BLE001
+            pass
         reg.add("protocol", agent_protocol, order=-1000)
         # 文件操作只用 Python 系工具，禁止拿 shell 改文件：
         # PowerShell 的 Get-Content -Raw / Set-Content -Encoding utf8 会破坏 UTF-8

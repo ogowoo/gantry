@@ -329,7 +329,7 @@ try{const _rs=document.getElementById('btnRefreshSess');if(_rs)_rs.onclick=async
    齿轮入口：外观 / 执行 / 浏览器 / 数据 / 入口 / 危险区。
    服务端配置走 /v1/config（白名单，见 api.CONFIG_SCHEMA），外观与语言即时生效。 */
 const SETTINGS_GROUPS=[
- ['ui', '外观'], ['exec', '执行'], ['browser', '浏览器'],
+ ['ui', '外观'], ['identity', '身份'], ['exec', '执行'], ['browser', '浏览器'],
  ['data', '数据'], ['danger', '危险区']];
 /* 枚举值的显示名：直接显示 "session"/"each"/"lazy" 太像代码（用户看到的是生词）。 */
 const ENUM_LABEL={each:'每次操作都询问',session:'本会话内不再逐次询问',

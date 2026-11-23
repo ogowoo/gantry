@@ -354,12 +354,20 @@ async def body_size_limit(request, call_next):
 # ── 提示词语言：每个请求按语言头设一次 contextvar ────────────────────────
 # 由它决定发给模型的提示词用简体/繁體/English（见 gantry/prompt_lang.py）。
 # 放在中间件里设，端点与它创建的后台任务（asyncio 任务继承 context）都能读到。
+_PERSONA_HEADER = "X-Gantry-Persona"
+_PERSONA_HEADER_LEGACY = "X-CBP-Persona"
+
+
 @app.middleware("http")
 async def _prompt_lang_middleware(request: HttpRequest, call_next):
     try:
         _lang_raw = (request.headers.get(_LANG_HEADER)
                      or request.headers.get(_LANG_HEADER_LEGACY) or "zh")
         prompt_lang.set_request_lang(_lang_raw)
+        # 会话级 persona 覆盖：配置给默认，请求头可按会话换表达风格
+        from . import soul as _soul
+        _soul.set_request_persona(request.headers.get(_PERSONA_HEADER)
+                                  or request.headers.get(_PERSONA_HEADER_LEGACY))
     except Exception:
         pass
     return await call_next(request)
@@ -629,6 +637,7 @@ from .routes_update import (  # noqa: F401
     update_apply,
     update_rollback,
 )
-from . import routes_core, routes_config, routes_agents, routes_sessions, routes_update  # noqa: E402
-for _routes_mod in (routes_core, routes_config, routes_agents, routes_sessions, routes_update):
+from . import routes_core, routes_config, routes_agents, routes_sessions, routes_update, routes_soul  # noqa: E402
+for _routes_mod in (routes_core, routes_config, routes_agents, routes_sessions, routes_update,
+                    routes_soul):
     app.include_router(_routes_mod.router)

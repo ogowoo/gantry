@@ -100,6 +100,8 @@ CONFIG_SCHEMA: dict[str, dict] = {
     # 提示词语言：决定发给模型的规则用什么语言写（auto = 跟随界面语言）
   "agent.prompt_language": {"kind": "enum", "values": ["auto", "zh", "tw", "en"],
                             "label": "提示词语言", "group": "exec"},
+  # 表达风格：文件库在 personas/*.md，请求头 X-Gantry-Persona 可按会话覆盖
+  "agent.persona": {"kind": "str", "group": "exec", "label": "默认 Persona（表达风格）"},
   "sandbox_mode": {"kind": "enum", "values": ["read-only", "workspace-write",
                                                 "danger-full-access"],
                      "group": "exec", "label": "权限档位（工具能改什么）"},

@@ -7,6 +7,8 @@ async function api(u,o={}){
     if(tk)opt.headers['X-Gantry-Token']=tk;
     // 语言头：后端据此翻译错误 detail（展示层；协议/日志仍是中文）
     try{opt.headers['X-Gantry-Lang']=currentLang()}catch(e){}
+    // 表达风格：设置页"本次会话"选择（localStorage → 请求头，config 里的默认值在服务端）
+    try{const pr=localStorage.getItem('gantry-persona');if(pr)opt.headers['X-Gantry-Persona']=pr}catch(e){}
     return fetch(u,opt)};
   let r=await call(apiToken());
   if(r.status===401){
