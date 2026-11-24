@@ -11,6 +11,8 @@ permissions:
 jobs:
   offline-tests:
     runs-on: windows-latest
+    env:
+      PYTHONUTF8: "1"
     timeout-minutes: 20
 
     steps:
@@ -56,7 +58,9 @@ jobs:
 
       - name: Prepare config from example
         shell: pwsh
-        run: Copy-Item -LiteralPath config.example.json -Destination config.json -Force
+        run: |
+          Copy-Item -LiteralPath config.example.json -Destination config.json -Force
+          python -c "import json;p='config.json';d=json.load(open(p,encoding='utf-8'));d['api_token']='';json.dump(d,open(p,'w',encoding='utf-8'),ensure_ascii=False,indent=2)"
 
       - name: Run deterministic offline tests
         shell: pwsh

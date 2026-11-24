@@ -24,6 +24,8 @@ jobs:
   release:
     name: Validate, package, attest, and publish
     runs-on: windows-latest
+    env:
+      PYTHONUTF8: "1"
     timeout-minutes: 45
 
     steps:
@@ -98,7 +100,11 @@ jobs:
 
       - name: Prepare config from example
         shell: pwsh
-        run: Copy-Item -LiteralPath config.example.json -Destination config.json -Force
+        run: |
+          Copy-Item -LiteralPath config.example.json -Destination config.json -Force
+          # 模板 api_token 是 ${GANTRY_TOKEN} 引用，CI 无该环境变量会保留字面量，
+          # 全部 API 测试会 401；测试期置空
+          python -c "import json;p='config.json';d=json.load(open(p,encoding='utf-8'));d['api_token']='';json.dump(d,open(p,'w',encoding='utf-8'),ensure_ascii=False,indent=2)"
 
       - name: Run unit tests
         shell: pwsh
