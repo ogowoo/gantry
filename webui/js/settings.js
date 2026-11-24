@@ -4,7 +4,6 @@ import { SETTINGS_GROUPS, SANDBOX_UI, ENUM_LABEL, openMemory, showRestarting } f
 import { CODE_EXT } from './codeux.js';
 import { stepFilterInput } from './steps.js';
 import { exportSessions, importSessions } from './sessions.js';
-import { openMask, closeMask } from './dialogs.js';
 import { readAnimPrefs, applyAnimPrefs, setAnimPref, animPrefLabel, ANIM_RANGES } from './animprefs.js';
 import { openKb, closeKb, kbPick, kbRefresh, kbReindex, kbImportUrl, kbImportText, kbInbox, kbSearch, kbDelete, fmtErr, wireKbSettings, kbLoadSettings, kbSaveSettings } from './kb.js';
 import { openModels, closeModels, renderModels, modelDelete, modelCopyPath, modelDownload, modelPreset, modelStart, modelStop } from './models.js';
@@ -337,14 +336,17 @@ async function renderSettings(){
     <p class="sethint" id="updateHint">${esc(tr('检查 GitHub 上的新版本；更新会先备份代码，可回滚'))}</p>
    </div>`;
 
- // 会话导入导出：入口收进设置页（用户要求侧栏保持干净，不常驻勾选框/图标）。
- // 多选导出在 spickMask 弹窗里勾选；导入与侧栏 ⋯ 菜单的单条导出保持不变。
+ // 会话管理：直接列出现有会话（勾选/状态/标题/ID），工具条提供导出所选、
+ // 导入、全选、清空。用户要求在这里能直接看到会话，而不是只有导出导入按钮。
  const sessionsHtml=`<h4>${esc(tr('会话导入导出'))}</h4>
    <p class="sethint">${esc(tr('导出为 JSON 文件，可导入本机或其它部署；导入一律生成 imp- 新会话，不覆盖现有数据。'))}</p>
    <div class="setbtns">
-    <button type="button" class="btn" data-act="sessExportPick">⇩ ${esc(tr('导出所选会话'))}</button>
+    <button type="button" class="btn" data-act="sessMgrExport">⇩ ${esc(tr('导出所选会话'))}</button>
     <button type="button" class="btn ghost" data-act="importSessions">⇧ ${esc(tr('导入会话'))}</button>
-   </div>`;
+    <button type="button" class="btn ghost" data-act="sessMgrAll">${esc(tr('全选'))}</button>
+    <button type="button" class="btn ghost" data-act="sessMgrNone">${esc(tr('清空'))}</button>
+   </div>
+   <div id="sessMgrList" class="sesspick" style="margin-top:10px;max-height:46vh;overflow:auto"></div>`;
 
  function _cfgSection(gid,path){
   if(gid==='exec'){
@@ -438,6 +440,8 @@ async function renderSettings(){
  if(String(window.settingsTab||'').startsWith('tool-')) mountTool(window.settingsTab);
  // 身份页数据（persona 列表 / Soul 文本）：只在页签存在时拉，失败静默
  if(document.getElementById('idPersonaDefault')){ try{ loadIdentity() }catch(e){} }
+ // 会话管理列表：设置页刚渲染时填一次（之后每次切到该页签由 setSettingsTab 刷新）
+ if(document.getElementById('sessMgrList'))renderSessMgr();
 }
 /* ── 身份页：Soul / Persona ─────────────────────────────────────────
    Soul：部署级自我，只有一份（SOUL.md）；Persona：可切换表达风格（工作区可覆盖）。
@@ -665,42 +669,33 @@ function mountTool(id){
  }
 }
 
-/* ── 会话导出选择器（spickMask）：设置页「导出所选会话」打开 ──
-   勾选只存在于弹窗内，侧栏因此可以保持干净（无常驻勾选框/图标）。 */
-function _spickCount(){
- const n=document.querySelectorAll('#spickList input[type="checkbox"]:checked').length;
- const el=document.getElementById('spickCount');
- if(el)el.textContent=n?tr('已选 {n} 项',{n}):'';
-}
-function _spickRender(){
- const box=document.getElementById('spickList');
+/* ── 设置页「会话」管理列表：直接列出顶层会话（勾选/状态/标题/ID） ──
+   勾选只存在于设置页内，侧栏因此保持干净（无常驻勾选框/图标）。
+   stateIcon/stateLabel/stateClassOf 是 main.js 挂到 window 的全局。 */
+function renderSessMgr(){
+ const box=document.getElementById('sessMgrList');
  if(!box)return;
+ if(!(window.sessCache||[]).length){
+  // 缓存为空时（罕见：侧栏还没刷出来）主动拉一次，别给用户看空列表
+  api('/v1/agent/sessions?include_subagents=true')
+   .then(d=>{window.sessCache=d.sessions||[];renderSessMgr()})
+   .catch(()=>{});
+  return;
+ }
  // 只列顶层会话（无 parent_id）：子代理随父会话一起导出，单列只会造成困惑
- const items=(window.sessCache||[]).filter(s=>!String(s.parent_id||''));
+ const items=window.sessCache.filter(s=>!String(s.parent_id||''));
  box.innerHTML=items.map(s=>
-  `<label class="spickrow"><input type="checkbox" value="${esc(s.id)}">
+  `<label class="spickrow"><input type="checkbox" value="${esc(s.id)}" data-sessmgr>
+   <span class="sstat ${esc(stateClassOf(s.state))}" title="${esc(stateLabel(s.state))}" aria-label="${esc(stateLabel(s.state))}">${stateIcon(s.state)}</span>
    <span class="spicktitle">${esc(s.title||s.id)}</span><code>${esc(s.id)}</code></label>`).join('')
   ||`<p class="sethint">${esc(tr('没有可导出的会话'))}</p>`;
- box.querySelectorAll('input[type="checkbox"]').forEach(c=>{c.onchange=_spickCount});
- _spickCount();
 }
-async function sessExportPick(){
- // 缓存为空时（罕见：侧栏还没刷出来）主动拉一次，别给用户看空列表
- if(!(window.sessCache||[]).length){
-  try{const d=await api('/v1/agent/sessions?include_subagents=true');
-      window.sessCache=d.sessions||[];}catch(e){}
- }
- _spickRender();
- openMask('spickMask');
+function sessMgrSetAll(on){
+ document.querySelectorAll('#sessMgrList input[data-sessmgr]').forEach(c=>{c.checked=on});
 }
-function spickSetAll(on){
- document.querySelectorAll('#spickList input[type="checkbox"]').forEach(c=>{c.checked=on});
- _spickCount();
-}
-function spickOk(){
- const sids=[...document.querySelectorAll('#spickList input[type="checkbox"]:checked')]
+function sessMgrExport(){
+ const sids=[...document.querySelectorAll('#sessMgrList input[data-sessmgr]:checked')]
   .map(c=>c.value);
- closeMask('spickMask');
  exportSessions(sids);
 }
 function setSettingsTab(id){
@@ -716,6 +711,7 @@ function setSettingsTab(id){
   p.style.display=(p.dataset.pane===id)?'':'none';
  });
  if(isTool)mountTool(id);else unmountAllTools();
+ if(id==='sessions')renderSessMgr();   // 每次进「会话」页都刷新列表
 }
 
 function collectSettings(){
@@ -942,11 +938,9 @@ const ACTIONS={
  closePlugins:()=>closePlugins(),
  toggleSubagents:()=>toggleSubagents(),
  importSessions:()=>importSessions(),
- sessExportPick:()=>sessExportPick(),
- spickAll:()=>spickSetAll(true),
- spickNone:()=>spickSetAll(false),
- spickOk:()=>spickOk(),
- maskSpick:(el,e)=>{if(!e||e.target===el)closeMask('spickMask')},
+ sessMgrExport:()=>sessMgrExport(),
+ sessMgrAll:()=>sessMgrSetAll(true),
+ sessMgrNone:()=>sessMgrSetAll(false),
  showPromptView:()=>showPromptView(),
  expandLive:()=>expandLive(),
  toggleChatFind:()=>toggleChatFind(),

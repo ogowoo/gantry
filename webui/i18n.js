@@ -20,7 +20,6 @@ const I18N_EN = {
  "导入会话": "Import sessions",
  "会话导入导出": "Session import / export",
  "导出为 JSON 文件，可导入本机或其它部署；导入一律生成 imp- 新会话，不覆盖现有数据。": "Exports a JSON file that can be imported on this or another deployment. Imports always create new imp-* sessions and never overwrite existing data.",
- "已选 {n} 项": "{n} selected",
  "没有可导出的会话": "No sessions to export",
  "未选择要导出的会话": "No sessions selected",
  "导出会话": "Export session",
