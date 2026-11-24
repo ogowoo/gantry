@@ -5,6 +5,32 @@
 
 ## [Unreleased]
 
+## [0.12.0-beta.20] - 2026-11-23
+
+### Added
+- **设置页「模型提供商」**：不用再手改 `config.json` 就能配提供商（`gantry/routes_providers.py` +
+  `webui/js/providers.js`）：
+  - 列表：类型（预设/自定义/本地进程内）、base_url、模型数、Key 来源
+    （`🔑 环境变量名` / `🔑 配置文件` / 未配置），API Key 只写不读；
+  - 新增/编辑：可选预设预填，支持 OpenAI 兼容与 Anthropic Messages 协议，
+    `max_tokens` / 超时 / `json_mode` / 视觉开关 / 描述；保存即 `_reload_providers()`，
+    模型选择器无需重启；
+  - 测试连接：`GET {base_url}/models`（Anthropic 走 `/v1/models`），返回状态码/耗时/模型数；
+    本地进程内 provider 只检查 GGUF 文件；
+  - 删除：自定义直接删；预设删的是覆盖层（等于恢复默认）；
+  - 默认模型：顶部下拉写 `default_model`（`provider/model`），**立即生效**。
+- 接口：`GET/POST /v1/providers`、`DELETE /v1/providers/{name}`、
+  `POST /v1/providers/{name}/test`、`POST /v1/providers/default-model`。
+
+### Fixed
+- `POST /v1/config` 改 `default_model` 只落库、不改模块级 `b.DEFAULT_MODEL`，导致"改了默认模型
+  但本次进程仍用旧的"；现在两处入口都同步改写。
+
+### Tests
+- 新增 `tests/test_providers_api.py`（17 项）：列表脱敏、环境变量 Key 识别、新增写盘并即时出现在
+  `/v1/models`、缺省 api_key 保持原值、空串清除、预设覆盖层与恢复、10 类校验错误、
+  Anthropic/vision 往返、测试连接（本地缺文件 / 无 Key 快速失败 / 未知 404）、默认模型立即生效。
+
 ## [0.12.0-beta.19] - 2026-11-23
 
 ### Added

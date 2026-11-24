@@ -406,3 +406,32 @@ details[open] > .model-download-summary::before{transform:rotate(90deg)}
 .sesspick .smdel{flex:none;border:0;background:none;cursor:pointer;font-size:13px;line-height:1;
   padding:4px 6px;border-radius:6px;opacity:.45}
 .sesspick .smdel:hover{opacity:1;background:color-mix(in srgb,var(--danger,#d05555) 14%,transparent)}
+
+/* ── 设置页：模型提供商 ─────────────────────────── */
+.provlist{display:flex;flex-direction:column;gap:10px;margin-top:10px}
+.prov-card{padding:11px 13px;border:1px solid var(--line);border-radius:12px;
+  background:var(--panel);display:flex;flex-direction:column;gap:4px}
+.prov-card.dim{opacity:.72}
+.prov-head{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.prov-head strong{font-size:13px}
+.prov-desc{font-size:12px;color:var(--muted)}
+.prov-url{font-family:var(--mono);font-size:11px;color:var(--faint);
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.prov-models{display:flex;flex-wrap:wrap;gap:5px;margin-top:2px}
+.prov-model{font-family:var(--mono);font-size:10.5px;padding:1px 6px;border-radius:7px;
+  background:var(--panel2);border:1px solid var(--line2);color:var(--muted)}
+.prov-acts{display:flex;gap:6px;flex-wrap:wrap;margin-top:4px;align-items:center}
+.prov-kind{font-size:10px;font-weight:600;padding:1px 6px;border-radius:8px;
+  background:var(--panel2);border:1px solid var(--line2);color:var(--muted)}
+.prov-kind-custom{color:var(--accent);border-color:color-mix(in srgb,var(--accent) 35%,var(--line));
+  background:color-mix(in srgb,var(--accent) 8%,transparent)}
+.prov-kind-local{color:var(--purple,var(--accent));border-color:color-mix(in srgb,var(--purple,var(--accent)) 35%,var(--line))}
+.prov-key{font-size:10px;font-weight:600;padding:1px 6px;border-radius:8px;
+  background:var(--panel2);border:1px solid var(--line2);color:var(--muted)}
+.prov-key.ok{color:var(--green);border-color:color-mix(in srgb,var(--green) 32%,var(--line))}
+.prov-key.warn{color:var(--amber,var(--muted));border-color:color-mix(in srgb,var(--amber,var(--accent)) 32%,var(--line))}
+.provform{margin-top:12px;padding:12px 14px;border:1px solid var(--line);border-radius:12px;
+  background:var(--panel2);max-width:760px}
+.provform .kbinput{width:100%}
+.setgrid2{display:grid;grid-template-columns:1fr 1fr;gap:0 14px}
+@media (max-width:760px){.setgrid2{grid-template-columns:1fr}}

@@ -333,6 +333,9 @@ async def set_config(payload: dict | None = None):
                 b.AGENT_TOOLS.allow_self_upgrade = val
         elif key == "auto_resume":
             b.AGENT_CFG["auto_resume"] = val
+        elif key == "default_model":
+            # 默认模型要立即生效：bridge 里多处直接读模块级 DEFAULT_MODEL
+            b.DEFAULT_MODEL = str(val)
 
     persisted = False
     if data.get("persist", True):

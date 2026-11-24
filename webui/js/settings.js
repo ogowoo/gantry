@@ -9,6 +9,7 @@ import { openKb, closeKb, kbPick, kbRefresh, kbReindex, kbImportUrl, kbImportTex
 import { openModels, closeModels, renderModels, modelDelete, modelCopyPath, modelDownload, modelPreset, modelStart, modelStop, modelUse, modelOrganize, modelStopAll } from './models.js';
 import { kbSaveMsg as kbSaveMsgImpl, THEMES } from './composer.js';
 import { openPreview, closePreview, reloadPreview, openPreviewExternal, downloadPreview, copyPreviewPath } from './preview.js';
+import { providersPaneHtml, loadProviders, provNew, provEdit, provCancel, provSave, provDelete, provTest, provClearKey, provSetDefault } from './providers.js';
 
 /* 设置左侧的“工具页”：不弹窗，直接把对应面板的 .dlg 移进设置右侧渲染。 */
 const TOOL_TABS = [
@@ -226,7 +227,7 @@ async function renderSettings(){
   const g=spec.group||'exec';
   (groups[g]=groups[g]||[]).push([k,spec]);
  });
- const has=(gid)=>gid==='ui'||gid==='identity'||gid==='danger'||(groups[gid]||[]).length;
+ const has=(gid)=>gid==='ui'||gid==='identity'||gid==='providers'||gid==='danger'||(groups[gid]||[]).length;
  const _AP=readAnimPrefs();                  // 动画参数（模板里铺滑杆的当前值）
  const visible=SETTINGS_GROUPS.filter(([gid])=>has(gid));
  const allTabs=visible.map(([gid])=>gid).concat(TOOL_TABS.map(t=>'tool-'+t.id)).concat(['sessions']);
@@ -391,6 +392,7 @@ async function renderSettings(){
 
  box.innerHTML=visible.map(([gid,label])=>{
   if(gid==='ui')return pane('ui',uiHtml);
+  if(gid==='providers')return pane('providers',providersPaneHtml());
   if(gid==='identity'){
    // 身份页 = 自定义编辑器 + 白名单开关（agent.persona 由上方下拉框负责，避免两个控件打架）
    const rows=(groups.identity||[]).filter(([k])=>k!=='agent.persona')
@@ -441,6 +443,8 @@ async function renderSettings(){
  if(String(window.settingsTab||'').startsWith('tool-')) mountTool(window.settingsTab);
  // 身份页数据（persona 列表 / Soul 文本）：只在页签存在时拉，失败静默
  if(document.getElementById('idPersonaDefault')){ try{ loadIdentity() }catch(e){} }
+ // 提供商列表：设置页渲染时拉一次（保存/删除后由 providers.js 自己刷新）
+ if(document.getElementById('provList')){ try{ loadProviders() }catch(e){} }
  // 会话管理列表：设置页刚渲染时填一次（之后每次切到该页签由 setSettingsTab 刷新）
  if(document.getElementById('sessMgrList'))renderSessMgr();
 }
@@ -1065,6 +1069,16 @@ const ACTIONS={
  modelUse:(el)=>modelUse(el),
  modelOrganize:()=>modelOrganize(),
  modelStopAll:()=>modelStopAll(),
+ // 模型提供商（设置页）
+ provNew:()=>provNew(),
+ provEdit:(el)=>provEdit(el),
+ provCancel:()=>provCancel(),
+ provSave:()=>provSave(),
+ provDelete:(el)=>provDelete(el),
+ provTest:(el)=>provTest(el),
+ provClearKey:(el)=>provClearKey(el),
+ provSetDefault:()=>provSetDefault(),
+ provRefresh:()=>loadProviders(),
 };
 document.addEventListener('click',e=>{
  const el=e.target.closest?e.target.closest('[data-act]'):null;
