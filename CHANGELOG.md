@@ -5,6 +5,8 @@
 
 ## [Unreleased]
 
+## [0.12.0-beta.5] - 2026-11-24
+
 ### Fixed
 - `copilot_file` 生成回合误杀：让 Copilot 生成带联网检索的 PDF 时，检索+渲染的
   安静期超过普通问答的 `reply_timeout_seconds`（180s），180s 无进度即抛超时，
