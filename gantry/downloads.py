@@ -233,6 +233,21 @@ async def _save_from_href(href: str, target: Path) -> int:
     return len(data)
 
 
+async def _copilot_file_timeout_seconds() -> float:
+    """copilot_file 生成回合的无进度超时（默认 600s，config.json 可用
+    agent.copilot_file_timeout_seconds 调整）。
+
+    为什么单独一档：生成可下载文件前 Copilot 常做联网检索+排版渲染，
+    安静期轻松超过普通问答的 reply_timeout_seconds（180s）——实测生成
+    一份带检索的 PDF 时 180s 无进度即被杀，文件其实还在生成。
+    """
+    try:
+        sec = float(b.AGENT_CFG.get("copilot_file_timeout_seconds") or 600)
+    except Exception:                        # noqa: BLE001
+        sec = 600.0
+    return max(60.0, sec)
+
+
 async def _copilot_file(path: str, instruction: str) -> dict:
     """Agent 工具 copilot_file：让 Copilot 生成文件并下载到工作区。
 
@@ -267,7 +282,10 @@ async def _copilot_file(path: str, instruction: str) -> dict:
     prompt = (f"请把结果生成为一个可下载的文件，文件名：{filename}\n"
               f"要求：只生成文件并提供下载入口，不要在回答里粘贴文件正文或大段内容。\n"
               f"内容要求：{instruction}")
-    await b.agent_chat_once(prompt, model, False)
+    # 生成阶段安静期长（检索+渲染），用本工具专属的更长无进度超时，
+    # 不要用普通问答的 reply_timeout_seconds（实测 180s 会误杀还在生成的文件）。
+    await b.agent_chat_once(prompt, model, False,
+                            timeout=await _copilot_file_timeout_seconds())
 
     # 找下载入口：优先文件名匹配，其次取最新的一个
     candidates = []

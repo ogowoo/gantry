@@ -5,6 +5,14 @@
 
 ## [Unreleased]
 
+### Fixed
+- `copilot_file` 生成回合误杀：让 Copilot 生成带联网检索的 PDF 时，检索+渲染的
+  安静期超过普通问答的 `reply_timeout_seconds`（180s），180s 无进度即抛超时，
+  文件其实还在生成，且失败后页面状态连锁导致"Copilot 未就绪"。现在
+  `wait_agent_answer` / `agent_chat_once` 支持按回合覆盖无进度超时，
+  copilot_file 走独立档位 `agent.copilot_file_timeout_seconds`（默认 600s，
+  下限 60s）；用户实测场景（国际新闻+财经日报 PDF）重启服务后重跑即可。
+
 ## [0.12.0-beta.4] - 2026-11-23
 
 ### Fixed

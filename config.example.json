@@ -60,6 +60,7 @@
     "spill_max_bytes": 2000000,
     "outlook_timeout_seconds": 60,
     "allow_copilot_file": true,
+    "copilot_file_timeout_seconds": 600,
     "max_service_unavailable": 30,
     "service_retry_base_seconds": 30,
     "service_retry_max_seconds": 600,

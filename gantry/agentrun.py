@@ -18,7 +18,7 @@ from .task_gate import verify_task_plan
 
 
 async def wait_agent_answer(previous: str = "", pause_check=None, interrupt_check=None,
-                            sent: str = "", marker: str = "") -> str:
+                            sent: str = "", marker: str = "", timeout: float | None = None) -> str:
     """Wait using inactivity timeout, not a fixed per-turn wall-clock timeout.
 
     TIMEOUT now means: fail only when no answer progress is observed for this
@@ -26,14 +26,19 @@ async def wait_agent_answer(previous: str = "", pause_check=None, interrupt_chec
     the idle deadline. A separate hard deadline prevents an infinite wait.
     Malformed but finished output is returned to AgentRunner for repair.
 
+    timeout：本回合的无进度超时（秒），None 用全局 reply_timeout_seconds。
+    copilot_file 这类"生成可下载文件"的回合会做检索+渲染，安静期远超普通
+    问答，调用方传更大的值（配置 agent.copilot_file_timeout_seconds）。
+
     interrupt_check：用户"强行插入指令"时返回 True。**半中断**——仅当本回合还
-    什么都没产出（文本没变、也没在生成）时才中止等待；一旦 Copilot 已开始生成就
+    没产出任何内容（文本没变、也没在生成）时才中止等待；一旦 Copilot 已开始生成就
     让它答完，避免丢掉已生成的回答、以及"被放弃的回答"与下一轮应答错位。
     """
     started_at = time.monotonic()
-    hard_timeout = float(b.CFG.get("reply_hard_timeout_seconds", max(b.TIMEOUT * 5, 900)))
+    idle_timeout = float(timeout) if timeout else float(b.TIMEOUT)
+    hard_timeout = float(b.CFG.get("reply_hard_timeout_seconds", max(idle_timeout * 5, 900)))
     hard_deadline = started_at + hard_timeout
-    idle_deadline = started_at + b.TIMEOUT
+    idle_deadline = started_at + idle_timeout
     current = ""
     last_change = started_at
     generation_seen = False
@@ -72,7 +77,7 @@ async def wait_agent_answer(previous: str = "", pause_check=None, interrupt_chec
 
         if still_generating:
             generation_seen = True
-            idle_deadline = now + b.TIMEOUT
+            idle_deadline = now + idle_timeout
 
         # 只有"我的问题回声 + UI 提示"不算答案：继续等真正的回答出现
         _echo = bool(sent) and b._echo_only(value, sent)
@@ -84,7 +89,7 @@ async def wait_agent_answer(previous: str = "", pause_check=None, interrupt_chec
             if value != current:
                 current = value
                 last_change = now
-                idle_deadline = now + b.TIMEOUT
+                idle_deadline = now + idle_timeout
 
         if current and not still_generating:
             quiet_for = now - last_change
@@ -115,7 +120,7 @@ async def wait_agent_answer(previous: str = "", pause_check=None, interrupt_chec
                 if confirm != current:
                     current = confirm
                     last_change = time.monotonic()
-                    idle_deadline = last_change + b.TIMEOUT
+                    idle_deadline = last_change + idle_timeout
                     continue
                 if b._has_complete_agent_action(confirm):
                     await b.diagnostics("agent_answer_ready_late")
@@ -139,7 +144,7 @@ async def wait_agent_answer(previous: str = "", pause_check=None, interrupt_chec
                 return final
             await b.diagnostics("agent_answer_idle_timeout")
             raise TimeoutError(
-                f"Copilot 连续 {int(b.TIMEOUT)} 秒没有产生新的回答进度，请查看 last_page.txt"
+                f"Copilot 连续 {int(idle_timeout)} 秒没有产生新的回答进度，请查看 last_page.txt"
             )
 
     final = (await b.current_answer()).strip()
@@ -162,12 +167,15 @@ async def wait_agent_answer(previous: str = "", pause_check=None, interrupt_chec
 
 
 async def agent_chat_once(prompt: str, model_id: str, make_new: bool = False, pause_check=None,
-                          interrupt_check=None) -> str:
+                          interrupt_check=None, timeout: float | None = None) -> str:
     """Send one Agent turn and bind the response to a unique visible turn marker.
 
     Copilot virtualizes long chat DOM nodes, so the number of visible "You said"
     blocks can stay unchanged. The marker is unique for every request and cannot
     be confused with a prior turn or text left in the composer.
+
+    timeout：本回合无进度超时（秒），None 用全局 reply_timeout_seconds；
+    生成文件等长安静期回合由调用方传更大值。
     """
     previous = "" if make_new else (await b.current_answer()).strip()
     turn_id = uuid.uuid4().hex[:12]
@@ -189,7 +197,8 @@ async def agent_chat_once(prompt: str, model_id: str, make_new: bool = False, pa
 
     b.runtime_update(phase="waiting", detail=f"Agent 回合 {turn_id} 已确认，等待 Copilot 回答")
     _answer = await wait_agent_answer(previous, pause_check=pause_check, sent=prompt,
-                                      interrupt_check=interrupt_check, marker=marker)
+                                      interrupt_check=interrupt_check, marker=marker,
+                                      timeout=timeout)
     return b.strip_suggestion_tail(_answer)
 
 
