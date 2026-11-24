@@ -5,6 +5,17 @@
 
 ## [Unreleased]
 
+### Added
+- 
+
+### Changed
+- 
+
+### Fixed
+- 
+
+## [0.12.0-beta.8] - 2026-11-24
+
 ### Fixed
 - 自动化浏览器启动失败（`EPERM: operation not permitted, mkdtemp
   'C:\Users\…\Temp\pla…'`）：公司策略/沙箱拒写系统 Temp 时 Playwright 的
