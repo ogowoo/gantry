@@ -1,7 +1,7 @@
 # 模型提供商（Providers）
 
 "提供商"决定请求发给谁：Copilot 网页自动化、某个 OpenAI 兼容网关、Anthropic Messages 服务，
-或进程内跑的 GGUF。设置页「模型提供商」把这一层做成可配置的，不用再手改 `config.json`。
+或进程内跑的 GGUF。设置页「本地模型 → 模型提供商」把这一层做成可配置的，不用再手改 `config.json`。
 
 ## 两类来源
 

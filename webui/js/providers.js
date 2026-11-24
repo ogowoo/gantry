@@ -54,7 +54,7 @@ function _provRenderList() {
     box.innerHTML = `<p class="sethint">${esc(tr('没有可用的提供商。点「新增提供商」创建一个。'))}</p>`;
     return;
   }
-  box.innerHTML = _providers.map(_card).join('');
+  box.innerHTML = _providers.map(_provCard).join('');
 }
 
 function _provRenderDefaults(selected) {
@@ -80,7 +80,12 @@ export async function loadProviders() {
     _provRenderList();
     _provRenderDefaults(r.default_model || '');
   } catch (e) {
-    box.innerHTML = `<p class="sethint">${esc(tr('读取提供商失败: '))}${esc(String((e && (e.detail || e.text || e.message)) || e))}</p>`;
+    const code = e && e.status;
+    const msg = String((e && (e.detail || e.text || e.message)) || e) || '';
+    const hint = code === 404
+      ? tr('当前运行的服务端版本还没有提供商接口，重启服务后即可使用。')
+      : msg;
+    box.innerHTML = `<p class="sethint">${esc(tr('读取提供商失败: '))}${esc(hint)}</p>`;
   }
 }
 
@@ -167,7 +172,7 @@ function _provShowForm(p) {
       if (!name) return;
       const preset = _providers.find((x) => x.name === name);
       if (!preset) return;
-      const set = (id, v) => { const n = el(id); if (n) n.value = v; };
+      const set = (id, v) => { const n = _provEl(id); if (n) n.value = v; };
       set('provName', preset.name);
       set('provBase', preset.base_url || '');
       set('provApi', preset.api || 'openai');
@@ -206,7 +211,7 @@ export function provCancel() {
 }
 
 function _provCollect() {
-  const val = (id) => { const n = el(id); return n ? String(n.value || '').trim() : ''; };
+  const val = (id) => { const n = _provEl(id); return n ? String(n.value || '').trim() : ''; };
   const name = val('provName').toLowerCase();
   if (!name) { toast(tr('请填写名称'), 'err'); return null; }
   const body = {

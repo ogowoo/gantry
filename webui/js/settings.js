@@ -227,7 +227,7 @@ async function renderSettings(){
   const g=spec.group||'exec';
   (groups[g]=groups[g]||[]).push([k,spec]);
  });
- const has=(gid)=>gid==='ui'||gid==='identity'||gid==='providers'||gid==='danger'||(groups[gid]||[]).length;
+ const has=(gid)=>gid==='ui'||gid==='identity'||gid==='danger'||(groups[gid]||[]).length;
  const _AP=readAnimPrefs();                  // 动画参数（模板里铺滑杆的当前值）
  const visible=SETTINGS_GROUPS.filter(([gid])=>has(gid));
  const allTabs=visible.map(([gid])=>gid).concat(TOOL_TABS.map(t=>'tool-'+t.id)).concat(['sessions']);
@@ -392,7 +392,6 @@ async function renderSettings(){
 
  box.innerHTML=visible.map(([gid,label])=>{
   if(gid==='ui')return pane('ui',uiHtml);
-  if(gid==='providers')return pane('providers',providersPaneHtml());
   if(gid==='identity'){
    // 身份页 = 自定义编辑器 + 白名单开关（agent.persona 由上方下拉框负责，避免两个控件打架）
    const rows=(groups.identity||[]).filter(([k])=>k!=='agent.persona')
@@ -413,7 +412,13 @@ async function renderSettings(){
   ).join('');
   let inner=`<div class="settings-embed" id="embed-${id}"></div>`;
   if(t.id==='models'){
-   inner=`<div class="settings-embed" id="embed-${id}"></div><div class="settings-tool-extra" id="modelsEmbedOcr"></div>`;
+   // 提供商配置属于"模型这一节"：子页签挂在本地模型里，而不是另开一个顶层分组
+   inner=`<div class="subtabs" id="modelsSubtabs">
+    <button type="button" class="btn seg on" data-sub="local">${esc(tr('本地模型'))}</button>
+    <button type="button" class="btn seg" data-sub="prov">${esc(tr('模型提供商'))}</button>
+   </div>
+   <div class="subpane" data-subpane="local"><div class="settings-embed" id="embed-${id}"></div><div class="settings-tool-extra" id="modelsEmbedOcr"></div></div>
+   <div class="subpane" data-subpane="prov" style="display:none">${providersPaneHtml()}</div>`;
   }else if(t.id==='plugins'){
    inner=`<div class="subtabs" id="pluginsSubtabs">
     <button type="button" class="btn seg on" data-sub="plugins">${esc(tr('插件'))}</button>
@@ -443,8 +448,6 @@ async function renderSettings(){
  if(String(window.settingsTab||'').startsWith('tool-')) mountTool(window.settingsTab);
  // 身份页数据（persona 列表 / Soul 文本）：只在页签存在时拉，失败静默
  if(document.getElementById('idPersonaDefault')){ try{ loadIdentity() }catch(e){} }
- // 提供商列表：设置页渲染时拉一次（保存/删除后由 providers.js 自己刷新）
- if(document.getElementById('provList')){ try{ loadProviders() }catch(e){} }
  // 会话管理列表：设置页刚渲染时填一次（之后每次切到该页签由 setSettingsTab 刷新）
  if(document.getElementById('sessMgrList'))renderSessMgr();
 }
@@ -662,6 +665,18 @@ function mountTool(id){
   const host=document.getElementById('modelsEmbedOcr');
   if(host&&!host.dataset.ready){host.innerHTML=_modelsExtraHtml();host.dataset.ready='1'}
   try{wireKbSettings();kbLoadSettings()}catch(e){}
+  // 子页签：本地模型 / 模型提供商
+  const pane=document.querySelector('[data-pane="tool-models"]');
+  const mTabs=[...(pane?pane.querySelectorAll('#modelsSubtabs [data-sub]'):[])];
+  const mPanes=[...(pane?pane.querySelectorAll('.subpane'):[])];
+  mTabs.forEach(b=>{b.onclick=()=>{
+   mTabs.forEach(x=>x.classList.toggle('on',x===b));
+   mPanes.forEach(p=>{p.style.display=(p.dataset.subpane===b.dataset.sub)?'':'none'});
+   if(b.dataset.sub==='prov'){ try{ loadProviders() }catch(e){} }
+   // 切子页签时回到顶部：否则会停在"本地模型"列表的滚动位置，看不到提供商页头
+   try{const pn=b.closest('.setgroup');const host=pn&&(pn.closest('.dlg-body')||pn.parentElement);if(host)host.scrollTop=0}catch(e){}
+  }});
+  try{ loadProviders() }catch(e){}
  }
  if(t.id==='plugins'){
   const pane=document.querySelector('[data-pane="tool-plugins"]');

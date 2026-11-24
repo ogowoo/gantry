@@ -1047,6 +1047,8 @@ Object.assign(I18N_EN, {
   "（未配置）": "(no key)",
   "（不改变）": "(leave unchanged)",
   "读取提供商失败: ": "Failed to load providers: ",
+  "当前运行的服务端版本还没有提供商接口，重启服务后即可使用。":
+    "The running server predates the providers API - restart the service to use it.",
   "编辑本地提供商": "Edit in-process provider",
   "进程内 GGUF 的模型、上下文与线程数在「本地模型」页配置；这里只能改描述。": "Model, context and thread count for in-process GGUF are configured on the Local models tab; only the description can be edited here.",
   "描述": "Description",
