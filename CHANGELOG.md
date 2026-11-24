@@ -5,6 +5,25 @@
 
 ## [Unreleased]
 
+## [0.12.0-beta.19] - 2026-11-23
+
+### Added
+- **本地模型启动/停止状态可见 + 强行停止**：
+  - 引擎暴露四态 `idle / loading / ready / generating`（统计接口带 `state`、
+    `loading`、`generating`、`last_error`），管理页徽章实时显示"加载中/生成中/运行中/未加载"，
+    provider 行在加载或生成中也显示「停止」；
+  - `POST /v1/models/local/{provider}/stop` 支持 `{force:true, timeout?}`：取消生成、
+    中止加载（结果不留在内存）、已加载直接释放；普通停止拿不到锁时超时返回
+    "模型正忙，可强行停止"，不再挂死请求；
+  - 新增 `POST /v1/models/local/stop` 一键强行停止所有本地模型；管理页底部「全部强制停止」；
+  - 底层调用不响应取消时（非流式 `create_chat_completion` 正在 C 里跑）如实返回
+    `ok:false` 与原因，不假装成功。
+
+### Tests
+- `test_local_models.ForceStopTests`（5 项）：idle/ready 强行停止、加载中途中止且结果丢弃、
+  流式生成被打断后释放、state 字段；`test_models_api.StopTests`（4 项）：普通停止、
+  强行停止、全体停止、非本地 provider 不受影响。
+
 ## [0.12.0-beta.18] - 2026-11-23
 
 ### Added

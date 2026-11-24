@@ -38,6 +38,9 @@ async function fetchLocalStatus() {
 function statusBadge(p) {
   if (!p) return '';
   if (p.error) return `<span class="model-status bad" title="${esc(p.error)}">${esc(tr('错误'))}</span>`;
+  const st = String(p.state || '');
+  if (st === 'loading') return `<span class="model-status" title="${esc(tr('正在把模型加载到内存'))}">${esc(tr('加载中'))}</span>`;
+  if (st === 'generating') return `<span class="model-status on" title="${esc(tr('正在生成回答'))}">${esc(tr('生成中'))}</span>`;
   if (p.loaded) {
     const perf = p.tok_per_second > 0 ? ` · ${p.tok_per_second} tok/s` : '';
     const info = `${esc(tr('运行中'))} · ${p.load_seconds}s${perf} · ${p.calls} ${esc(tr('次调用'))}`;
@@ -66,8 +69,9 @@ export async function renderModels() {
         const detail = sp.loaded
           ? `${sp.calls || 0} ${esc(tr('次调用'))}${sp.tok_per_second > 0 ? ` · ${sp.tok_per_second} tok/s` : ''}`
           : esc(tr('点击启动加载到内存'));
+        const isBusy = sp.loaded || sp.state === 'loading' || sp.state === 'generating';
         // 两个分支写成字面量 data-act：invariants 会静态核对按钮与 ACTIONS 表
-        const ctrl = sp.loaded
+        const ctrl = isBusy
           ? `<button type="button" class="btn ghost" data-act="modelStop" data-arg="${esc(sp.provider)}">${esc(tr('停止'))}</button>`
           : `<button type="button" class="btn ghost" data-act="modelStart" data-arg="${esc(sp.provider)}">${esc(tr('启动'))}</button>`;
         return `<div class="model-provider-row">
@@ -131,20 +135,51 @@ export async function renderModels() {
 async function controlModel(el, action) {
   const provider = el && el.dataset && el.dataset.arg;
   if (!provider) return;
+  const url = '/v1/models/local/' + encodeURIComponent(provider) + '/' + action;
+  const sendAction = (body) => api(url, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body
+  });
   try {
-    const r = await api('/v1/models/local/' + encodeURIComponent(provider) + '/' + action, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}'
-    });
+    let r = await sendAction(action === 'stop' ? JSON.stringify({ force: false, timeout: 5 }) : '{}');
+    // 模型正忙（加载中 / 生成中）时普通停止会超时：给一次"强行停止"的机会
+    if (action === 'stop' && r && r.ok === false) {
+      const st = (r.stats && r.stats.state) || '';
+      const busy = st === 'loading' || st === 'generating' || /超时/.test(r.error || '');
+      if (busy && confirm(tr('模型正忙（{s}），要强行停止吗？加载中的模型会在就绪后立刻释放内存。')
+        .replace('{s}', st || tr('占用中')))) {
+        r = await sendAction(JSON.stringify({ force: true, timeout: 5 }));
+      }
+    }
     if (r && r.ok === false) {
       toast(tr(action === 'start' ? '启动失败: ' : '停止失败: ') + (r.error || ''), 'err');
+    } else if (action === 'stop') {
+      const st = (r && r.stopped) || {};
+      toast(st.loading ? tr('已中止加载：模型不会留在内存里')
+        : tr('已停止 {name}').replace('{name}', provider), 'ok');
     } else {
-      toast((action === 'start' ? tr('已启动 {name}') : tr('已停止 {name}'))
-        .replace('{name}', provider), 'ok');
+      toast(tr('已启动 {name}').replace('{name}', provider), 'ok');
     }
     await renderModels();
   } catch (e) {
     toast(tr(action === 'start' ? '启动失败: ' : '停止失败: ')
       + ((e && (e.text || e.detail || e.message)) || String(e)), 'err');
+  }
+}
+
+export async function modelStopAll() {
+  if (!confirm(tr('强行停止所有本地模型并释放内存？正在生成的请求会立即结束。'))) return;
+  try {
+    const r = await api('/v1/models/local/stop', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ force: true, timeout: 5 })
+    });
+    const failed = (r.providers || []).filter((x) => !x.ok);
+    toast(failed.length
+      ? tr('已停止 {n} 个，{e} 个失败').replace('{n}', r.stopped || 0).replace('{e}', failed.length)
+      : tr('已强行停止 {n} 个本地模型').replace('{n}', r.stopped || 0), failed.length ? 'err' : 'ok');
+    await renderModels();
+  } catch (e) {
+    toast(tr('停止失败: ') + ((e && (e.text || e.detail || e.message)) || String(e)), 'err');
   }
 }
 

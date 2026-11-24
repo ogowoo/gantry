@@ -21,16 +21,28 @@ class _FakeEngine:
         self.path = path
         self.loaded = False
         self.calls = 0
+        self.state = "idle"
+        self.forced = 0
 
     def warm(self):
         self.loaded = True
+        self.state = "ready"
         return {"ok": True, "loaded": True}
 
     def unload(self):
         self.loaded = False
+        self.state = "idle"
+
+    def force_stop(self, timeout=5.0):
+        self.forced += 1
+        was = self.state
+        self.loaded = False
+        self.state = "idle"
+        return {"state": was, "stopped": True, "unloaded": True, "state_after": "idle"}
 
     def stats(self):
-        return {"path": self.path, "loaded": self.loaded, "calls": self.calls}
+        return {"path": self.path, "loaded": self.loaded, "calls": self.calls,
+                "state": self.state}
 
     def cancel(self):
         pass
@@ -183,6 +195,55 @@ class StartSelfHealTests(Base):
         r = self.c.post("/v1/models/local/local/start", json={})
         self.assertEqual(r.status_code, 200, r.text)
         self.assertEqual(r.json()["kind"], "chat")
+
+
+class StopTests(Base):
+    def _prov(self, path=""):
+        p = _FakeProvider(path or str(self.root / "chat" / "m.gguf"))
+        b.PROVIDERS["local"] = p
+        return p
+
+    def test_stop_normal_unloads(self):
+        p = self._prov()
+        p.engine.loaded = True
+        p.engine.state = "ready"
+        r = self.c.post("/v1/models/local/local/stop", json={})
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertTrue(r.json()["ok"])
+        self.assertFalse(p.engine.loaded)
+
+    def test_force_stop_calls_force_stop(self):
+        p = self._prov()
+        p.engine.loaded = True
+        p.engine.state = "generating"
+        r = self.c.post("/v1/models/local/local/stop", json={"force": True})
+        self.assertEqual(r.status_code, 200, r.text)
+        data = r.json()
+        self.assertTrue(data["ok"])
+        self.assertTrue(data["force"])
+        self.assertEqual(p.engine.forced, 1)
+        self.assertEqual(data["stopped"]["state"], "generating")
+
+    def test_stop_all_stops_every_local_provider(self):
+        p1 = _FakeProvider(str(self.root / "chat" / "a.gguf"))
+        p2 = _FakeProvider(str(self.root / "chat" / "b.gguf"))
+        p1.engine.loaded = p2.engine.loaded = True
+        b.PROVIDERS.update({"local": p1, "local2": p2})
+        r = self.c.post("/v1/models/local/stop", json={"force": True})
+        self.assertEqual(r.status_code, 200, r.text)
+        data = r.json()
+        self.assertEqual(data["stopped"], 2)
+        self.assertEqual(p1.engine.forced, 1)
+        self.assertEqual(p2.engine.forced, 1)
+
+    def test_stop_all_ignores_remote_providers(self):
+        class _Remote:
+            backend = "http"
+
+        b.PROVIDERS["cloud"] = _Remote()
+        r = self.c.post("/v1/models/local/stop", json={"force": True})
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertEqual(r.json()["stopped"], 0)
 
 
 class DownloadTests(Base):

@@ -776,18 +776,70 @@ async def start_local_model(provider: str):
 
 
 @router.post("/v1/models/local/{provider}/stop")
-async def stop_local_model(provider: str):
-    """停止/卸载单个本地模型（释放内存）。"""
+async def stop_local_model(provider: str, payload: dict | None = None):
+    """停止/卸载单个本地模型（释放内存）。
+
+    `force: true` 是"强行停止"：取消正在跑的生成、放弃正在做的加载、直接释放上下文。
+    普通停止会先协作式取消（生成循环下一个 chunk 退出）再卸载；卸载拿不到锁时超时返回，
+    不会把 HTTP 请求挂死。
+    """
     p, engine = _local_engine(provider)
+    payload = payload or {}
+    force = bool(payload.get("force"))
+    timeout = float(payload.get("timeout") or 5.0)
     try:
+        if force and hasattr(engine, "force_stop"):
+            res = await asyncio.to_thread(engine.force_stop, timeout)
+            ok = bool(res.get("stopped") or res.get("unloaded"))
+            return {"provider": provider, "ok": ok, "force": True,
+                    "error": "" if ok else "底层调用仍在进行（llama.cpp 不响应中断），"
+                                           "已请求取消，本次返回后会释放内存",
+                    "model_path": getattr(p, "model_path", ""),
+                    "stopped": res, "stats": engine.stats() if hasattr(engine, "stats") else {}}
         if hasattr(engine, "cancel"):
             engine.cancel()                  # 先协作式取消正在跑的生成
-        await asyncio.to_thread(engine.unload)
-        return {"provider": provider, "ok": True,
+        try:
+            await asyncio.wait_for(asyncio.to_thread(engine.unload), timeout=max(1.0, timeout))
+            ok, error = True, ""
+        except asyncio.TimeoutError:
+            # 还在忙（加载中/生成不退）：告诉调用方用 force
+            ok, error = False, "模型正忙，卸载超时；可加 force:true 强行停止"
+        return {"provider": provider, "ok": ok, "force": False, "error": error,
                 "model_path": getattr(p, "model_path", ""),
                 "stats": engine.stats() if hasattr(engine, "stats") else {}}
     except Exception as exc:                 # noqa: BLE001
-        return {"provider": provider, "ok": False, "error": str(exc)[:200]}
+        return {"provider": provider, "ok": False, "force": force,
+                "error": str(exc)[:200]}
+
+
+@router.post("/v1/models/local/stop")
+async def stop_all_local_models(payload: dict | None = None):
+    """一键强行停止所有本地模型（释放内存/卡住的加载）。"""
+    payload = payload or {}
+    force = payload.get("force", True) is not False
+    timeout = float(payload.get("timeout") or 5.0)
+    out = []
+    for pname, p in list((b.PROVIDERS or {}).items()):
+        if str(getattr(p, "backend", "")).lower() != "local":
+            continue
+        eng = getattr(p, "engine", None)
+        if eng is None:
+            continue
+        try:
+            if force and hasattr(eng, "force_stop"):
+                res = await asyncio.to_thread(eng.force_stop, timeout)
+                if not (res.get("stopped") or res.get("unloaded")):
+                    raise RuntimeError("底层调用仍在进行（不可中断），已请求取消")
+            else:
+                if hasattr(eng, "cancel"):
+                    eng.cancel()
+                await asyncio.wait_for(asyncio.to_thread(eng.unload), timeout=max(1.0, timeout))
+                res = {"stopped": True}
+            out.append({"provider": pname, "ok": True, "result": res})
+        except Exception as exc:             # noqa: BLE001
+            out.append({"provider": pname, "ok": False, "error": str(exc)[:160]})
+    return {"ok": all(x["ok"] for x in out), "providers": out,
+            "stopped": sum(1 for x in out if x["ok"])}
 
 
 @router.get("/v1/models/local")

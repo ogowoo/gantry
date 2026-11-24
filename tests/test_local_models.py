@@ -357,5 +357,123 @@ class LocalControlRouteTests(unittest.TestCase):
             shutil.rmtree(tmp, ignore_errors=True)
 
 
+class ForceStopTests(unittest.TestCase):
+    """强行停止：加载中可中止、生成中可打断、已加载直接释放。"""
+
+    def setUp(self):
+        import tempfile
+        self.tmp = Path(tempfile.mkdtemp(prefix="cbp_fstop_"))
+        self.gguf = self.tmp / "m.gguf"
+        self.gguf.write_bytes(b"GGUF" + b"\0" * 64)
+
+    def tearDown(self):
+        import shutil
+        lm.set_llama_class(None)
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def test_force_stop_idle(self):
+        eng = lm.LocalChatEngine(str(self.gguf))
+        self.assertEqual(eng.state, "idle")
+        res = eng.force_stop(0.5)
+        self.assertTrue(res["stopped"])
+        self.assertFalse(res["unloaded"])
+        self.assertEqual(res["state_after"], "idle")
+
+    def test_force_stop_loaded_releases_memory(self):
+        eng = lm.LocalChatEngine(str(self.gguf))
+        eng._llm = object()
+        self.assertEqual(eng.state, "ready")
+        res = eng.force_stop(0.5)
+        self.assertTrue(res["unloaded"])
+        self.assertFalse(eng.loaded)
+        self.assertEqual(eng.state, "idle")
+
+    def test_force_stop_during_load_discards_result(self):
+        import threading
+
+        gate = threading.Event()
+
+        class SlowLlama:
+            def __init__(self, **kw):
+                gate.wait(5.0)
+
+        lm.set_llama_class(SlowLlama)
+        eng = lm.LocalChatEngine(str(self.gguf))
+        out: dict = {}
+
+        def load():
+            out.update(eng.warm())
+
+        th = threading.Thread(target=load, daemon=True)
+        th.start()
+        for _ in range(200):                     # 等它进入 loading
+            if eng.state == "loading":
+                break
+            time.sleep(0.01)
+        self.assertEqual(eng.state, "loading")
+        res = eng.force_stop(0.5)
+        self.assertTrue(res["loading"])
+        self.assertTrue(res["stopped"])
+        gate.set()
+        th.join(5.0)
+        self.assertFalse(out.get("ok"))
+        self.assertIn("中止", out.get("error", ""))
+        self.assertFalse(eng.loaded)
+        self.assertEqual(eng.state, "idle")
+
+    def test_force_stop_interrupts_streaming(self):
+        import threading
+
+        class StreamLlama:
+            def __init__(self, **kw):
+                pass
+
+            def create_chat_completion(self, messages=None, stream=False, **kw):
+                def gen():
+                    for _ in range(400):         # 慢慢吐，给 force_stop 留出打断窗口
+                        time.sleep(0.02)
+                        yield {"choices": [{"delta": {"content": "x"}}]}
+                return gen()
+
+            def tokenize(self, text, **kw):
+                return list(range(len(text or b"")))
+
+            def detokenize(self, toks, **kw):
+                return b""
+
+        lm.set_llama_class(StreamLlama)
+        eng = lm.LocalChatEngine(str(self.gguf))
+        got = []
+
+        def consume():
+            try:
+                for piece in eng.stream([{"role": "user", "content": "hi"}]):
+                    got.append(piece)
+            except Exception as exc:             # noqa: BLE001
+                got.append(f"ERR:{exc}")
+
+        th = threading.Thread(target=consume, daemon=True)
+        th.start()
+        for _ in range(300):
+            if eng.state == "generating":
+                break
+            time.sleep(0.01)
+        self.assertEqual(eng.state, "generating")
+        t0 = time.time()
+        res = eng.force_stop(3.0)
+        th.join(3.0)
+        self.assertLess(time.time() - t0, 3.0)
+        self.assertTrue(res["stopped"])
+        self.assertTrue(res["unloaded"])
+        self.assertFalse(eng.loaded)
+
+    def test_stats_exposes_state(self):
+        eng = lm.LocalChatEngine(str(self.gguf))
+        st = eng.stats()
+        self.assertEqual(st["state"], "idle")
+        self.assertFalse(st["loading"])
+        self.assertEqual(st["generating"], 0)
+
+
 if __name__ == "__main__":
     unittest.main()

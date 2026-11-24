@@ -132,11 +132,25 @@ class LocalChatEngine:
         self.calls = 0
         self.tokens = 0
         self.seconds = 0.0
+        # 运行态：加载/生成是两件会长时间占住线程的事，界面要能看到、能强行停
+        self._loading = False
+        self._abort_load = False
+        self._generating = 0
+        self._last_error = ""
 
     # ── 生命周期 ──
     @property
     def loaded(self) -> bool:
         return self._llm is not None
+
+    @property
+    def state(self) -> str:
+        """idle / loading / ready / generating —— 给界面与 stop 决策用。"""
+        if self._generating:
+            return "generating"
+        if self._loading:
+            return "loading"
+        return "ready" if self._llm is not None else "idle"
 
     def _maybe_idle_unload(self) -> None:
         if (self._llm is not None and self.idle_unload_seconds > 0
@@ -189,6 +203,8 @@ class LocalChatEngine:
             raise LocalModelError(f"模型文件不存在：{self.path or '(未配置)'}")
         cls = llama_class()
         t0 = time.time()
+        self._loading = True
+        self._last_error = ""
         try:
             kw: dict[str, Any] = {"model_path": self.path, "n_ctx": self.n_ctx,
                                   "verbose": self.verbose}
@@ -199,11 +215,21 @@ class LocalChatEngine:
             handler = self._chat_handler()
             if handler is not None:
                 kw["chat_handler"] = handler
-            self._llm = cls(**kw)
+            llm = cls(**kw)
+            if self._abort_load:
+                # 用户在加载途中点了「强行停止」：拿到上下文也不留，直接释放
+                self._abort_load = False
+                del llm
+                raise LocalModelError("加载被强行中止（模型未载入内存）")
+            self._llm = llm
         except Exception as exc:                 # noqa: BLE001
             if isinstance(exc, LocalModelError):
+                self._last_error = str(exc)[:200]
                 raise
+            self._last_error = str(exc)[:200]
             raise LocalModelError(f"加载 {Path(self.path).name} 失败：{str(exc)[:200]}") from exc
+        finally:
+            self._loading = False
         self.load_seconds = round(time.time() - t0, 2)
         self.loads += 1
         return self._llm
@@ -221,13 +247,46 @@ class LocalChatEngine:
             llm, self._llm = self._llm, None
         del llm
 
+    def force_stop(self, timeout: float = 5.0) -> dict[str, Any]:
+        """强行停止：取消生成 + 中止加载 + 释放上下文。
+
+        - 正在生成：置取消位（生成循环每个 chunk 检查），拿锁（拿不到就等 timeout）；
+        - 正在加载：置 `_abort_load`，`_ensure` 拿到上下文后立即丢弃（llama.cpp 的加载
+          本身不可中断，但结果绝不会留在内存里，界面马上回到 idle）；
+        - 已加载：直接释放。
+        返回当时的运行态与是否真的停掉，供界面提示。
+        """
+        was = {"state": self.state, "loaded": self.loaded,
+               "loading": self._loading, "generating": int(self._generating)}
+        self._cancel.set()
+        if self._loading:
+            self._abort_load = True
+        got = self._lock.acquire(timeout=max(0.05, float(timeout)))
+        llm = None
+        try:
+            if got:
+                llm, self._llm = self._llm, None
+        finally:
+            if got:
+                self._lock.release()
+        if llm is not None:
+            unloaded = True
+            del llm
+        else:
+            unloaded = False
+        return {**was, "stopped": bool(got or was["loading"]),
+                "unloaded": unloaded, "state_after": self.state}
+
     def stats(self) -> dict[str, Any]:
         return {"path": self.path, "loaded": self.loaded, "loads": self.loads,
                 "load_seconds": self.load_seconds, "calls": self.calls,
                 "tokens": self.tokens,
                 "tok_per_second": round(self.tokens / self.seconds, 1) if self.seconds else 0.0,
                 "n_ctx": self.n_ctx, "n_threads": self.n_threads,
-                "mmproj": self.mmproj_path}
+                "mmproj": self.mmproj_path,
+                "state": self.state, "loading": self._loading,
+                "generating": int(self._generating),
+                "last_error": self._last_error}
 
     def cancel(self) -> None:
         """请求取消当前生成（协作式：下一轮 chunk 检查时退出）。"""
@@ -326,11 +385,14 @@ class LocalChatEngine:
         body = self._payload(messages, max_tokens, temperature, response_schema, False)
         with self._lock:                         # llama.cpp 上下文不能并发
             self._cancel.clear()               # 新一轮生成：清掉上轮的取消信号
+            self._generating += 1
             t0 = time.time()
             try:
                 out = llm.create_chat_completion(**body)
             except Exception as exc:             # noqa: BLE001
                 raise LocalModelError(f"生成失败：{str(exc)[:200]}") from exc
+            finally:
+                self._generating = max(0, self._generating - 1)
             el = time.time() - t0
             self._last_used = time.time()
             self.calls += 1
@@ -364,6 +426,7 @@ class LocalChatEngine:
         body = self._payload(messages, max_tokens, temperature, response_schema, True)
         with self._lock:
             self._cancel.clear()               # 新一轮生成：清掉上轮的取消信号
+            self._generating += 1
             t0 = time.time()
             try:
                 stream = llm.create_chat_completion(**body)
@@ -409,6 +472,7 @@ class LocalChatEngine:
             except Exception as exc:             # noqa: BLE001
                 raise LocalModelError(f"流式生成失败：{str(exc)[:200]}") from exc
             finally:
+                self._generating = max(0, self._generating - 1)
                 el = time.time() - t0
                 self._last_used = time.time()
                 self.calls += 1
