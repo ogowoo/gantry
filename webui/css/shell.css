@@ -29,10 +29,6 @@
 .sesslist{flex:1;overflow:auto;padding:0 8px 12px}
 .sess{display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:10px;
   cursor:pointer;border:1px solid transparent}
-/* 多选导出勾选框：平时半透明不抢视觉，悬停/勾选时清晰 */
-.sess .sess-sel{flex:none;width:13px;height:13px;margin:0;accent-color:var(--accent);
-  opacity:.35;cursor:pointer}
-.sess:hover .sess-sel,.sess .sess-sel:checked{opacity:1}
 .sess:hover{background:var(--sess-hover)}
 .sess.sel{background:color-mix(in srgb,var(--accent) 10%,var(--panel));
   border-color:color-mix(in srgb,var(--accent) 35%,var(--line2))}

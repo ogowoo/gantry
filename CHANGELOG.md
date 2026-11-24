@@ -12,6 +12,13 @@
   新增 `gantry/temphard.py`：启动期对 node 将使用的 %TEMP% 本体试建目录，
   失败则把 TEMP/TMP/TMPDIR 改指项目内 `data\tmp`（先验证可写）。`start.py`
   与 `scripts/login.py` 都已接入；正常机器零行为变化。需要重启服务生效。
+- 派生子进程的解释器选择只看 uvicorn：Hermes 自带的 venv 有 uvicorn 但
+  没有 playwright，会被误选，子进程在 import playwright 处无声退出（无
+  stderr，只有 crash.log 有痕迹）。`_has_uvicorn` 改为同时验证
+  uvicorn + playwright。
+- 托盘图标注册（Shell_NotifyIcon）偶发返回 ERROR_ACCESS_DENIED(5)（重启
+  瞬间旧图标刚删、新图标就加时几乎必现），原先一次失败就永远没有托盘。
+  `_add_icon` 对该错误重试 3 次（退避 1.5s/3s）。
 
 ## [0.12.0-beta.7] - 2026-11-24
 

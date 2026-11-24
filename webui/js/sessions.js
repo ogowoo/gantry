@@ -32,8 +32,7 @@ function toggleSubagents(){
 /* 会话行「⋯」菜单：设置标签 / 复制 ID / 删除会话。
    浮层挂 body 并 fixed 定位，避免被侧栏滚动容器裁掉。 */
 let sessMenuEl=null;
-/* 多选导出：勾选集合跨重绘保留（drawSessions 重建 DOM 时按集合回填勾选态） */
-const sessSelected=new Set();
+/* 勾选导出改为设置页弹窗内做（spickMask），侧栏不再常驻勾选框 */
 function closeSessMenu(){if(sessMenuEl){sessMenuEl.remove();sessMenuEl=null}}
 function openSessMenu(btn,sid){
  closeSessMenu();
@@ -115,11 +114,7 @@ function drawSessions(){
   const _num=(v,extra)=>extra>0
     ?`<span class="ssub" title="${esc(_sumTip)}">${esc(v)}</span>`
     :esc(v);
-  e.innerHTML=`<input type="checkbox" class="sess-sel" title="${esc(tr('勾选以导出'))}" aria-label="${esc(tr('勾选以导出'))}"${sessSelected.has(s.id)?' checked':''}><span class="sstat ${stateClassOf(s.state)}" title="${esc(stateLabel(s.state))}" aria-label="${esc(stateLabel(s.state))}">${stateIcon(s.state)}</span><div class="smeta"><b>${_kind?`<span class="skind">${_kind}</span>`:''}${esc(s.title)}</b><small><code class="sid" title="点击复制会话 ID">${esc(s.id)}</code><br>${tr('步骤')} ${_num(_ownSteps+_subSteps,_subSteps)} · ${tr('会话')} ${esc((s.conversation_index??0)+1)} · Token ${_num(_ownTk+_subTk,_subTk)}</small></div>${(s.attachment_count||0)>0?`<span class="attchip" title="含 ${s.attachment_count} 条带图片附件的消息">📎${s.attachment_count}</span>`:''}<button type="button" class="sess-more" title="${esc(tr('更多操作'))}" aria-haspopup="menu">⋯</button>`;
-  // 多选导出的勾选框：不进勾选集合的点击就是普通「打开会话」
-  const selBox=e.querySelector('.sess-sel');
-  if(selBox)selBox.onclick=ev=>{ev.stopPropagation();
-   if(selBox.checked)sessSelected.add(s.id);else sessSelected.delete(s.id)};
+  e.innerHTML=`<span class="sstat ${stateClassOf(s.state)}" title="${esc(stateLabel(s.state))}" aria-label="${esc(stateLabel(s.state))}">${stateIcon(s.state)}</span><div class="smeta"><b>${_kind?`<span class="skind">${_kind}</span>`:''}${esc(s.title)}</b><small><code class="sid" title="点击复制会话 ID">${esc(s.id)}</code><br>${tr('步骤')} ${_num(_ownSteps+_subSteps,_subSteps)} · ${tr('会话')} ${esc((s.conversation_index??0)+1)} · Token ${_num(_ownTk+_subTk,_subTk)}</small></div>${(s.attachment_count||0)>0?`<span class="attchip" title="含 ${s.attachment_count} 条带图片附件的消息">📎${s.attachment_count}</span>`:''}<button type="button" class="sess-more" title="${esc(tr('更多操作'))}" aria-haspopup="menu">⋯</button>`;
   // 子代理不再列进侧栏 → 前导位（▸ 的那个位置）也就没用了：
   // 空着那 12px + gap 会把整行往右推，看起来跟工作区分组头"跳格"（用户实测）。
   let chip=e.querySelector('.sid');
@@ -247,10 +242,9 @@ async function exportSessionById(sid){
   toast(tr('已导出会话')+' '+sid,'ok');
  }catch(e){toast(tr('导出失败: ')+(e.text||e),'err')}
 }
-async function exportSessions(){
- const alive=new Set((window.sessCache||[]).map(s=>s.id));
- const sids=[...sessSelected].filter(x=>alive.has(x));
- if(!sids.length){toast(tr('请先勾选要导出的会话（会话左侧勾选框）'),'err');return}
+async function exportSessions(sids){
+ sids=(sids||[]).filter(Boolean);
+ if(!sids.length){toast(tr('未选择要导出的会话'),'err');return}
  try{
   const d=await api('/v1/agent/sessions/export?sids='+encodeURIComponent(sids.join(',')));
   _downloadJson(d, 'gantry-sessions-'+(d&&d.exported_at||'').slice(0,10)+'.json');
