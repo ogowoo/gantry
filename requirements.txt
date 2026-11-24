@@ -12,3 +12,5 @@ beautifulsoup4>=4.12,<5
 pywin32>=306; sys_platform == "win32"
 fpdf2>=2.8,<3
 Pillow>=10,<14
+numpy>=2,<3
+pyyaml>=6,<7

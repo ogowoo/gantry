@@ -159,13 +159,19 @@ class I18nTests(unittest.TestCase):
 
     def test_detect_lang_env_override(self):
         import os
+        import tempfile
+        from pathlib import Path
 
         from gantry import tray as tray_mod
 
         old = os.environ.get("GANTRY_LANG")
         os.environ["GANTRY_LANG"] = "en"
         try:
-            self.assertEqual(tray_mod.detect_lang(ROOT), "en")
+            # 传一个不存在的根目录让 config.json 分支落空：detect_lang 的优先级
+            # 是 config > 环境变量，CI 的 checkout 里现在有 config.json（ui.language=zh），
+            # 用真实 ROOT 会把环境变量覆盖测成「配置优先」而失败
+            missing_root = Path(tempfile.mkdtemp(prefix="tray_lang_")) / "no_such"
+            self.assertEqual(tray_mod.detect_lang(missing_root), "en")
         finally:
             if old is None:
                 os.environ.pop("GANTRY_LANG", None)

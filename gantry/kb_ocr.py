@@ -53,7 +53,14 @@ def config() -> dict[str, Any]:
 
 
 def available() -> bool:
-    """RapidOCR 是否可用（默认引擎）。"""
+    """RapidOCR 是否可用（默认引擎）。
+
+    为什么先看 _ENGINE：测试/嵌入式场景会用 set_engine 注入引擎实例，
+    此时 rapidocr 包可以没装，但引擎已可用，不能因为 import 失败
+    把请求拦到「没有可用的 OCR 引擎」分支。
+    """
+    if _ENGINE is not None:
+        return True
     try:
         import rapidocr  # noqa: F401
         return True
