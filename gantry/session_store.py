@@ -227,6 +227,10 @@ CREATE TABLE IF NOT EXISTS conv_stats (
                                 ("plan", "TEXT"),
                                 ("plan_mode", "INTEGER NOT NULL DEFAULT 0"),
                                 ("task_summary", "TEXT"),
+                                # 迁移：会话的**发起模式**（agent/chat）。此前只在创建请求里
+                                # 传一次 agent_mode，没落库——重新打开会话时前端只能默认
+                                # "Agent 继续执行"，普通对话的会话一进去就变成 Agent。
+                                ("mode", "TEXT"),
                                 ("suspend_reason", "TEXT")):
                 try:
                     con.execute(f"ALTER TABLE sessions ADD COLUMN {_col} {_decl}")
@@ -257,20 +261,34 @@ CREATE TABLE IF NOT EXISTS conv_stats (
         "s.rollover_requested", "s.conv_tokens", "s.conv_chars", "s.gate_state",
         "s.retry_resume_at", "s.retry_attempt", "s.rate_limited_since", "s.tag",
         "s.parent_id", "s.description", "s.plan_mode", "s.suspend_reason",
-        "s.last_view_file",
+        "s.last_view_file", "s.mode", "s.persona",
     )
 
     def create(self, sid: str, task: str, workspace: str, model: str, title: str | None = None,
-               persona: str | None = None):
+               persona: str | None = None, mode: str = "agent"):
         now = time.time()
         title = (title or task.splitlines()[0] or sid)[:120]
+        mode = "chat" if str(mode or "").strip().lower() == "chat" else "agent"
         with self.lock, self._connect() as con:
             con.execute("""INSERT OR IGNORE INTO sessions
-                (id,title,original_task,state,created,updated,workspace,model,persona)
-                VALUES(?,?,?,?,?,?,?,?,?)""",
+                (id,title,original_task,state,created,updated,workspace,model,persona,mode)
+                VALUES(?,?,?,?,?,?,?,?,?,?)""",
                         (sid, title, task, "ready", now, now, workspace, model,
-                         (persona or None)))
+                         (persona or None), mode))
         return self.get(sid)
+
+    def set_mode(self, sid: str, mode: str) -> dict:
+        """改会话的发起模式（agent/chat）。
+
+        用户在同一会话里换模式发消息时以**最后一次**为准：重新打开时界面的
+        「Agent 继续执行 / 普通对话」要与之一致，否则下一句会带着错误的
+        agent_mode 发出，把普通对话变成 Agent 任务。
+        """
+        mode = "chat" if str(mode or "").strip().lower() == "chat" else "agent"
+        with self.lock, self._connect() as con:
+            con.execute("UPDATE sessions SET mode=?, updated=? WHERE id=?",
+                        (mode, time.time(), sid))
+        return self.get(sid) or {}
 
     def set_persona(self, sid: str, persona: str | None) -> dict:
         """改会话的表达风格（空值 = 回到默认链）。"""

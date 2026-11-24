@@ -5,6 +5,22 @@
 
 ## [Unreleased]
 
+## [0.12.0-beta.4] - 2026-11-23
+
+### Fixed
+- **新任务选「普通对话」，进入会话却变成「Agent 继续执行」**：创建时的模式只存在请求里、
+  从未落库，前端只能默认 agent，下一句跟进带 `agent_mode=true`，把纯问答变成 Agent 任务。
+  现在模式写进 `sessions.mode`（`agent`/`chat`）：
+  - 普通对话入口（含 `reuse_session` 复用已有会话）落 `chat`；跟进消息按本次所选的
+    `agent_mode` 落库，`/continue` 仍强制 `agent`；
+  - 会话列表（light 列）与会话详情都带 `mode`；
+  - 前端 `applySessionChrome` 按会话模式同步跟进条，新任务启动时也先对齐本次选择。
+
+### Tests
+- 新增 `test_session_mode`（13 项）：默认/显式/归一化落库、`set_mode`、light 列含
+  `mode` 与 `persona`、`INSERT OR IGNORE` 不改已有模式、跟进路由按 `agent_mode` 落库、
+  `/continue` 强制 agent、普通对话入口新建/复用都落 `chat`。
+
 ## [0.12.0-beta.3] - 2026-11-23
 
 ### Changed

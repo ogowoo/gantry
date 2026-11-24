@@ -1036,7 +1036,14 @@ async def plain_completions(req: b.AgentRequest):
     sid = req.session_id or ("task-" + uuid.uuid4().hex[:12])
     if not b.AGENT_SESSIONS.get(sid):
         workspace = (req.workspace.strip() if req.workspace else None) or str(b.AGENT_WORKSPACE)
-        b.AGENT_SESSIONS.create(sid, content, workspace, model_id)
+        b.AGENT_SESSIONS.create(sid, content, workspace, model_id, mode="chat")
+    else:
+        # 复用已有会话（reuse_session）：这次是普通对话，模式同样要落库，
+        # 否则重新打开时界面的跟进条还停在「Agent 继续执行」。
+        try:
+            b.AGENT_SESSIONS.set_mode(sid, "chat")
+        except Exception as exc:      # 落库失败不影响本轮问答
+            b.log(f"普通对话会话模式落库失败（忽略）：{exc}")
     pm = b.providers_mod.split_provider_model(model_id)
     _provider_images = []
     if pm and pm[0] in b.PROVIDERS and attach_paths:

@@ -550,6 +550,12 @@ async def continue_session_message(sid: str, req: a.SessionMessageRequest,
         b.log(f"本地文件直读失败（回退到模型）：{exc}")
 
     b.runtime_update(sid, phase="followup_queued", detail=f"跟进消息已排队：{content[:80]}")
+    # 模式以最后一次发送为准并落库：重新打开会话时界面的「Agent 继续执行 /
+    # 普通对话」要跟它一致，否则下一句会带错 agent_mode。
+    try:
+        b.AGENT_SESSIONS.set_mode(sid, "agent" if req.agent_mode else "chat")
+    except Exception as exc:      # 落库失败不阻断发送
+        b.log(f"会话模式落库失败（不影响执行）：{exc}")
     return await b.enqueue_session_message(sid, content, model_id,
                                            bool(req.agent_mode), attach_paths, message_id)
 

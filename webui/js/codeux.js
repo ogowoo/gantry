@@ -73,6 +73,13 @@ function applySessionChrome(s){
  try{updateChannelUI()}catch(e){}
  document.getElementById('emptyState').style.display='none';
  document.getElementById('sessionView').style.display='';
+ // 跟进模式跟着会话走：普通对话的会话进来后必须仍是「普通对话」。
+ // 否则全局 followupMode 还是上一个会话的值，第一句跟进就带 agent_mode=true，
+ // 把纯问答变成 Agent 任务（用户实测的 bug）。
+ const _fm=(String(s.mode||'agent').toLowerCase()==='chat')?'chat':'agent';
+ if(typeof window.setFollowupMode==='function'){
+  try{if(window.followupMode!==_fm)window.setFollowupMode(_fm)}catch(e){}
+ }
 }
 
 /* 调用记录：行内展开（与待办/子代理/状态同一种方式，不再浮层弹出） */
