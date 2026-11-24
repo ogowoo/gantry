@@ -3,6 +3,7 @@
 import { SETTINGS_GROUPS, SANDBOX_UI, ENUM_LABEL, openMemory, showRestarting } from './themeboot.js';
 import { CODE_EXT } from './codeux.js';
 import { stepFilterInput } from './steps.js';
+import { exportSessions, importSessions } from './sessions.js';
 import { readAnimPrefs, applyAnimPrefs, setAnimPref, animPrefLabel, ANIM_RANGES } from './animprefs.js';
 import { openKb, closeKb, kbPick, kbRefresh, kbReindex, kbImportUrl, kbImportText, kbInbox, kbSearch, kbDelete, fmtErr, wireKbSettings, kbLoadSettings, kbSaveSettings } from './kb.js';
 import { openModels, closeModels, renderModels, modelDelete, modelCopyPath, modelDownload, modelPreset, modelStart, modelStop } from './models.js';
@@ -888,6 +889,8 @@ const ACTIONS={
  closeWs:()=>closeWs(),
  closePlugins:()=>closePlugins(),
  toggleSubagents:()=>toggleSubagents(),
+ exportSessions:()=>exportSessions(),
+ importSessions:()=>importSessions(),
  showPromptView:()=>showPromptView(),
  expandLive:()=>expandLive(),
  toggleChatFind:()=>toggleChatFind(),

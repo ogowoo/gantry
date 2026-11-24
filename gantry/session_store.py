@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import sqlite3
 import threading
+import uuid
 from contextlib import contextmanager
 import time
 from pathlib import Path
@@ -675,6 +676,125 @@ CREATE TABLE IF NOT EXISTS conv_stats (
     def file_events(self, sid: str):
         with self.lock, self._connect() as con:
             return [dict(x) for x in con.execute("SELECT * FROM file_events WHERE session_id=? ORDER BY created",(sid,))]
+
+    # ── 会话导入导出 ──
+    # 导出 = 会话整行 + 消息 + 步骤 + 文件事件（时间线可见性全靠这四样；
+    # conv_stats/turn_results/审计是运行期遥测，机器间无意义，不带）。
+    # 导入 = 新 sid 落库（绝不用原 id：主键撞了会覆盖本机会话，事件流也会串）。
+    _IMPORT_TEXT_COLS = ("title", "original_task", "workspace", "model", "persona",
+                         "mode", "tag", "description", "plan_mode", "gate_state",
+                         "last_view_file", "summary")
+    _IMPORT_REAL_COLS = ("created", "updated", "conversation_index", "total_steps",
+                         "conversation_steps", "estimated_tokens", "estimated_chars",
+                         "conv_tokens", "conv_chars", "retry_attempt")
+    _IMPORT_FLAG_COLS = ("archived", "cancel_requested", "compact_requested",
+                         "rollover_requested")
+    _IMPORT_JSON_COLS = ("conversation_urls", "recent_steps", "modified_files", "pending")
+    # 运行中/排队态不能随文件迁移：那台机器的 Agent 进程不在本机，导入后
+    # 这些会话永远卡在"运行中"，删除/重启都救不回（只能 force_local 硬删）。
+    _LIVE_STATES = {"running", "waiting", "queued"}
+
+    def export_session(self, sid: str):
+        sess = self.get(sid)
+        if not sess:
+            return None
+        msgs = self.messages(sid, limit=200000)
+        with self.lock, self._connect() as con:
+            steps = [dict(x) for x in con.execute(
+                "SELECT step_no, conversation_index, created, tool, status, reason, payload "
+                "FROM steps WHERE session_id=? ORDER BY id", (sid,))]
+            files = [dict(x) for x in con.execute(
+                "SELECT created, tool, path, before_hash, after_hash, result "
+                "FROM file_events WHERE session_id=? ORDER BY created", (sid,))]
+        return {"session": sess, "messages": msgs,
+                "steps": steps, "files": files}
+
+    def import_session(self, entry: dict, parent_map: dict | None = None) -> str:
+        """导入单条会话（export_session 的产物），返回新 sid。
+
+        parent_map：批量导入时 orig_id → new_id 的映射，用于把子会话挂到
+        **本批导入的**新父会话下（原父会话没随批导入则置空，不留悬空引用）。
+        """
+        if not isinstance(entry, dict) or not isinstance(entry.get("session"), dict):
+            raise ValueError("缺少 session 字段")
+        src = entry["session"]
+        task = str(src.get("original_task") or "").strip()
+        if not task and not str(src.get("title") or "").strip():
+            raise ValueError("session 缺少 title/original_task")
+        title = (str(src.get("title") or task) or "imported")[:120]
+        task = task or title   # original_task 是 NOT NULL 列，title 兜底
+        state = str(src.get("state") or "ready")
+        if state in self._LIVE_STATES:
+            state = "ready"
+        new_sid = "imp-" + uuid.uuid4().hex[:12]
+        cols: list = ["id", "state"]
+        vals: list = [new_sid, state]
+        for key in self._IMPORT_TEXT_COLS:
+            v = src.get(key)
+            if v is None:
+                continue
+            cols.append(key)
+            vals.append(json.dumps(v, ensure_ascii=False) if key in self._IMPORT_JSON_COLS
+                        else str(v))
+        now = time.time()
+        for key in self._IMPORT_REAL_COLS:
+            v = src.get(key)
+            cols.append(key)
+            vals.append(float(v) if v is not None else now)
+        for key in self._IMPORT_FLAG_COLS:
+            cols.append(key)
+            vals.append(1 if src.get(key) else 0)
+        for key in self._IMPORT_JSON_COLS:
+            if key in cols:
+                continue
+            v = src.get(key)
+            cols.append(key)
+            vals.append(json.dumps(v if v is not None else ([] if key != "modified_files" else {}),
+                                   ensure_ascii=False))
+        if "original_task" not in cols:   # NOT NULL 且上面按源值跳过，这里兜底
+            cols.append("original_task")
+            vals.append(task)
+        for key, fallback in (("title", title), ("workspace", ""), ("model", "")):
+            if key not in cols:           # 同为 NOT NULL 无默认列，缺啥补啥
+                cols.append(key)
+                vals.append(fallback)
+        parent = str(src.get("parent_id") or "").strip()
+        cols.append("parent_id")
+        vals.append((parent_map or {}).get(parent) or None)
+        with self.lock, self._connect() as con:
+            con.execute(f"INSERT INTO sessions({','.join(cols)}) "
+                        f"VALUES({','.join('?' * len(cols))})", vals)
+            for m in entry.get("messages") or []:
+                if not isinstance(m, dict) or m.get("role") not in {"user", "assistant", "system"}:
+                    continue
+                atts = m.get("attachments")
+                con.execute("INSERT INTO messages(session_id,created,role,content,"
+                            "conversation_index,attachments) VALUES(?,?,?,?,?,?)",
+                            (new_sid, float(m.get("created") or now), m["role"],
+                             str(m.get("content") or ""), int(m.get("conversation_index") or 0),
+                             json.dumps(atts, ensure_ascii=False) if atts else None))
+            for s in entry.get("steps") or []:
+                if not isinstance(s, dict):
+                    continue
+                payload = s.get("payload")
+                if not isinstance(payload, str):
+                    payload = json.dumps(payload if payload is not None else s,
+                                         ensure_ascii=False)
+                con.execute("INSERT INTO steps(session_id,step_no,conversation_index,created,"
+                            "tool,status,reason,payload) VALUES(?,?,?,?,?,?,?,?)",
+                            (new_sid, int(s.get("step_no") or 0),
+                             int(s.get("conversation_index") or 0),
+                             float(s.get("created") or now), s.get("tool"),
+                             s.get("status") or "unknown", s.get("reason"), payload))
+            for f in entry.get("files") or []:
+                if not isinstance(f, dict):
+                    continue
+                con.execute("INSERT INTO file_events(session_id,created,tool,path,before_hash,"
+                            "after_hash,result) VALUES(?,?,?,?,?,?,?)",
+                            (new_sid, float(f.get("created") or now), f.get("tool") or "",
+                             f.get("path") or "", f.get("before_hash"), f.get("after_hash"),
+                             f.get("result") or "unknown"))
+        return new_sid
 
     def add_conv_stat(self, sid: str, stat: dict[str, Any]):
         with self.lock, self._connect() as con:

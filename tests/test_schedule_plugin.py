@@ -238,8 +238,14 @@ class ScheduleImportExportTests(unittest.TestCase):
                     async def json(self): return {}
                 await sched_import(R())
             export_api = self.ctx.apis[("GET", "api/export")]
-            out = await export_api(None)
+            class Q:  # 单任务导出：?name= 过滤
+                query_params = {"name": ""}
+            out = await export_api(Q())
             self.assertIn("schedules", out)
+            with self.assertRaises(ValueError):
+                class Q2:
+                    query_params = {"name": "不存在"}
+                await export_api(Q2())
         asyncio.run(scenario())
 
 

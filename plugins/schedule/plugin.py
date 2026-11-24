@@ -153,12 +153,17 @@ class Scheduler:
                 for x in self.items()]
 
     # ── 导入导出 ──
-    def export(self):
-        """全量导出（含调度定义；runs/last_* 运行历史不带，导入方是配置而非日志）。"""
+    def export(self, name: str | None = None):
+        """全量或单任务导出（含调度定义；runs/last_* 运行历史不带，导出的是配置而非日志）。"""
+        items = self.items()
+        if name:
+            items = [x for x in items if x.get("name") == name]
+            if not items:
+                raise ValueError(f"任务不存在: {name}")
         return {"version": 1, "exported_at": _dt.datetime.now().isoformat(timespec="seconds"),
                 "schedules": [{k: x.get(k) for k in ("name", "spec", "task", "model",
                                                      "workspace", "enabled")}
-                              for x in self.items()]}
+                              for x in items]}
 
     def import_data(self, payload, mode: str = "merge"):
         """导入调度定义。
@@ -292,8 +297,8 @@ def setup(ctx):
     async def _run(name: str = ""):
         return {"results": await sched.run_now(name or None)}
 
-    async def _export():
-        return sched.export()
+    async def _export(name: str = ""):
+        return sched.export(name or None)
 
     async def _import(data=None, mode: str = "merge"):
         return sched.import_data(data if data is not None else {}, mode=mode)
@@ -358,7 +363,7 @@ def setup(ctx):
                             enabled=body.get("enabled"))
 
     async def _api_export(request):
-        return sched.export()
+        return sched.export(str(request.query_params.get("name") or "") or None)
 
     async def _api_import(request):
         try:

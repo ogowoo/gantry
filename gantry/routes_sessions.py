@@ -7,6 +7,7 @@ api.py，这里经 ``a.xxx`` 访问（保持测试对 api 模块的打桩语义�
 from __future__ import annotations
 
 import asyncio, hmac, json, logging, os, re, threading, time, uuid
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -59,6 +60,76 @@ async def sessions(include_archived: bool = False, include_subagents: bool = Tru
         pass
     return {"sessions": rows, "subagent_count": sum(
         1 for x in rows if str(x.get("parent_id") or "").strip())}
+
+
+@router.get("/v1/agent/sessions/export")
+async def export_sessions(sids: str = ""):
+    """导出会话（单个/多个）：sids 逗号分隔，留空 = 全部（含已归档）。
+
+    产物与 export_session() 一一对应，可原样 POST 给 /import 在另一台机器恢复。
+    """
+    wanted = [x.strip() for x in str(sids or "").split(",") if x.strip()]
+    # light=True：这里只取 id 集合，整行大字段（recent_steps 等）由 export_session
+    # 按需逐条读取——全量导出时避免先把全部会话整行 decode 一遍（大库数秒级卡顿）
+    rows = await asyncio.to_thread(b.AGENT_SESSIONS.list, True, True)
+    if wanted:
+        have = {str(x.get("id") or "") for x in rows}
+        missing = [x for x in wanted if x not in have]
+        if missing:
+            raise HTTPException(404, f"会话不存在: {', '.join(missing[:5])}")
+        rows = [x for x in rows if str(x.get("id") or "") in wanted]
+    out = []
+    for x in rows:
+        entry = await asyncio.to_thread(b.AGENT_SESSIONS.export_session, str(x["id"]))
+        if entry:
+            out.append(entry)
+    return {"version": 1, "exported_at": datetime.now(
+        timezone.utc).isoformat(timespec="seconds"),
+        "count": len(out), "sessions": out}
+
+
+@router.post("/v1/agent/sessions/import")
+async def import_sessions(req: HttpRequest):
+    """导入会话（export 的产物）：全部生成新 sid，不与本机冲突。
+
+    批内父子关系按 orig_id→new_id 重映射；运行中/排队态强制落为 ready。
+    """
+    try:
+        payload = await req.json()
+    except Exception:
+        payload = None
+    raw = payload.get("sessions") if isinstance(payload, dict) else payload
+    if not isinstance(raw, list):
+        raise HTTPException(400, "导入内容必须是 {sessions: [...]} 或会话条目列表")
+    parent_map: dict[str, str] = {}
+    for e in raw:
+        if isinstance(e, dict) and isinstance(e.get("session"), dict):
+            sid = str(e["session"].get("id") or "")
+            if sid:
+                parent_map[sid] = ""  # 先占位，导入成功回填新 sid
+    added, skipped, errors = 0, 0, []
+    # 先导入父（parent_id 为空/不在批内）再导入子，保证重映射时父的新 sid 已就位
+    def _depth(e):
+        s = e.get("session") or {}
+        p = str(s.get("parent_id") or "")
+        return 1 if p and p in parent_map else 0
+    for i, e in sorted(enumerate(raw), key=lambda t: -_depth(t[1])):
+        if not isinstance(e, dict):
+            skipped += 1
+            errors.append(f"#{i}: 不是对象")
+            continue
+        try:
+            orig = str((e.get("session") or {}).get("id") or "")
+            new_sid = await asyncio.to_thread(b.AGENT_SESSIONS.import_session, e, parent_map)
+            if orig:
+                parent_map[orig] = new_sid
+            added += 1
+        except Exception as exc:                    # noqa: BLE001
+            skipped += 1
+            errors.append(f"#{i}: {exc}")
+    return {"added": added, "skipped": skipped, "errors": errors[:20]}
+
+
 
 
 @router.get("/v1/agent/sessions/{sid}/file")

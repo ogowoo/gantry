@@ -32,6 +32,8 @@ function toggleSubagents(){
 /* 会话行「⋯」菜单：设置标签 / 复制 ID / 删除会话。
    浮层挂 body 并 fixed 定位，避免被侧栏滚动容器裁掉。 */
 let sessMenuEl=null;
+/* 多选导出：勾选集合跨重绘保留（drawSessions 重建 DOM 时按集合回填勾选态） */
+const sessSelected=new Set();
 function closeSessMenu(){if(sessMenuEl){sessMenuEl.remove();sessMenuEl=null}}
 function openSessMenu(btn,sid){
  closeSessMenu();
@@ -40,6 +42,7 @@ function openSessMenu(btn,sid){
  el.innerHTML=
   `<button type="button" class="cmitem" data-menu="tag">${esc(tr('设置标签'))}</button>`+
   `<button type="button" class="cmitem" data-menu="copy">${esc(tr('复制会话 ID'))}</button>`+
+  `<button type="button" class="cmitem" data-menu="export">${esc(tr('导出会话'))}</button>`+
   `<button type="button" class="cmitem danger" data-menu="del">${esc(tr('删除会话'))}</button>`;
  document.body.appendChild(el);
  const r=btn.getBoundingClientRect();
@@ -48,6 +51,7 @@ function openSessMenu(btn,sid){
  el.querySelector('[data-menu="tag"]').onclick=()=>{closeSessMenu();editTagById(sid)};
  el.querySelector('[data-menu="copy"]').onclick=()=>{closeSessMenu();
   try{navigator.clipboard.writeText(sid);toast(tr('已复制会话 ID')+' '+sid,'ok')}catch(e){toast(sid)}};
+ el.querySelector('[data-menu="export"]').onclick=()=>{closeSessMenu();exportSessionById(sid)};
  el.querySelector('[data-menu="del"]').onclick=()=>{closeSessMenu();window.removeSession(false,sid)};
  sessMenuEl=el;
 }
@@ -111,7 +115,11 @@ function drawSessions(){
   const _num=(v,extra)=>extra>0
     ?`<span class="ssub" title="${esc(_sumTip)}">${esc(v)}</span>`
     :esc(v);
-  e.innerHTML=`<span class="sstat ${stateClassOf(s)}" title="${esc(stateLabel(s))}" aria-label="${esc(stateLabel(s))}">${stateIcon(s.state)}</span><div class="smeta"><b>${_kind?`<span class="skind">${_kind}</span>`:''}${esc(s.title)}</b><small><code class="sid" title="点击复制会话 ID">${esc(s.id)}</code><br>${tr('步骤')} ${_num(_ownSteps+_subSteps,_subSteps)} · ${tr('会话')} ${esc((s.conversation_index??0)+1)} · Token ${_num(_ownTk+_subTk,_subTk)}</small></div>${(s.attachment_count||0)>0?`<span class="attchip" title="含 ${s.attachment_count} 条带图片附件的消息">📎${s.attachment_count}</span>`:''}<button type="button" class="sess-more" title="${esc(tr('更多操作'))}" aria-haspopup="menu">⋯</button>`;
+  e.innerHTML=`<input type="checkbox" class="sess-sel" title="${esc(tr('勾选以导出'))}" aria-label="${esc(tr('勾选以导出'))}"${sessSelected.has(s.id)?' checked':''}><span class="sstat ${stateClassOf(s.state)}" title="${esc(stateLabel(s.state))}" aria-label="${esc(stateLabel(s.state))}">${stateIcon(s.state)}</span><div class="smeta"><b>${_kind?`<span class="skind">${_kind}</span>`:''}${esc(s.title)}</b><small><code class="sid" title="点击复制会话 ID">${esc(s.id)}</code><br>${tr('步骤')} ${_num(_ownSteps+_subSteps,_subSteps)} · ${tr('会话')} ${esc((s.conversation_index??0)+1)} · Token ${_num(_ownTk+_subTk,_subTk)}</small></div>${(s.attachment_count||0)>0?`<span class="attchip" title="含 ${s.attachment_count} 条带图片附件的消息">📎${s.attachment_count}</span>`:''}<button type="button" class="sess-more" title="${esc(tr('更多操作'))}" aria-haspopup="menu">⋯</button>`;
+  // 多选导出的勾选框：不进勾选集合的点击就是普通「打开会话」
+  const selBox=e.querySelector('.sess-sel');
+  if(selBox)selBox.onclick=ev=>{ev.stopPropagation();
+   if(selBox.checked)sessSelected.add(s.id);else sessSelected.delete(s.id)};
   // 子代理不再列进侧栏 → 前导位（▸ 的那个位置）也就没用了：
   // 空着那 12px + gap 会把整行往右推，看起来跟工作区分组头"跳格"（用户实测）。
   let chip=e.querySelector('.sid');
@@ -221,4 +229,54 @@ async function editTagById(sid){
 /* ── 时间线：增量渲染，不重建已有 DOM，展开状态不丢失 ── */
 /* 工具结果的语言猜测：优先按参数里的文件扩展名，其次按工具名 */
 
-export { toggleSessExpand, refreshSessions, toggleSubagents, drawSessions, editTag };
+/* ── 会话导入导出 ──
+   导出 = GET /v1/agent/sessions/export?sids=（留空=全部）；导入 = POST /import。
+   导入一律生成 imp-* 新 sid，不撞本机；运行中/排队态落为 ready。 */
+function _downloadJson(payload, filename){
+ const blob=new Blob([JSON.stringify(payload,null,2)],{type:'application/json'});
+ const a=document.createElement('a');
+ a.href=URL.createObjectURL(blob);
+ a.download=filename;
+ document.body.appendChild(a); a.click(); a.remove();
+ setTimeout(()=>URL.revokeObjectURL(a.href), 5000);
+}
+async function exportSessionById(sid){
+ try{
+  const d=await api('/v1/agent/sessions/export?sids='+encodeURIComponent(sid));
+  _downloadJson(d, 'gantry-session-'+sid+'.json');
+  toast(tr('已导出会话')+' '+sid,'ok');
+ }catch(e){toast(tr('导出失败: ')+(e.text||e),'err')}
+}
+async function exportSessions(){
+ const alive=new Set((window.sessCache||[]).map(s=>s.id));
+ const sids=[...sessSelected].filter(x=>alive.has(x));
+ if(!sids.length){toast(tr('请先勾选要导出的会话（会话左侧勾选框）'),'err');return}
+ try{
+  const d=await api('/v1/agent/sessions/export?sids='+encodeURIComponent(sids.join(',')));
+  _downloadJson(d, 'gantry-sessions-'+(d&&d.exported_at||'').slice(0,10)+'.json');
+  toast(tr('已导出 {n} 个会话',{n:(d&&d.count)||sids.length}),'ok');
+ }catch(e){toast(tr('导出失败: ')+(e.text||e),'err')}
+}
+async function importSessions(){
+ const input=document.createElement('input');
+ input.type='file'; input.accept='.json,application/json';
+ input.onchange=async()=>{
+  const file=input.files&&input.files[0];
+  if(!file)return;
+  let data;
+  try{data=JSON.parse(await file.text())}
+  catch(e){toast(tr('导入失败: JSON 解析错误'),'err');return}
+  try{
+   const r=await api('/v1/agent/sessions/import',
+    {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});
+   toast(tr('导入完成：成功 {ok}、跳过 {skip}',{ok:r.added,skip:r.skipped}),
+    (r.skipped&&!r.added)?'err':'ok');
+   if(r.errors&&r.errors.length)toast(tr('跳过项：')+r.errors.slice(0,3).join('；'),'err');
+   await refreshSessions();
+  }catch(e){toast(tr('导入失败: ')+(e.text||e.detail||e),'err')}
+ };
+ input.click();
+}
+
+export { toggleSessExpand, refreshSessions, toggleSubagents, drawSessions, editTag,
+         exportSessionById, exportSessions, importSessions };

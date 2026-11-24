@@ -388,24 +388,36 @@ async function _injectScheduleManager(body, data, panel){
    const b=document.createElement('button'); b.type='button'; b.className='btn '+cls;
    b.textContent=tr(label); b.onclick=fn; acts.appendChild(b); return b;
   };
-  const post=async(path,payload,confirmMsg)=>{
+  const schPost=async(path,payload,confirmMsg)=>{
    if(confirmMsg && !await window.dlgConfirm(confirmMsg, tr('定时任务'), true)) return false;
    await api(_panelUrl({plugin:panel.plugin, path}),{method:'POST',
     headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload||{})});
    return true;
   };
   mk('运行','ghost',async(e)=>{ e.target.disabled=true;
-   try{ await post('api/run',{name:it.name}); toast(tr('已触发: ')+it.name,'ok'); await loadPanel(panel); }
+   try{ await schPost('api/run',{name:it.name}); toast(tr('已触发: ')+it.name,'ok'); await loadPanel(panel); }
    catch(err){ toast(tr('触发失败: ')+(err.text||err),'err'); e.target.disabled=false } });
   mk(it.enabled?'停用':'启用','ghost',async(e)=>{ e.target.disabled=true;
-   try{ await post('api/update',{name:it.name, enabled:!it.enabled}); await loadPanel(panel); }
+   try{ await schPost('api/update',{name:it.name, enabled:!it.enabled}); await loadPanel(panel); }
    catch(err){ toast(tr('操作失败: ')+(err.text||err),'err'); e.target.disabled=false } });
   mk('编辑','ghost',()=>{ fillForm(it); form.scrollIntoView({block:'nearest',behavior:'smooth'}); });
+  mk('导出','ghost',async(e)=>{ e.target.disabled=true;
+   try{
+    const d=await api(_panelUrl({plugin:panel.plugin, path:'api/export'})+'?name='+encodeURIComponent(it.name));
+    const blob=new Blob([JSON.stringify(d,null,2)],{type:'application/json'});
+    const a=document.createElement('a');
+    a.href=URL.createObjectURL(blob);
+    a.download='gantry-schedule-'+it.name+'.json';
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(()=>URL.revokeObjectURL(a.href), 5000);
+    ioResult.textContent=tr('已导出 ')+it.name;
+   }catch(err){ toast(tr('导出失败: ')+(err.text||err),'err'); }
+   finally{ e.target.disabled=false } });
   if(it.last_session && typeof window.load==='function')
    mk('会话','ghost',()=>{ window.load(it.last_session); closeMask('panelMask'); });
   mk('删除','danger',async(e)=>{ e.target.disabled=true;
    try{
-    if(await post('api/remove',{name:it.name}, tr('确定删除定时任务 {name}？',{name:it.name})))
+    if(await schPost('api/remove',{name:it.name}, tr('确定删除定时任务 {name}？',{name:it.name})))
      { toast(tr('已删除: ')+it.name,'ok'); await loadPanel(panel); }
     else e.target.disabled=false;
    }catch(err){ toast(tr('删除失败: ')+(err.text||err),'err'); e.target.disabled=false } });
