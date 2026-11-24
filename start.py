@@ -39,6 +39,15 @@ if str(BASE) not in sys.path:
     sys.path.insert(0, str(BASE))
 
 _CFG_PATH = BASE / "config.json"
+
+
+# 系统 Temp 拒写（EPERM）时改指 data 下的 tmp——详见 gantry/temphard.py 模块 docstring。
+# 必须在起 Playwright/任何写 Temp 的依赖之前完成，所以放模块顶层。
+from gantry.temphard import ensure_writable_temp as _ensure_writable_temp
+
+_redirected_tmp = _ensure_writable_temp(BASE)
+if _redirected_tmp is not None:
+    print(f"[gantry] 系统 Temp 不可写，已改指 {_redirected_tmp}")
 if not _CFG_PATH.is_file():
     print("[gantry] 缺少 config.json。先运行：python install.py\n"
           "         （install.py 会自动从 config.example.json 生成）", file=sys.stderr)

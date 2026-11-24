@@ -52,6 +52,14 @@ if not _has_playwright(sys.executable):
           "或先 pip install -r requirements.txt", file=sys.stderr)
     sys.exit(1)
 
+# 系统 Temp 拒写（EPERM）时改指 data 下的 tmp——与 start.py 同一兜底，
+# 否则 Playwright mkdtemp 直接失败（见 gantry/temphard.py docstring）。
+from gantry.temphard import ensure_writable_temp as _ensure_writable_temp
+
+_redirected_tmp = _ensure_writable_temp(BASE)
+if _redirected_tmp is not None:
+    print(f"系统 Temp 不可写，已改指 {_redirected_tmp}")
+
 from playwright.async_api import async_playwright  # noqa: E402
 from gantry.viewport import apply_outer_window_size, window_size  # noqa: E402
 

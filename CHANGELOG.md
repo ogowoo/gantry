@@ -5,6 +5,14 @@
 
 ## [Unreleased]
 
+### Fixed
+- 自动化浏览器启动失败（`EPERM: operation not permitted, mkdtemp
+  'C:\Users\…\Temp\pla…'`）：公司策略/沙箱拒写系统 Temp 时 Playwright 的
+  node 驱动直接失败（无回落），浏览器永远起不来而提供商模型不受影响。
+  新增 `gantry/temphard.py`：启动期对 node 将使用的 %TEMP% 本体试建目录，
+  失败则把 TEMP/TMP/TMPDIR 改指项目内 `data\tmp`（先验证可写）。`start.py`
+  与 `scripts/login.py` 都已接入；正常机器零行为变化。需要重启服务生效。
+
 ## [0.12.0-beta.7] - 2026-11-24
 
 ### Added
