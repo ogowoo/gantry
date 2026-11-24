@@ -259,6 +259,68 @@ async function _injectScheduleManager(body, data, panel){
    '<button type="button" class="btn" id="schSave">'+esc(tr('新建任务'))+'</button>'+
   '</div>';
  wrap.appendChild(form);
+ // ── 导入导出 ──
+ const ioRow=document.createElement('div');
+ ioRow.style.cssText='display:flex;gap:6px;flex-wrap:wrap;align-items:center';
+ const ioBtn=(label,cls)=>{
+  const b=document.createElement('button'); b.type='button'; b.className='btn '+cls;
+  b.textContent=tr(label); ioRow.appendChild(b); return b;
+ };
+ const ioResult=document.createElement('span');
+ ioResult.className='meta';
+ ioRow.appendChild(ioResult);
+ // 导出：api/export → 存成 JSON 文件下载
+ ioBtn('导出','ghost').onclick=async(e)=>{
+  e.target.disabled=true;
+  try{
+   const d=await api(_panelUrl({plugin:panel.plugin, path:'api/export'}));
+   const blob=new Blob([JSON.stringify(d,null,2)],{type:'application/json'});
+   const a=document.createElement('a');
+   a.href=URL.createObjectURL(blob);
+   a.download='gantry-schedules-'+(d&&d.exported_at||'').slice(0,10)+'.json';
+   document.body.appendChild(a); a.click(); a.remove();
+   setTimeout(()=>URL.revokeObjectURL(a.href), 5000);
+   ioResult.textContent=tr('已导出 ')+((d&&d.schedules||[]).length)+tr(' 个任务');
+  }catch(err){ toast(tr('导出失败: ')+(err.text||err),'err'); }
+  finally{ e.target.disabled=false; }
+ };
+ // 导入：文件选择 → api/import；replace 需二次确认
+ const fileInput=document.createElement('input');
+ fileInput.type='file'; fileInput.accept='.json,application/json';
+ fileInput.style.display='none';
+ ioRow.appendChild(fileInput);
+ const doImport=async(mode)=>{
+  const file=fileInput.files&&fileInput.files[0];
+  if(!file) return;
+  let data;
+  try{ data=JSON.parse(await file.text()); }
+  catch(err){ toast(tr('导入失败: JSON 解析错误'),'err'); return; }
+  try{
+   const r=await api(_panelUrl({plugin:panel.plugin, path:'api/import'}),
+    {method:'POST', headers:{'Content-Type':'application/json'},
+     body:JSON.stringify({data, mode})});
+   ioResult.textContent=tr('导入完成：新增 {a}、更新 {u}、跳过 {s}',{a:r.added,u:r.updated,s:r.skipped});
+   if(r.errors&&r.errors.length) toast(tr('跳过项：')+r.errors.slice(0,3).join('；'),'err');
+   await loadPanel(panel);
+  }catch(err){ toast(tr('导入失败: ')+(err.text||err.detail||err),'err'); }
+ };
+ ioBtn('导入（合并）','ghost').onclick=()=>{ fileInput.click(); };
+ ioBtn('导入（覆盖）','danger').onclick=async()=>{
+  const ok=await window.dlgConfirm(
+   tr('覆盖导入会先清空现有全部定时任务，确定继续？'), tr('导入（覆盖）'), true);
+  if(!ok) return;
+  fileInput.dataset.mode='replace';
+  fileInput.click();
+ };
+ // 覆盖模式的 mode 传递：在 doImport 前从 dataset 取
+ const _origDoImport=doImport;
+ fileInput.onchange=()=>{
+  if(!fileInput.files||!fileInput.files[0]) return;
+  const mode=fileInput.dataset.mode==='replace'?'replace':'merge';
+  fileInput.dataset.mode='';
+  _origDoImport(mode).finally(()=>{ fileInput.value=''; });
+ };
+ wrap.insertBefore(ioRow, form);
  const el=(id)=>form.querySelector('#'+id);
  let editing=null;   // 编辑中的任务名（null = 新建模式）
  function fillForm(it){

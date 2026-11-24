@@ -1,7 +1,7 @@
 {
   "name": "schedule",
-  "version": "0.2.0",
-  "description": "定时任务：按间隔/每天定时/一次性时间点跑 Agent 任务（结果写进新会话，可查看/运行/启停/编辑/删除；可指定工作区与模型）",
+  "version": "0.3.0",
+  "description": "定时任务：按间隔/每天定时/一次性时间点跑 Agent 任务（结果写进新会话，可查看/运行/启停/编辑/删除；可指定工作区与模型；支持导入导出迁移配置）",
   "dsh": {
     "bundle": {
       "patch": "./cordis.patch.yml"
@@ -22,14 +22,18 @@
         "schedule_list",
         "schedule_update",
         "schedule_remove",
-        "schedule_run"
+        "schedule_run",
+        "schedule_export",
+        "schedule_import"
       ],
       "api": [
         "GET api/list",
         "POST api/run",
         "POST api/add",
         "POST api/update",
-        "POST api/remove"
+        "POST api/remove",
+        "GET api/export",
+        "POST api/import"
       ],
       "panels": [
         "schedules"
@@ -77,7 +81,18 @@
         "确定删除定时任务 {name}？": "Delete scheduled task {name}?",
         "已删除: ": "Deleted: ",
         "删除失败: ": "Delete failed: ",
-        "上次失败: ": "Last error: "
+        "上次失败: ": "Last error: ",
+        "导出": "Export",
+        "导入（合并）": "Import (merge)",
+        "导入（覆盖）": "Import (replace)",
+        "导出失败: ": "Export failed: ",
+        "导入失败: ": "Import failed: ",
+        "导入失败: JSON 解析错误": "Import failed: invalid JSON",
+        "已导出 ": "Exported ",
+        " 个任务": " task(s)",
+        "导入完成：新增 {a}、更新 {u}、跳过 {s}": "Import done: {a} added, {u} updated, {s} skipped",
+        "跳过项：": "Skipped: ",
+        "覆盖导入会先清空现有全部定时任务，确定继续？": "Replace import clears ALL existing scheduled tasks first. Continue?"
       }
     },
     "allow_uninstall": true

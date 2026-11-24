@@ -152,6 +152,68 @@ class Scheduler:
                  "last_run": _fmt(x.get("last_run")) if x.get("last_run") else None}
                 for x in self.items()]
 
+    # ── 导入导出 ──
+    def export(self):
+        """全量导出（含调度定义；runs/last_* 运行历史不带，导入方是配置而非日志）。"""
+        return {"version": 1, "exported_at": _dt.datetime.now().isoformat(timespec="seconds"),
+                "schedules": [{k: x.get(k) for k in ("name", "spec", "task", "model",
+                                                     "workspace", "enabled")}
+                              for x in self.items()]}
+
+    def import_data(self, payload, mode: str = "merge"):
+        """导入调度定义。
+
+        payload：export() 的产物（{\"schedules\": [...]}）或直接是列表。
+        mode：merge 按名字更新已有任务（保留 runs 历史）；replace 先清空再导入。
+        非法条目跳过并记入 errors，不因一条坏数据废掉整批。
+        """
+        if isinstance(payload, dict):
+            raw = payload.get("schedules")
+        else:
+            raw = payload
+        if not isinstance(raw, list):
+            raise ValueError("导入内容必须是 {schedules: [...]} 或任务列表")
+        mode = "replace" if str(mode or "").lower() == "replace" else "merge"
+        items = [] if mode == "replace" else self.items()
+        added, updated, errors = 0, 0, []
+        for i, ent in enumerate(raw):
+            if not isinstance(ent, dict):
+                errors.append(f"#{i}: 不是对象")
+                continue
+            name = str(ent.get("name") or "").strip()
+            task = str(ent.get("task") or "").strip()
+            spec = ent.get("spec")
+            if not name or not task:
+                errors.append(f"#{i}: name/task 为空")
+                continue
+            if not isinstance(spec, dict):
+                errors.append(f"{name}: spec 必须是对象")
+                continue
+            try:
+                next_run = _next_run(spec)
+            except ValueError as exc:
+                errors.append(f"{name}: {exc}")
+                continue
+            existing = next((x for x in items if x.get("name") == name), None)
+            if existing is None:
+                items.append({"name": name, "spec": spec, "task": task,
+                              "model": str(ent.get("model") or ""),
+                              "workspace": str(ent.get("workspace") or ""),
+                              "enabled": bool(ent.get("enabled", True)),
+                              "created": time.time(), "next_run": next_run,
+                              "last_run": None, "last_result": None, "runs": 0})
+                added += 1
+            else:
+                existing.update({"spec": spec, "task": task,
+                                 "model": str(ent.get("model") or ""),
+                                 "workspace": str(ent.get("workspace") or ""),
+                                 "enabled": bool(ent.get("enabled", True)),
+                                 "next_run": next_run})
+                updated += 1
+        self.save(items)
+        return {"mode": mode, "added": added, "updated": updated,
+                "skipped": len(errors), "errors": errors[:20], "total": len(items)}
+
     async def run_now(self, name=None):
         """立即执行（指定 name 或全部到期项）。"""
         items = self.items()
@@ -230,6 +292,12 @@ def setup(ctx):
     async def _run(name: str = ""):
         return {"results": await sched.run_now(name or None)}
 
+    async def _export():
+        return sched.export()
+
+    async def _import(data=None, mode: str = "merge"):
+        return sched.import_data(data if data is not None else {}, mode=mode)
+
     ctx.register_tool("schedule_add", _add,
                       "添加定时任务：spec 支持 {\"every\":\"30m\"}/{\"daily\":\"09:00\"}/{\"once\":\"ISO时间\"}",
                       {"name": "任务名", "spec": "时间规格对象", "task": "到点执行的完整任务描述",
@@ -244,6 +312,10 @@ def setup(ctx):
                        "model": "模型（可选）", "workspace": "工作目录（可选）", "enabled": "启用/停用（可选）"})
     ctx.register_tool("schedule_run", _run, "立即执行定时任务（不传 name 则执行所有到期项）",
                       {"name": "任务名（可选）"})
+    ctx.register_tool("schedule_export", _export, "导出全部定时任务为 JSON（可导入另一台机器）", {})
+    ctx.register_tool("schedule_import", _import,
+                      "导入定时任务（merge 按名字更新并保留运行历史 / replace 先清空）",
+                      {"data": "export() 的产物或任务列表", "mode": "merge 或 replace，默认 merge"})
 
     async def _api_list(request):
         return {"schedules": sched.list()}
@@ -285,14 +357,26 @@ def setup(ctx):
                             model=body.get("model"), workspace=body.get("workspace"),
                             enabled=body.get("enabled"))
 
+    async def _api_export(request):
+        return sched.export()
+
+    async def _api_import(request):
+        try:
+            body = await request.json()
+        except Exception:
+            body = {}
+        return sched.import_data(body.get("data"), mode=body.get("mode") or "merge")
+
     ctx.register_panel({"id": "schedules", "title": "定时任务", "view": "table",
                         "api": {"method": "GET", "path": "api/list"},
                         "hint": "按间隔/每天/一次性时间点执行的任务"})
     ctx.register_api("GET", "api/list", _api_list)
     ctx.register_api("POST", "api/run", _api_run)
     ctx.register_api("POST", "api/add", _api_add)
-    ctx.register_api("POST", "api/remove", _api_remove)
     ctx.register_api("POST", "api/update", _api_update)
+    ctx.register_api("POST", "api/remove", _api_remove)
+    ctx.register_api("GET", "api/export", _api_export)
+    ctx.register_api("POST", "api/import", _api_import)
 
     async def _start():
         await asyncio.sleep(3)

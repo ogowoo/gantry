@@ -5,6 +5,13 @@
 
 ## [Unreleased]
 
+### Added
+- 定时任务支持导入导出（schedule 插件 0.3.0）：面板新增「导出 / 导入（合并）/
+  导入（覆盖）」按钮。导出为 JSON 文件（含调度定义，不带运行历史）；合并模式按
+  名字更新已有任务并保留 runs 历史，覆盖模式先清空再导入（需二次确认）。非法
+  条目单条跳过并汇总报错，不废掉整批。新增 schedule_export / schedule_import
+  工具与 GET api/export / POST api/import。
+
 ## [0.12.0-beta.5] - 2026-11-24
 
 ### Fixed

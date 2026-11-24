@@ -185,6 +185,63 @@ class ScheduleEveryTests(unittest.TestCase):
         self.assertEqual(self.mod._parse_every("2h"), 7200)
         self.assertEqual(self.mod._parse_every("1d"), 86400)
 
+class ScheduleImportExportTests(unittest.TestCase):
+    """schedule_export / schedule_import（工具 + API）：merge 保历史、replace 清空、坏条目跳过。"""
+
+    def setUp(self):
+        self.mod = load_plugin()
+        self.ctx = FakeCtx()
+        self.mod.setup(self.ctx)
+
+    def tearDown(self):
+        task = getattr(getattr(self.ctx, "_scheduler", None), "_task", None)
+        if task is not None:
+            task.cancel()
+
+    def test_export_roundtrip_merge(self):
+        async def scenario():
+            await self.ctx.tools["schedule_add"](name="e1", spec={"every": "30m"},
+                                                 task="t1", workspace="D:/ws", enabled=False)
+            exported = await self.ctx.tools["schedule_export"]()
+            self.assertEqual(exported["version"], 1)
+            self.assertEqual(len(exported["schedules"]), 1)
+            self.assertNotIn("runs", exported["schedules"][0], "导出是配置，不带运行历史")
+            # 改本地任务后 merge 导入：按名更新定义、保留 runs
+            await self.ctx.tools["schedule_update"](name="e1", task="changed")
+            r = await self.ctx.tools["schedule_import"](data=exported, mode="merge")
+            self.assertEqual((r["added"], r["updated"], r["skipped"]), (0, 1, 0))
+            after = (await self.ctx.tools["schedule_list"]())["schedules"][0]
+            self.assertEqual(after["task"], "t1")
+            self.assertFalse(after["enabled"])
+        asyncio.run(scenario())
+
+    def test_import_replace_clears_and_errors_skipped(self):
+        async def scenario():
+            await self.ctx.tools["schedule_add"](name="old1", spec={"every": "1h"}, task="x")
+            payload = {"schedules": [
+                {"name": "new1", "spec": {"daily": "09:00"}, "task": "y"},
+                {"name": "bad", "task": "no spec"},
+                {"name": "bad2", "spec": {"nope": 1}, "task": "z"},
+            ]}
+            r = await self.ctx.tools["schedule_import"](data=payload, mode="replace")
+            self.assertEqual((r["added"], r["skipped"]), (1, 2))
+            self.assertEqual(r["total"], 1, "replace 先清空，只剩合法新条目")
+            names = [s["name"] for s in (await self.ctx.tools["schedule_list"]())["schedules"]]
+            self.assertEqual(names, ["new1"])
+        asyncio.run(scenario())
+
+    def test_import_api_and_bad_payload(self):
+        async def scenario():
+            with self.assertRaises(ValueError):
+                sched_import = self.ctx.apis[("POST", "api/import")]
+                class R:  # 空 body 也按 {} 处理，走"不是列表"分支
+                    async def json(self): return {}
+                await sched_import(R())
+            export_api = self.ctx.apis[("GET", "api/export")]
+            out = await export_api(None)
+            self.assertIn("schedules", out)
+        asyncio.run(scenario())
+
 
 if __name__ == "__main__":
     unittest.main()
