@@ -173,17 +173,9 @@ function drawSessions(){
   })});
  try{translateAttrs(box)}catch(e){}}
 
-/* 批量删除一个标签组：先快速删本地，再按标记尽力清理远端 Copilot 对话。 */
-async function removeGroupSessions(label, arr){
- const all=(arr||[]).filter(Boolean);
- const live=new Set(['running','waiting','queued']);
- const sids=all.filter(s=>!live.has(String(s.state||''))).map(s=>s.id).filter(Boolean);
- const skipped=all.length-sids.length;
- if(!sids.length){
-  if(skipped)toast(tr('该组会话都在运行中，先停止再删除'),'err');
-  return}
- if(!await dlgConfirm(tr('删除「{label}」组的 {n} 个会话？\n\n会先删本地记录，再尽力清理对应的 Copilot 网页对话。此操作不可撤销。',
-                        {label:label,n:sids.length}),tr('批量删除'),true))return;
+/* 批量删除核心（不含确认/过滤，调用方负责）：先快速删本地，再按标记尽力
+   清理远端 Copilot 对话。设置页「删除所选」与侧栏标签组批量删除共用。 */
+async function deleteSessionsBulk(sids){
  let ok=0,fail=0;
  for(const sid of sids){
   try{
@@ -203,7 +195,22 @@ async function removeGroupSessions(label, arr){
   }catch(e){}
  }
  await refreshSessions();
- toast(tr('批量删除完成：成功 {ok}，失败 {fail}',{ok:ok,fail:fail}),fail?'err':'ok');
+ return {ok,fail};
+}
+
+/* 批量删除一个标签组：先快速删本地，再按标记尽力清理远端 Copilot 对话。 */
+async function removeGroupSessions(label, arr){
+ const all=(arr||[]).filter(Boolean);
+ const live=new Set(['running','waiting','queued']);
+ const sids=all.filter(s=>!live.has(String(s.state||''))).map(s=>s.id).filter(Boolean);
+ const skipped=all.length-sids.length;
+ if(!sids.length){
+  if(skipped)toast(tr('该组会话都在运行中，先停止再删除'),'err');
+  return}
+ if(!await dlgConfirm(tr('删除「{label}」组的 {n} 个会话？\n\n会先删本地记录，再尽力清理对应的 Copilot 网页对话。此操作不可撤销。',
+                        {label:label,n:sids.length}),tr('批量删除'),true))return;
+ const r=await deleteSessionsBulk(sids);
+ toast(tr('批量删除完成：成功 {ok}，失败 {fail}',{ok:r.ok,fail:r.fail}),r.fail?'err':'ok');
  if(skipped)toast(tr('已跳过运行中的 {n} 个会话',{n:skipped}),'err');
 }
 /* 会话标签：纯本地组织手段（不参与 Agent 逻辑），列表按标签分组 */
@@ -273,4 +280,4 @@ async function importSessions(){
 }
 
 export { toggleSessExpand, refreshSessions, toggleSubagents, drawSessions, editTag,
-         exportSessionById, exportSessions, importSessions };
+         exportSessionById, exportSessions, importSessions, deleteSessionsBulk };

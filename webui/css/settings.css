@@ -386,10 +386,14 @@ details[open] > .model-download-summary::before{transform:rotate(90deg)}
   font-variant-numeric:tabular-nums;font-weight:600}
 .setrow .animunit{margin-left:-6px;font-size:11.5px;color:var(--faint)}
 
-/* 会话导出选择器（spickMask）：行式勾选列表，样式对齐设置页 */
+/* 设置页「会话」管理列表：行式勾选列表，样式对齐设置页 */
 .sesspick{display:flex;flex-direction:column;gap:2px}
-.sesspick .spickrow{display:flex;align-items:center;gap:9px;padding:7px 9px;border-radius:8px;cursor:pointer}
+.sesspick .spickrow{display:flex;align-items:center;gap:4px;padding:4px 6px;border-radius:8px}
 .sesspick .spickrow:hover{background:var(--sess-hover)}
-.sesspick .spickrow input[type="checkbox"]{flex:none;width:14px;height:14px;margin:0;accent-color:var(--accent);cursor:pointer}
+.sesspick .spickmain{flex:1;min-width:0;display:flex;align-items:center;gap:9px;padding:3px;border-radius:6px;cursor:pointer}
+.sesspick input[type="checkbox"]{flex:none;width:14px;height:14px;margin:0;accent-color:var(--accent);cursor:pointer}
 .sesspick .spicktitle{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px}
-.sesspick .spickrow code{flex:none;font-size:11px;color:var(--faint)}
+.sesspick code{flex:none;font-size:11px;color:var(--faint)}
+.sesspick .smdel{flex:none;border:0;background:none;cursor:pointer;font-size:13px;line-height:1;
+  padding:4px 6px;border-radius:6px;opacity:.45}
+.sesspick .smdel:hover{opacity:1;background:color-mix(in srgb,var(--danger,#d05555) 14%,transparent)}

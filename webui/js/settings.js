@@ -3,7 +3,7 @@
 import { SETTINGS_GROUPS, SANDBOX_UI, ENUM_LABEL, openMemory, showRestarting } from './themeboot.js';
 import { CODE_EXT } from './codeux.js';
 import { stepFilterInput } from './steps.js';
-import { exportSessions, importSessions } from './sessions.js';
+import { exportSessions, importSessions, deleteSessionsBulk } from './sessions.js';
 import { readAnimPrefs, applyAnimPrefs, setAnimPref, animPrefLabel, ANIM_RANGES } from './animprefs.js';
 import { openKb, closeKb, kbPick, kbRefresh, kbReindex, kbImportUrl, kbImportText, kbInbox, kbSearch, kbDelete, fmtErr, wireKbSettings, kbLoadSettings, kbSaveSettings } from './kb.js';
 import { openModels, closeModels, renderModels, modelDelete, modelCopyPath, modelDownload, modelPreset, modelStart, modelStop } from './models.js';
@@ -345,6 +345,7 @@ async function renderSettings(){
     <button type="button" class="btn ghost" data-act="importSessions">⇧ ${esc(tr('导入会话'))}</button>
     <button type="button" class="btn ghost" data-act="sessMgrAll">${esc(tr('全选'))}</button>
     <button type="button" class="btn ghost" data-act="sessMgrNone">${esc(tr('清空'))}</button>
+    <button type="button" class="btn ghost danger" data-act="sessMgrDelSel">🗑 ${esc(tr('删除所选'))}</button>
    </div>
    <div id="sessMgrList" class="sesspick" style="margin-top:10px;max-height:46vh;overflow:auto"></div>`;
 
@@ -682,13 +683,31 @@ function renderSessMgr(){
    .catch(()=>{});
   return;
  }
- // 只列顶层会话（无 parent_id）：子代理随父会话一起导出，单列只会造成困惑
+ // 只列顶层会话（无 parent_id）：子代理随父会话一起导出/删除，单列只会造成困惑。
+ // 删除按钮放在 label 外面：放里面点击会连带切换勾选框。
  const items=window.sessCache.filter(s=>!String(s.parent_id||''));
  box.innerHTML=items.map(s=>
-  `<label class="spickrow"><input type="checkbox" value="${esc(s.id)}" data-sessmgr>
+  `<div class="spickrow"><label class="spickmain"><input type="checkbox" value="${esc(s.id)}" data-sessmgr>
    <span class="sstat ${esc(stateClassOf(s.state))}" title="${esc(stateLabel(s.state))}" aria-label="${esc(stateLabel(s.state))}">${stateIcon(s.state)}</span>
-   <span class="spicktitle">${esc(s.title||s.id)}</span><code>${esc(s.id)}</code></label>`).join('')
+   <span class="spicktitle">${esc(s.title||s.id)}</span><code>${esc(s.id)}</code></label>
+   <button type="button" class="smdel" title="${esc(tr('删除会话'))}" data-act="sessMgrDel" data-arg="${esc(s.id)}">🗑</button></div>`).join('')
   ||`<p class="sethint">${esc(tr('没有可导出的会话'))}</p>`;
+}
+/* 批量删除勾选的会话：运行中/排队中的跳过。删除后由 deleteSessionsBulk
+   里的 refreshSessions 更新缓存，这里重绘管理列表。 */
+async function sessMgrDeleteSel(){
+ const live=new Set(['running','waiting','queued']);
+ const picked=[...document.querySelectorAll('#sessMgrList input[data-sessmgr]:checked')].map(c=>c.value);
+ const all=(window.sessCache||[]).filter(s=>picked.includes(s.id));
+ const sids=all.filter(s=>!live.has(String(s.state||''))).map(s=>s.id);
+ const skipped=all.length-sids.length;
+ if(!sids.length){toast(tr('该组会话都在运行中，先停止再删除'),'err');return}
+ if(!await dlgConfirm(tr('删除「{label}」组的 {n} 个会话？\n\n会先删本地记录，再尽力清理对应的 Copilot 网页对话。此操作不可撤销。',
+                        {label:tr('所选'),n:sids.length}),tr('批量删除'),true))return;
+ const r=await deleteSessionsBulk(sids);
+ toast(tr('批量删除完成：成功 {ok}，失败 {fail}',{ok:r.ok,fail:r.fail}),r.fail?'err':'ok');
+ if(skipped)toast(tr('已跳过运行中的 {n} 个会话',{n:skipped}),'err');
+ renderSessMgr();
 }
 function sessMgrSetAll(on){
  document.querySelectorAll('#sessMgrList input[data-sessmgr]').forEach(c=>{c.checked=on});
@@ -941,6 +960,9 @@ const ACTIONS={
  sessMgrExport:()=>sessMgrExport(),
  sessMgrAll:()=>sessMgrSetAll(true),
  sessMgrNone:()=>sessMgrSetAll(false),
+ sessMgrDelSel:()=>sessMgrDeleteSel(),
+ sessMgrDel:(el)=>{const sid=el&&el.dataset?el.dataset.arg:'';
+  if(sid)window.removeSession(false,sid).then(()=>renderSessMgr())},
  showPromptView:()=>showPromptView(),
  expandLive:()=>expandLive(),
  toggleChatFind:()=>toggleChatFind(),
