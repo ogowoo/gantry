@@ -79,24 +79,47 @@ export async function renderModels() {
         </div>`;
       }).join('')
     }</div>` : '';
-    body.innerHTML = providerHtml + (list.length ? list.map((m) => {
+    const kindIcon = (k) => {
+      if (k === 'embedding') return '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="5" cy="12" r="2"/><circle cx="19" cy="6" r="2"/><circle cx="19" cy="18" r="2"/><path d="M7 11.2 17 6.8M7 12.8l10 4.4"/></svg>';
+      if (k === 'mmproj') return '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5" width="12" height="12" rx="2"/><path d="M15 9l5-3v12l-5-3z"/></svg>';
+      if (k === 'rerank') return '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 6h9M4 12h13M4 18h7"/><path d="M18 15l2 2 3-4"/></svg>';
+      return '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 5.5A1.5 1.5 0 0 1 5.5 4h13A1.5 1.5 0 0 1 20 5.5v9a1.5 1.5 0 0 1-1.5 1.5H9l-5 4z"/><path d="M8 8h8M8 11h5"/></svg>';
+    };
+    // 本地对话 provider：把库里的文件设为当前模型（缺 provider 时用 local）
+    const localProvider = (statusList[0] && statusList[0].provider) || 'local';
+    const org = (r && (r.needs_organize || 0)) || 0;
+    const broken = (r && (r.broken || 0)) || 0;
+    const banner = (org || broken) ? `<div class="model-banner">
+      <span>${org ? esc(tr('{n} 个模型不在规范目录（建议整理）').replace('{n}', org)) : ''}
+      ${org && broken ? ' · ' : ''}
+      ${broken ? esc(tr('{n} 个文件有问题').replace('{n}', broken)) : ''}</span>
+      <button type="button" class="btn ghost" data-act="modelOrganize">${esc(tr('整理模型库'))}</button>
+    </div>` : '';
+    body.innerHTML = providerHtml + banner + (list.length ? list.map((m) => {
       const path = esc(m.path || m.name);
-      const isEmbed = /embed/i.test(m.name);
+      const kind = m.kind || 'chat';
+      const kindLabel = m.kind_label || (kind === 'embedding' ? 'Embedding' : 'LLM');
       const st = statusMap[m.name] || null;
-      const icon = isEmbed
-        ? '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="5" cy="12" r="2"/><circle cx="19" cy="6" r="2"/><circle cx="19" cy="18" r="2"/><path d="M7 11.2 17 6.8M7 12.8l10 4.4"/></svg>'
-        : '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 5.5A1.5 1.5 0 0 1 5.5 4h13A1.5 1.5 0 0 1 20 5.5v9a1.5 1.5 0 0 1-1.5 1.5H9l-5 4z"/><path d="M8 8h8M8 11h5"/></svg>';
       const badge = st ? statusBadge(st) : '';
+      const warn = (m.valid === false && (m.issues || []).length)
+        ? `<span class="model-status bad" title="${esc((m.issues || []).join('；'))}">${esc(tr('文件异常'))}</span>` : '';
+      const moveHint = m.needs_move
+        ? `<div class="model-meta warnline">${esc(tr('应放在 {p}').replace('{p}', m.canonical || ''))}</div>` : '';
+      const useBtn = (kind === 'chat')
+        ? `<button type="button" class="btn ghost" data-act="modelUse" data-arg="${esc(m.path)}" data-provider="${esc(localProvider)}">${esc(tr('设为当前'))}</button>` : '';
       return `<div class="model-card">
-        <span class="model-icon${isEmbed ? ' embed' : ''}" title="${isEmbed ? 'Embedding' : 'LLM'}">${icon}</span>
+        <span class="model-icon${kind === 'embedding' ? ' embed' : ''}" title="${esc(kindLabel)} · ${esc(m.kind_reason || '')}">${kindIcon(kind)}</span>
         <div class="model-card-main">
-          <div class="model-name" title="${esc(m.name)}">${esc(m.name)} ${badge}</div>
+          <div class="model-name" title="${esc(m.name)}">${esc(m.name)} ${badge} ${warn}
+            <span class="model-kind">${esc(kindLabel)}</span></div>
           <div class="model-meta">${fmtSize(m.size)} · ${fmtTime(m.mtime)}</div>
           <div class="model-path" title="${path}">${path}</div>
+          ${moveHint}
         </div>
         <div class="model-card-actions">
-          <button type="button" class="btn ghost" data-act="modelCopyPath" data-arg="${path}">${esc(tr('复制路径'))}</button>
-          <button type="button" class="btn ghost danger" data-act="modelDelete" data-arg="${esc(m.name)}">${esc(tr('删除'))}</button>
+          ${useBtn}
+          <button type="button" class="btn ghost" data-act="modelCopyPath" data-arg="${esc(m.full || path)}">${esc(tr('复制路径'))}</button>
+          <button type="button" class="btn ghost danger" data-act="modelDelete" data-arg="${esc(m.path || m.name)}">${esc(tr('删除'))}</button>
         </div>
       </div>`;
     }).join('') : '<div class="meta">' + esc(tr('暂无本地模型。请把 .gguf 放到 data/models/，或用下方下载。')) + '</div>');
@@ -131,6 +154,53 @@ export async function modelStart(el) {
 
 export async function modelStop(el) {
   return controlModel(el, 'stop');
+}
+
+export async function modelUse(el) {
+  const rel = el && el.dataset && el.dataset.arg;
+  const provider = (el && el.dataset && el.dataset.provider) || 'local';
+  if (!rel) return;
+  try {
+    const r = await api('/v1/models/local/' + encodeURIComponent(provider) + '/use', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ path: rel })
+    });
+    toast(tr('已把 {name} 设为 {p} 的当前模型').replace('{name}', r.name || rel)
+      .replace('{p}', provider), 'ok');
+    await renderModels();
+  } catch (e) {
+    toast(tr('切换失败: ') + ((e && (e.text || e.detail || e.message)) || String(e)), 'err');
+  }
+}
+
+export async function modelOrganize() {
+  try {
+    const plan = await api('/v1/models/local/scan', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ apply: false })
+    });
+    const moves = (plan.actions || []).filter((a) => a.action === 'move');
+    if (!moves.length) { toast(tr('模型库已经是规范目录，无需整理'), 'ok'); return; }
+    const preview = moves.slice(0, 6)
+      .map((a) => `${a.from} → ${a.to}`).join('\n');
+    const more = moves.length > 6 ? `\n… ${tr('还有 {n} 个').replace('{n}', moves.length - 6)}` : '';
+    if (!confirm(tr('将按类别移动 {n} 个文件：\n{p}{more}\n\n移动后 provider 的旧路径会失效（启动时会自动按文件名找回）。继续？')
+      .replace('{n}', moves.length).replace('{p}', preview).replace('{more}', more))) return;
+    const done = await api('/v1/models/local/scan', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ apply: true })
+    });
+    const failed = (done.actions || []).filter((a) => a.action === 'error');
+    if (failed.length) {
+      toast(tr('已移动 {n} 个，{e} 个失败: ').replace('{n}', done.moved || 0)
+        .replace('{e}', failed.length) + (failed[0].error || ''), 'err');
+    } else {
+      toast(tr('已按类别整理 {n} 个模型').replace('{n}', done.moved || 0), 'ok');
+    }
+    await renderModels();
+  } catch (e) {
+    toast(tr('整理失败: ') + ((e && (e.text || e.detail || e.message)) || String(e)), 'err');
+  }
 }
 
 export async function modelDelete(el) {
@@ -184,7 +254,8 @@ export async function modelDownload() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ url, filename })
     });
-    toast(tr('下载完成: {name}').replace('{name}', r.name), 'ok');
+    toast(tr('下载完成: {name}（{kind}）').replace('{name}', r.name)
+      .replace('{kind}', r.kind_label || r.kind || ''), 'ok');
     if (urlEl) urlEl.value = '';
     if (nameEl) nameEl.value = '';
     if (hint) hint.textContent = '';

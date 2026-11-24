@@ -6,7 +6,7 @@ api.py，这里经 ``a.xxx`` 访问（保持测试对 api 模块的打桩语义�
 """
 from __future__ import annotations
 
-import asyncio, hmac, json, logging, re, threading, time, uuid
+import asyncio, hmac, json, logging, os, re, threading, time, uuid
 import urllib.parse
 import urllib.request
 from pathlib import Path
@@ -23,9 +23,89 @@ from contextlib import AsyncExitStack
 from . import api as a
 from . import bridge as b
 from . import i18n as backend_i18n
+from . import model_store
 from . import prompt_lang
 
 router = APIRouter()
+
+
+# ── 本地模型库：根目录 / 外部目录 / provider 路径写入 ─────────────────
+def _models_root() -> Path:
+    """模型库根目录：data/models（类别子目录 chat/embedding/rerank/mmproj）。"""
+    return Path(b.BASE) / "data" / "models"
+
+
+def _external_model_dirs() -> list[Path]:
+    """当前 local provider 指向的库外目录：一起扫描，避免"文件在 E: 盘看不到"。"""
+    out: list[Path] = []
+    for p in (b.PROVIDERS or {}).values():
+        if str(getattr(p, "backend", "")).lower() != "local":
+            continue
+        mp = str(getattr(p, "model_path", "") or "")
+        if mp:
+            parent = Path(mp).parent
+            if parent.is_dir():
+                out.append(parent)
+    return out
+
+
+def _set_provider_model_path(provider: str, path: str, kind: dict | None = None) -> dict:
+    """把 model_path 写进 config.json 的 providers.<name>（原子写），并同步内存配置。"""
+    from .tool_plugins._atomic import atomic_write_text
+
+    name = str(provider or "").strip()
+    if not name:
+        raise HTTPException(400, "缺少 provider")
+    cfg_path = Path(b.BASE) / "config.json"
+    try:
+        cfg = (json.loads(cfg_path.read_text(encoding="utf-8"))
+               if cfg_path.exists() else dict(b.CFG))
+    except Exception:                        # noqa: BLE001
+        cfg = dict(b.CFG)
+    provs = cfg.setdefault("providers", {})
+    entry = provs.get(name)
+    if not isinstance(entry, dict):
+        entry = {}
+        provs[name] = entry
+    entry["backend"] = "local"
+    entry["model_path"] = str(path)
+    # models 列表与 provider 名字段保持一致，否则 /v1/models 里选不到它
+    mid = Path(path).stem.lower().replace(" ", "-")
+    models = [str(x) for x in (entry.get("models") or [])]
+    if mid not in models:
+        models.insert(0, mid)
+    entry["models"] = models[:1] or [mid]
+    if kind and kind.get("kind") == "chat":
+        mm = model_store.pair_mmproj(path, _models_root())
+        if mm and not entry.get("mmproj_path"):
+            entry["mmproj_path"] = mm
+    if not entry.get("description"):
+        entry["description"] = "进程内 GGUF（模型库管理）"
+    try:
+        atomic_write_text(cfg_path, json.dumps(cfg, ensure_ascii=False, indent=2) + "\n")
+    except Exception as exc:                 # noqa: BLE001
+        raise HTTPException(500, f"写 config.json 失败：{str(exc)[:160]}") from exc
+    # 内存配置同步（/v1/config 与后续 build_providers 都读它）
+    mem = b.CFG.setdefault("providers", {})
+    mem_entry = mem.get(name)
+    if not isinstance(mem_entry, dict):
+        mem_entry = {}
+        mem[name] = mem_entry
+    mem_entry.update(entry)
+    return {"model": mid, "mmproj": entry.get("mmproj_path", "")}
+
+
+def _reload_providers() -> None:
+    """按最新配置重建 PROVIDERS（原地替换，别的地方持的都是 b.PROVIDERS）。"""
+    from . import providers as providers_mod
+
+    try:
+        fresh = providers_mod.build_providers(b.CFG)
+    except Exception as exc:                 # noqa: BLE001
+        b.log(f"重建 providers 失败（保留旧的）：{exc}")
+        return
+    b.PROVIDERS.clear()
+    b.PROVIDERS.update(fresh)
 
 
 @router.post("/v1/agent/debug/download")
@@ -642,15 +722,57 @@ def _local_engine(provider: str):
 
 @router.post("/v1/models/local/{provider}/start")
 async def start_local_model(provider: str):
-    """启动/加载单个本地模型（把 GGUF 载入内存）。"""
+    """启动/加载单个本地模型（把 GGUF 载入内存）。
+
+    启动前会体检：路径失效时按文件名在模型库里找同名文件并自动改正配置
+    （模型被「整理」移进 chat/embedding/ 后，旧路径就失效了）；文件截断 /
+    不是对话模型时给出可行动的错误，而不是让 llama.cpp 抛底层异常。
+    """
     p, engine = _local_engine(provider)
+    mp = str(getattr(p, "model_path", "") or "")
+    repaired: dict | None = None
+    if not mp or not Path(mp).is_file():
+        want = Path(mp).name if mp else ""
+        cands = model_store.find_file(_models_root(), want,
+                                      _external_model_dirs()) if want else []
+        cands.sort(key=lambda c: (c["kind"] != "chat", -int(c["size"] or 0)))
+        best = next((c for c in cands if Path(c["full"]).is_file()), None)
+        if best:
+            try:
+                _set_provider_model_path(provider, best["full"], {"kind": best["kind"]})
+                _reload_providers()
+                p, engine = _local_engine(provider)
+                repaired = {"from": mp, "to": best["full"],
+                            "kind": model_store.KIND_LABEL.get(best["kind"], best["kind"])}
+                b.log(f"本地模型路径自愈：{provider} {mp} → {best['full']}")
+            except HTTPException:
+                raise
+            except Exception as exc:             # noqa: BLE001
+                b.log(f"本地模型路径自愈失败（继续按原路径尝试）：{exc}")
+        else:
+            where = str(_models_root())
+            raise HTTPException(
+                404, f"模型文件不存在：{mp or '(未配置 model_path)'}"
+                     f"（已在 {where} 及 provider 所在目录查找"
+                     + (f"同名文件 {want}" if want else "") + "，未找到；"
+                     "请重新下载或在模型卡片上点「设为当前」）")
+    det = model_store.detect_kind(p.model_path if hasattr(p, "model_path") else mp)
+    if det["kind"] != "chat":
+        raise HTTPException(
+            400, f"{Path(p.model_path).name} 判定为"
+                 f"{model_store.KIND_LABEL.get(det['kind'], det['kind'])}模型（{det['reason']}），"
+                 "不能作为对话模型加载；向量模型请在知识库设置里选择")
+    if (det.get("header") or {}).get("truncated"):
+        raise HTTPException(400, f"{Path(p.model_path).name} 数据不完整（张量区间超出文件大小），"
+                                 "请重新下载")
     try:
         res = await asyncio.to_thread(engine.warm)
         return {"provider": provider, "model_path": getattr(p, "model_path", ""),
-                **res}
+                **res, "repaired": repaired, "kind": det["kind"]}
     except Exception as exc:                 # noqa: BLE001
         return {"provider": provider, "ok": False, "error": str(exc)[:200],
-                "loaded": bool(getattr(engine, "loaded", False))}
+                "loaded": bool(getattr(engine, "loaded", False)),
+                "repaired": repaired}
 
 
 @router.post("/v1/models/local/{provider}/stop")
@@ -670,26 +792,77 @@ async def stop_local_model(provider: str):
 
 @router.get("/v1/models/local")
 async def list_local_models():
-    """列出 data/models/ 里的本地 GGUF 文件（大小、修改时间）。"""
-    models_dir = b.BASE / "data" / "models"
-    if not models_dir.exists():
-        return {"models": []}
-    files = sorted(
-        p for p in models_dir.rglob("*.gguf")
-        if p.is_file() and not any(part.startswith(".") for part in p.relative_to(models_dir).parts)
-    )
-    return {
-        "models": [
-            {
-                "name": f.name,
-                "path": str(f.relative_to(models_dir)).replace("\\", "/"),
-                "full": str(f),
-                "size": f.stat().st_size,
-                "mtime": f.stat().st_mtime,
-            }
-            for f in files
-        ]
-    }
+    """列出模型库里的本地 GGUF：类别、可用性、规范位置（放错位置会标出来）。"""
+    root = _models_root()
+    if not root.exists():
+        return {"models": [], "root": str(root)}
+    try:
+        report = model_store.scan(root, extra_roots=_external_model_dirs())
+    except Exception as exc:                 # noqa: BLE001
+        b.log(f"扫描模型库失败：{exc}")
+        return {"models": [], "root": str(root),
+                "error": f"扫描失败：{str(exc)[:160]}"}
+    out = []
+    for m in report["models"]:
+        out.append({
+            "name": m["name"], "path": m["path"], "full": m["full"],
+            "size": m["size"], "mtime": m["mtime"],
+            # 新字段：类别与体检结果（界面据此给图标/警告/整理建议）
+            "kind": m["kind"], "kind_label": m["kind_label"],
+            "kind_source": m["source"], "kind_reason": m["reason"],
+            "arch": m["arch"], "valid": m["valid"], "issues": m["issues"],
+            "canonical": m["canonical"], "needs_move": m["needs_move"],
+            "inside": m["inside"],
+        })
+    return {"models": out, "root": str(root),
+            "needs_organize": report["needs_organize"], "broken": report["broken"]}
+
+
+@router.post("/v1/models/local/scan")
+async def scan_local_models(payload: dict | None = None):
+    """整理模型库：识别类别并把放错位置的文件移进规范子目录。
+
+    默认 dry-run（apply=False），只回计划；apply=True 才移动文件。
+    目标重名会追加 -1/-2，绝不覆盖。
+    """
+    payload = payload or {}
+    root = _models_root()
+    try:
+        report = await asyncio.to_thread(model_store.organize, root,
+                                         apply=bool(payload.get("apply")),
+                                         extra_roots=_external_model_dirs())
+    except Exception as exc:                 # noqa: BLE001
+        raise HTTPException(500, f"整理模型库失败：{str(exc)[:160]}") from exc
+    return report
+
+
+@router.post("/v1/models/local/{provider}/use")
+async def use_local_model(provider: str, payload: dict | None = None):
+    """把模型库里的某个 GGUF 设为该本地 provider 的当前模型。
+
+    这是"下载完就能用"的入口：以前只能手改 config.json 的 model_path，
+    下载到 data/models 的新文件对界面不可见（启动的仍是旧路径）。
+    """
+    rel = str((payload or {}).get("path") or "").strip()
+    root = _models_root()
+    try:
+        target = model_store.safe_path(root, rel)
+    except model_store.ModelStoreError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    if not target.is_file():
+        raise HTTPException(404, f"模型文件不存在：{rel}")
+    kind = model_store.detect_kind(target)
+    if kind["kind"] != "chat":
+        raise HTTPException(
+            400, f"{target.name} 是{model_store.KIND_LABEL.get(kind['kind'], kind['kind'])}"
+                 f"模型，不能作为对话 provider 的模型（{kind['reason']}）")
+    if kind["header"].get("truncated"):
+        raise HTTPException(400, f"{target.name} 数据不完整，重新下载后再设为当前模型")
+    saved = _set_provider_model_path(provider, str(target), kind)
+    _reload_providers()
+    return {"provider": provider, "model_path": str(target),
+            "name": target.name, "kind": kind["kind"], **saved}
+
 
 
 class _ModelDownloadTooLarge(Exception):
@@ -720,7 +893,11 @@ def _download_model_sync(url: str, dest: Path, max_bytes: int) -> int:
 
 @router.post("/v1/models/local/download")
 async def download_local_model(payload: dict):
-    """从 URL 下载模型到 data/models/。返回时文件已落盘。"""
+    """从 URL 下载模型到模型库，并按类别放进 chat/embedding/rerank/mmproj。
+
+    下载完立刻体检：不是 GGUF / 数据截断 → 删除半成品并报错（否则文件留在库里，
+    「启动」时才发现加载失败，很难判断是下载问题还是路径问题）。
+    """
     url = str(payload.get("url") or "")
     if not url:
         raise HTTPException(400, "缺少 url")
@@ -735,18 +912,20 @@ async def download_local_model(payload: dict):
         filename += ".gguf"
     # 防止目录遍历：只取 basename
     filename = Path(filename).name
-    dest = b.BASE / "data" / "models" / filename
-    if dest.exists():
+    root = _models_root()
+    # 先落在库根目录，体检通过后再按类别归位（失败好清理）
+    tmp_dest = root / filename
+    if tmp_dest.exists():
         raise HTTPException(409, f"文件已存在: {filename}")
     max_mb = max(1, int(b.CFG.get("max_model_download_mb") or 20 * 1024))
     max_bytes = max_mb * 1024 * 1024
     try:
-        dest.parent.mkdir(parents=True, exist_ok=True)
-        await asyncio.to_thread(_download_model_sync, url, dest, max_bytes)
+        tmp_dest.parent.mkdir(parents=True, exist_ok=True)
+        await asyncio.to_thread(_download_model_sync, url, tmp_dest, max_bytes)
     except _ModelDownloadTooLarge as exc:
         # 超限中止：删除半成品
         try:
-            dest.unlink(missing_ok=True)
+            tmp_dest.unlink(missing_ok=True)
         except Exception:                # noqa: BLE001
             pass
         raise HTTPException(400, str(exc)) from exc
@@ -755,22 +934,56 @@ async def download_local_model(payload: dict):
     except Exception as exc:
         # 失败时清理半成品
         try:
-            dest.unlink(missing_ok=True)
+            tmp_dest.unlink(missing_ok=True)
         except Exception:                # noqa: BLE001
             pass
         raise HTTPException(500, f"下载失败: {exc}") from exc
-    return {"ok": True, "name": filename, "path": str(dest.relative_to(b.BASE)).replace("\\", "/"), "size": dest.stat().st_size}
 
-
-@router.delete("/v1/models/local/{filename}")
-async def delete_local_model(filename: str):
-    """删除本地模型文件。filename 只取 basename，防止目录遍历。"""
-    safe = Path(filename).name
-    dest = b.BASE / "data" / "models" / safe
-    if not dest.exists() or not dest.is_file():
-        raise HTTPException(404, f"文件不存在: {safe}")
+    # ── 体检 + 归位 ──
+    hint = str(payload.get("kind") or "").strip().lower()
+    det = model_store.detect_kind(tmp_dest)
+    hdr = det.get("header") or {}
+    if hdr.get("error"):
+        try:
+            tmp_dest.unlink(missing_ok=True)
+        except Exception:                # noqa: BLE001
+            pass
+        raise HTTPException(400, f"下载的文件不是有效 GGUF：{hdr['error']}")
+    if hdr.get("truncated"):
+        try:
+            tmp_dest.unlink(missing_ok=True)
+        except Exception:                # noqa: BLE001
+            pass
+        raise HTTPException(
+            400, f"下载的文件数据不完整（{filename}）：张量区间超出文件大小，"
+                 "常见于连接中断/被网关截断，请重新下载")
+    kind = hint if hint in model_store.KINDS else det["kind"]
+    dest = root / kind / filename
+    n = 1
+    while dest.exists():
+        dest = root / kind / f"{Path(filename).stem}-{n}{Path(filename).suffix}"
+        n += 1
     try:
-        dest.unlink()
-        return {"ok": True, "deleted": safe}
-    except Exception as exc:
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        os.replace(tmp_dest, dest)
+    except OSError:
+        import shutil
+        shutil.move(str(tmp_dest), str(dest))
+    return {"ok": True, "name": dest.name, "kind": kind,
+            "kind_label": model_store.KIND_LABEL.get(kind, kind),
+            "kind_source": "hint" if hint in model_store.KINDS else det["source"],
+            "kind_reason": det["reason"],
+            "path": str(dest.relative_to(root)).replace("\\", "/"),
+            "full": str(dest), "size": dest.stat().st_size}
+
+
+@router.delete("/v1/models/local/{filename:path}")
+async def delete_local_model(filename: str):
+    """删除本地模型文件。支持类别子目录（chat/xxx.gguf），路径限制在模型库内。"""
+    try:
+        return await asyncio.to_thread(model_store.delete, _models_root(), filename)
+    except model_store.ModelStoreError as exc:
+        msg = str(exc)
+        raise HTTPException(404 if "不存在" in msg else 400, msg) from exc
+    except Exception as exc:                 # noqa: BLE001
         raise HTTPException(500, f"删除失败: {exc}") from exc

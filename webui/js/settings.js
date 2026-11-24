@@ -6,7 +6,7 @@ import { stepFilterInput } from './steps.js';
 import { exportSessions, importSessions, deleteSessionsBulk } from './sessions.js';
 import { readAnimPrefs, applyAnimPrefs, setAnimPref, animPrefLabel, ANIM_RANGES } from './animprefs.js';
 import { openKb, closeKb, kbPick, kbRefresh, kbReindex, kbImportUrl, kbImportText, kbInbox, kbSearch, kbDelete, fmtErr, wireKbSettings, kbLoadSettings, kbSaveSettings } from './kb.js';
-import { openModels, closeModels, renderModels, modelDelete, modelCopyPath, modelDownload, modelPreset, modelStart, modelStop } from './models.js';
+import { openModels, closeModels, renderModels, modelDelete, modelCopyPath, modelDownload, modelPreset, modelStart, modelStop, modelUse, modelOrganize } from './models.js';
 import { kbSaveMsg as kbSaveMsgImpl, THEMES } from './composer.js';
 import { openPreview, closePreview, reloadPreview, openPreviewExternal, downloadPreview, copyPreviewPath } from './preview.js';
 
@@ -1062,6 +1062,8 @@ const ACTIONS={
  modelStart:(el)=>modelStart(el),
  modelStop:(el)=>modelStop(el),
  modelPreset:(el)=>modelPreset(el),
+ modelUse:(el)=>modelUse(el),
+ modelOrganize:()=>modelOrganize(),
 };
 document.addEventListener('click',e=>{
  const el=e.target.closest?e.target.closest('[data-act]'):null;

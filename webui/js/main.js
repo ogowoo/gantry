@@ -34,7 +34,7 @@ import { renderSandbox, loadSandbox, pickSandbox, openSettings, closeSettings, r
 import { applyTitleVersion, loadVersion } from './version.js';
 import { applyAnimPrefs, readAnimPrefs, setAnimPref, animPrefLabel } from './animprefs.js';
 import { openPreview, closePreview, reloadPreview, openPreviewExternal, downloadPreview, copyPreviewPath } from './preview.js';
-import { openModels, closeModels, renderModels, modelDelete, modelCopyPath, modelDownload } from './models.js';
+import { openModels, closeModels, renderModels, modelDelete, modelCopyPath, modelDownload, modelUse, modelOrganize } from './models.js';
 window.applyAnimPrefs = applyAnimPrefs;
 window.openPreview = openPreview;
 window.closePreview = closePreview;
@@ -49,6 +49,8 @@ window.openModels = openModels;
 window.closeModels = closeModels;
 window.renderModels = renderModels;
 window.modelDelete = modelDelete;
+window.modelUse = modelUse;
+window.modelOrganize = modelOrganize;
 window.modelCopyPath = modelCopyPath;
 window.modelDownload = modelDownload;
 window.applyTitleVersion = applyTitleVersion;

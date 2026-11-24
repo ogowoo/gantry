@@ -5,14 +5,32 @@
 
 ## [Unreleased]
 
+## [0.12.0-beta.18] - 2026-11-23
+
 ### Added
-- 
+- **本地模型库管理（`gantry/model_store.py` + 管理页）**：识别模型类别并自动更正存放位置，
+  解决"下载了却启动不了"的一类问题：
+  - 类别识别：读 GGUF 元数据（`general.architecture` / `clip.*` / `bert.*`）判 chat /
+    embedding / rerank / mmproj，元数据缺失时退回文件名；接口返回 `kind` 与判定理由；
+  - 规范目录：`data/models/{chat,embedding,rerank,mmproj}`；`POST /v1/models/local/scan`
+    默认 dry-run 给移动计划，`apply=true` 才移动，重名追加 `-1/-2`、库外文件不动；
+  - 完整性校验：按张量表计算数据区边界，与文件大小比对——被网关/连接截断的
+    "假成功"下载在下发前就被判为损坏（下载接口直接删除半成品并报错）；
+  - 位置自愈：`start` 发现 `model_path` 失效时按文件名在库内查找同名文件、改正
+    config.json 后继续加载；找不到返回 404 并列出查找过的目录；
+  - "设为当前"：`POST /v1/models/local/{provider}/use` 一步把库里的 GGUF 设成 provider
+    当前模型（以前只能手改 config.json，新下载的文件界面里根本用不上）；
+  - 多模态：`mmproj_path` 支持 + 按同名前缀自动配对投影文件，`LocalChatEngine` 接入
+    `chat_handler`（Qwen2VL / MiniCPM / Llava15），缺失时加载阶段即报明确错误；
+  - 自动发现改为递归 + 只挑 chat 类（`chat/` 优先），不再把 embedding/mmproj 当对话模型；
+  - 管理页：类别徽章、文件异常徽章、规范位置提示、「整理模型库」（带移动预览）、
+    「设为当前」；下载完成提示类别；删除支持类别子目录且路径限制在库内。
 
-### Changed
-- 
-
-### Fixed
-- 
+### Tests
+- 新增 `tests/test_model_store.py`（26 项，合成 GGUF 头，不加载真实模型）与
+  `tests/test_models_api.py`（20 项）：类别判定、截断检测、整理 dry-run/apply、
+  重名不覆盖、库外文件不动、越界防护、下载归位与拒绝坏文件、启动自愈、
+  非对话模型拒绝加载、递归自动发现。
 
 ## [0.12.0-beta.17] - 2026-11-24
 

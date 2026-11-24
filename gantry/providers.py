@@ -589,6 +589,7 @@ class LocalProvider(ApiProvider):
 
         self.backend = "local"
         self.model_path = str(cfg.get("model_path") or "")
+        self.mmproj_path = str(cfg.get("mmproj_path") or "")
         self.eager = bool(cfg.get("eager", False))
         self.engine = LocalChatEngine(
             self.model_path,
@@ -599,7 +600,8 @@ class LocalProvider(ApiProvider):
             idle_unload_seconds=float(cfg.get("idle_unload_seconds") or 0),
             verbose=bool(cfg.get("verbose", False)),
             max_prompt_tokens=int(cfg.get("max_prompt_tokens") or 0),
-            truncate=bool(cfg.get("truncate", True)))
+            truncate=bool(cfg.get("truncate", True)),
+            mmproj_path=self.mmproj_path)
         self.base_url = self.base_url or "local://in-process"
         self.api_key = self.api_key or "local"
 
@@ -678,9 +680,11 @@ class LocalProvider(ApiProvider):
 
 
 def _autodiscover_local(merged: dict[str, dict[str, Any]]) -> None:
-    """data/models/ 里有 GGUF 且没人配过本地提供商时，自动注册 `local/` 提供商。
+    """data/models/ 里有对话 GGUF 且没人配过本地提供商时，自动注册 `local/` 提供商。
 
-    约定：文件名含 embed / bge / e5 / mmproj 的视为向量或辅助模型，不做聊天模型。
+    用 `model_store` 的类别识别（GGUF 元数据 + 文件名），递归扫描类别子目录，
+    只挑**对话**模型——以前按文件名挑排序第一个，容易挑到 embedding / mmproj，
+    结果"自动发现"出来的 provider 一启动就报加载失败。
     config.json 里显式配了 backend=local 或 model_path 时以配置为准，不重复注册。
     """
     for c in merged.values():
@@ -696,15 +700,26 @@ def _autodiscover_local(merged: dict[str, dict[str, Any]]) -> None:
     mdir = root / "data" / "models"
     if not mdir.is_dir():
         return
-
-    def _is_embed(name: str) -> bool:
-        n = name.lower()
-        return any(k in n for k in ("embed", "bge-", "bge_", "e5-", "mmproj"))
-
-    chat = sorted(p for p in mdir.glob("*.gguf") if p.is_file() and not _is_embed(p.name))
-    if not chat:
+    try:
+        from . import model_store
+    except Exception:                        # noqa: BLE001
         return
-    pick = chat[0]                      # 多个聊天 GGUF 时取排序第一个，其余仍走显式配置
+    picked: list[Path] = []
+    for p in sorted(mdir.rglob("*")):
+        try:
+            if not p.is_file() or p.suffix.lower() != ".gguf":
+                continue
+            if any(part.startswith(".") for part in p.relative_to(mdir).parts):
+                continue
+            if model_store.detect_kind(p)["kind"] == "chat":
+                picked.append(p)
+        except OSError:
+            continue
+    if not picked:
+        return
+    # 规范目录 chat/ 优先，其次库根，最后其它子目录
+    picked.sort(key=lambda p: (p.parent.name != "chat", len(p.relative_to(mdir).parts), p.name))
+    pick = picked[0]
     model_id = pick.stem.lower().replace(" ", "-")
     merged["local"] = {
         "backend": "local",
@@ -712,6 +727,9 @@ def _autodiscover_local(merged: dict[str, dict[str, Any]]) -> None:
         "model_path": str(pick),
         "description": "进程内 GGUF（data/models 自动发现）",
     }
+    mm = model_store.pair_mmproj(pick, mdir)
+    if mm:
+        merged["local"]["mmproj_path"] = mm
 
 
 def build_providers(cfg: dict[str, Any]) -> dict[str, ApiProvider]:

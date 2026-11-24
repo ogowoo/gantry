@@ -109,8 +109,9 @@ class LocalChatEngine:
                  temperature: float = 0.7, max_tokens: int = 2048,
                  idle_unload_seconds: float = 0.0, chat_format: str | None = None,
                  verbose: bool = False, max_prompt_tokens: int = 0,
-                 truncate: bool = True):
+                 truncate: bool = True, mmproj_path: str = ""):
         self.path = str(path or "")
+        self.mmproj_path = str(mmproj_path or "")
         self.n_ctx = max(256, int(n_ctx or 4096))
         self.n_threads = int(n_threads or 0)
         self.temperature = float(temperature)
@@ -142,6 +143,44 @@ class LocalChatEngine:
                 and time.time() - self._last_used > self.idle_unload_seconds):
             self.unload()
 
+    def _chat_handler(self) -> Any:
+        """多模态投影（mmproj）→ llama.cpp 的 chat handler；没配就返回 None。
+
+        视觉 GGUF 必须配 mmproj 才能"看图"；缺失或不兼容在这里就变成明确错误，
+        而不是模型加载后推理时才失败（用户看到的是"启动了却没反应"）。
+        """
+        if not self.mmproj_path:
+            return None
+        p = Path(self.mmproj_path)
+        if not p.is_file():
+            raise LocalModelError(f"多模态投影文件不存在：{self.mmproj_path}")
+        try:
+            from llama_cpp import llama_chat_format  # noqa: PLC0415
+        except Exception as exc:                 # noqa: BLE001
+            raise LocalModelError(
+                "当前 llama-cpp-python 不支持多模态（缺 llama_chat_format）；"
+                f"请升级后重试（{str(exc)[:120]}）") from exc
+        name = Path(self.path).name.lower()
+        order = ("Qwen2VLChatHandler", "MiniCPMv26ChatHandler", "Llava15ChatHandler") \
+            if any(k in name for k in ("qwen2", "qwen-2", "minicpm")) \
+            else ("Llava15ChatHandler", "Qwen2VLChatHandler")
+        last: Exception | None = None
+        for cls_name in order:
+            cls = getattr(llama_chat_format, cls_name, None)
+            if cls is None:
+                continue
+            try:
+                return cls(clip_model_path=str(p), verbose=self.verbose)
+            except TypeError:                    # 老版本签名不带 verbose
+                try:
+                    return cls(clip_model_path=str(p))
+                except Exception as exc:         # noqa: BLE001
+                    last = exc
+            except Exception as exc:             # noqa: BLE001
+                last = exc
+        raise LocalModelError(
+            f"未能用 {p.name} 初始化多模态投影：{str(last or '无可用 handler')[:160]}")
+
     def _ensure(self) -> Any:
         self._maybe_idle_unload()
         if self._llm is not None:
@@ -157,8 +196,13 @@ class LocalChatEngine:
                 kw["n_threads"] = self.n_threads
             if self.chat_format:
                 kw["chat_format"] = self.chat_format
+            handler = self._chat_handler()
+            if handler is not None:
+                kw["chat_handler"] = handler
             self._llm = cls(**kw)
         except Exception as exc:                 # noqa: BLE001
+            if isinstance(exc, LocalModelError):
+                raise
             raise LocalModelError(f"加载 {Path(self.path).name} 失败：{str(exc)[:200]}") from exc
         self.load_seconds = round(time.time() - t0, 2)
         self.loads += 1
@@ -182,7 +226,8 @@ class LocalChatEngine:
                 "load_seconds": self.load_seconds, "calls": self.calls,
                 "tokens": self.tokens,
                 "tok_per_second": round(self.tokens / self.seconds, 1) if self.seconds else 0.0,
-                "n_ctx": self.n_ctx, "n_threads": self.n_threads}
+                "n_ctx": self.n_ctx, "n_threads": self.n_threads,
+                "mmproj": self.mmproj_path}
 
     def cancel(self) -> None:
         """请求取消当前生成（协作式：下一轮 chunk 检查时退出）。"""

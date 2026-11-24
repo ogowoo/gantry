@@ -592,22 +592,24 @@ def setup(ctx) -> None:
     ctx.register_api("GET", "api/vector-stats", _api_vector_stats)
 
     async def _api_local_models(request=None):
-        """列出 data/models/ 里的本地 GGUF（给 Embedding local 后端选模型用）。"""
+        """列出 data/models/ 里的本地 GGUF（给 Embedding local 后端选模型用）。
+
+        带类别（embedding / chat / …）：向量后端只该看到向量模型，但列出类别
+        让用户能一眼看出为什么某个文件不适合当 embedder。
+        """
         from gantry.bridge import BASE as _BASE
+        from gantry import model_store
 
         models_dir = Path(_BASE) / "data" / "models"
         if not models_dir.exists():
             return {"models": []}
-        files = sorted(
-            p for p in models_dir.rglob("*.gguf")
-            if p.is_file() and not any(part.startswith(".") for part in p.relative_to(models_dir).parts)
-        )
-        return {"models": [
-            {"name": f.name,
-             "path": str(f.relative_to(models_dir)),
-             "full": str(f)}
-            for f in files
-        ]}
+        out = []
+        for m in model_store.scan(models_dir)["models"]:
+            out.append({"name": m["name"], "path": m["path"], "full": m["full"],
+                        "kind": m["kind"], "kind_label": m["kind_label"],
+                        "valid": m["valid"], "issues": m["issues"]})
+        out.sort(key=lambda x: (x["kind"] != "embedding", x["name"]))
+        return {"models": out}
 
     ctx.register_api("GET", "api/local-models", _api_local_models)
 

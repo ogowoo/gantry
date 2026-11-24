@@ -327,15 +327,21 @@ class LocalControlRouteTests(unittest.TestCase):
                     "load_seconds": 0, "loads": 1, "path": "fake.gguf"}
 
     def test_start_stop_and_unknown_provider(self):
+        import tempfile
+        import shutil
         from types import SimpleNamespace
         from fastapi.testclient import TestClient
         from gantry import api as A
         from gantry import bridge as b
+        from tests.test_model_store import write_gguf
 
+        tmp = Path(tempfile.mkdtemp(prefix="cbp_start_"))
         eng = self._Engine()
         old = b.PROVIDERS
+        # 启动前会体检文件是否存在&是不是对话 GGUF，所以给一个真实的合成文件
+        gguf = write_gguf(tmp / "fake.gguf", arch="llama")
         b.PROVIDERS = {"local": SimpleNamespace(backend="local", engine=eng,
-                                                model_path="fake.gguf")}
+                                                model_path=str(gguf))}
         try:
             c = TestClient(A.app, base_url="http://127.0.0.1:8765")
             r = c.post("/v1/models/local/local/start")
@@ -348,6 +354,7 @@ class LocalControlRouteTests(unittest.TestCase):
             self.assertEqual(c.post("/v1/models/local/nope/start").status_code, 404)
         finally:
             b.PROVIDERS = old
+            shutil.rmtree(tmp, ignore_errors=True)
 
 
 if __name__ == "__main__":

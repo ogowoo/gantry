@@ -42,6 +42,15 @@
 .model-path{font-family:var(--mono);font-size:11px;color:var(--faint);white-space:nowrap;
   overflow:hidden;text-overflow:ellipsis;margin-top:2px}
 .model-card-actions{display:flex;flex-direction:column;gap:6px;flex:none}
+/* 类别徽章 / 体检警告 / 整理横幅 */
+.model-kind{display:inline-block;font-size:10px;font-weight:600;padding:1px 6px;margin-left:6px;
+  border-radius:8px;vertical-align:middle;color:var(--muted);background:var(--panel2);
+  border:1px solid var(--line2)}
+.model-meta.warnline{color:var(--amber,var(--muted))}
+.model-banner{display:flex;align-items:center;justify-content:space-between;gap:10px;
+  padding:8px 12px;margin:0 0 10px;border-radius:10px;font-size:12px;
+  border:1px solid color-mix(in srgb,var(--amber,var(--accent)) 35%,var(--line));
+  background:color-mix(in srgb,var(--amber,var(--accent)) 8%,transparent);color:var(--text)}
 /* 本地模型运行状态区：不依赖 data/models 文件列表也能启动/停止 */
 .model-providers{display:flex;flex-direction:column;gap:8px;margin-bottom:12px}
 .model-provider-row{display:flex;align-items:center;justify-content:space-between;gap:10px;
