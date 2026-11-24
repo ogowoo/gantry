@@ -90,5 +90,80 @@ class SuspendWiringTests(unittest.TestCase):
         self.assertIn('class="mask retrymask"', html)
 
 
+class SyntheticProbeDoesNotResetCountTests(unittest.TestCase):
+    """「结果未知只读核对」probe 是本地合成回合（不触碰 Copilot），不能当作
+    服务恢复信号：限流与 probe 交替时连续失败计数必须继续累加。
+
+    回归来源：Copilot 每日上限期间 cron 会话每 ~40 秒重试一次，每次都显示
+    「第 1 次」——probe 回合的解析成功把 service_failures/retry_attempt 清零，
+    退避永远停在 30 秒，max_service_unavailable 也不会触发。
+    """
+
+    def test_probe_turn_does_not_reset_retry_count(self):
+        PROBE = ('{"type":"tool","tool":"list_directory","arguments":{"path":"."},'
+                 '"reason":"上一回合在执行途中被中断，其结果未知：先只读核对。"}')
+
+        class StubRegistry:
+            def web_copilot_allowed(self): return False
+            def describe(self): return []
+            def descriptions(self, only=None): return "[]"
+            def has(self, *a, **k): return False
+            def names(self): return []
+            def execute(self, *a, **k): return {"path": ".", "items": []}
+
+        state_box = {"state": "running"}
+        saved_steps = []
+        calls = {"n": 0}
+        runner_box = {}
+
+        def saver(**kw): state_box.update(kw)
+
+        async def chat(prompt, model=None, force_new=False, **kw):
+            calls["n"] += 1
+            if calls["n"] > 12:
+                raise asyncio.CancelledError()
+            if calls["n"] % 2 == 0:
+                # 模拟 agentrun 的 probe 分支：合成回合，打标记后返回只读核对动作
+                runner_box["r"]._last_turn_synthetic = True
+                return PROBE
+            raise A.CopilotRateLimited(
+                "You've used your daily chat limit. Please try again tomorrow.")
+
+        runner = A.AgentRunner(
+            tools=StubRegistry(), chat=chat,
+            config={"rate_limit_suspend": False, "max_total_steps": 50},
+            state_getter=lambda: dict(state_box), state_saver=saver,
+            step_saver=lambda st: saved_steps.append(dict(st)),
+            file_event_saver=lambda ev: None,
+            approval_check=lambda *a, **k: True,
+        )
+        runner._system_prompt = lambda: "sys"
+        runner._active_tool_names = lambda: []
+        runner.service_retry_base_seconds = 0.01
+        runner.service_retry_max_seconds = 0.02
+        runner_box["r"] = runner
+
+        async def no_sleep(_s):
+            return None
+
+        orig_sleep = A.asyncio.sleep
+        A.asyncio.sleep = no_sleep
+        try:
+            with self.assertRaises(asyncio.CancelledError):
+                asyncio.run(runner.run("测试限流计数", "copilot-auto"))
+        finally:
+            A.asyncio.sleep = orig_sleep
+
+        errors = [s.get("error", "") for s in saved_steps
+                  if s.get("status") == "service_unavailable"]
+        self.assertTrue(errors, "限流失败应记录 service_unavailable 步骤")
+        self.assertIn("第 1 次", errors[0])
+        self.assertTrue(
+            any("第 5 次" in e for e in errors),
+            f"probe 回合不应清零计数，应看到「第 5 次」：{errors}")
+        self.assertGreaterEqual(int(state_box.get("retry_attempt") or 0), 3,
+                                "持久化的 retry_attempt 必须随失败累加")
+
+
 if __name__ == "__main__":
     unittest.main()

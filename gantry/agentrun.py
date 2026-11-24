@@ -504,6 +504,10 @@ async def run_agent(req: b.AgentRequest, attach_paths: list | None = None):
                     if _act == "probe":
                         # 已派发但结果未知：绝不重发（可能重复副作用），先只读核对
                         b.log(f"回合 {_ph[:8]} 结果未知（中断在途），改为只读核对后再继续")
+                        # 合成回合标记：本次返回不触碰远端服务，AgentRunner 不得
+                        # 把它当作「服务恢复」重置限流计数（否则每日上限期间
+                        # 计数每轮清零、30 秒退避永远显示「第 1 次」）
+                        runner._last_turn_synthetic = True
                         return json.dumps({
                             "type": "tool", "tool": "list_directory", "arguments": {"path": "."},
                             "reason": "上一回合在执行途中被中断，其结果未知：先只读核对当前文件与状态，"

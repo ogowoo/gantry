@@ -819,6 +819,11 @@ class AgentRunner(PromptMixin, ParseMixin, TextMixin):
                                  "gantry.prompt_chars": len(prompt or "")})
             try:
                 with _turn_span:
+                    # 合成回合标记：回合结果缓存的「结果未知只读核对」probe 不触碰
+                    # 远端服务，不能当作服务恢复信号，否则限流计数每轮被清零
+                    # （Copilot 每日上限期间实测：每次重试都显示「第 1 次」、
+                    # 30 秒退避永不递增，max_service_unavailable 失效空转一整天）。
+                    self._last_turn_synthetic = False
                     raw = await self.chat(prompt, model, force_new)
                     _turn_span.set(**{"gantry.answer_chars": len(raw or "")})
                 chat_active = True
@@ -998,15 +1003,21 @@ class AgentRunner(PromptMixin, ParseMixin, TextMixin):
             try:
                 action = self._parse(raw)
                 parse_failures = 0
-                service_failures = 0
                 send_failures = 0
-                # 服务恢复：waiting 状态回到 running（paused 状态不受影响），
-                # 并清掉退避倒计时（浮窗消失）。
-                if (self.state_getter() or {}).get("state") == "waiting":
-                    self.state_saver(state="running", retry_resume_at=None, retry_attempt=0,
-                                     rate_limited_since=None)
-                elif (self.state_getter() or {}).get("retry_resume_at"):
-                    self.state_saver(retry_resume_at=None, retry_attempt=0, rate_limited_since=None)
+                # 合成 probe 回合（结果未知的只读核对）不算服务恢复：
+                # 不重置连续失败计数、不动限流窗口，失败计数继续累加，
+                # 否则限流期间每轮 probe 都会把计数清回 0，重试永不递增。
+                if getattr(self, "_last_turn_synthetic", False):
+                    pass
+                else:
+                    service_failures = 0
+                    # 服务恢复：waiting 状态回到 running（paused 状态不受影响），
+                    # 并清掉退避倒计时（浮窗消失）。
+                    if (self.state_getter() or {}).get("state") == "waiting":
+                        self.state_saver(state="running", retry_resume_at=None, retry_attempt=0,
+                                         rate_limited_since=None)
+                    elif (self.state_getter() or {}).get("retry_resume_at"):
+                        self.state_saver(retry_resume_at=None, retry_attempt=0, rate_limited_since=None)
             except Exception as exc:
                 parse_failures += 1
                 _src = getattr(self, "_model_source", "模型")
