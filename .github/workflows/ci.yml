@@ -20,7 +20,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
+          python-version: "3.13"
           cache: pip
           cache-dependency-path: requirements-lock.txt
 
@@ -29,6 +29,7 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           python -m pip install -r requirements-lock.txt
+          if ($LASTEXITCODE -ne 0) { throw "pip install -r requirements-lock.txt failed" }
           python -m pip check
 
       - name: Compile Python sources
@@ -52,6 +53,10 @@ jobs:
               py_compile.compile(str(path), doraise=True)
           print(f"Compiled {len(files)} Python files.")
           '@ | python -
+
+      - name: Prepare config from example
+        shell: pwsh
+        run: Copy-Item -LiteralPath config.example.json -Destination config.json -Force
 
       - name: Run deterministic offline tests
         shell: pwsh
