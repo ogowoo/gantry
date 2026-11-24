@@ -78,7 +78,9 @@ class PowerAppsSourceTests(unittest.TestCase):
         finally:
             pas.subprocess.run, shutil.which = old_run, old_which
         self.assertTrue(result["ok"])
-        self.assertEqual(result["msapp"], str(target))
+        # resolve() 后再比：CI runner 的 Temp 在 C 盘且启用了 8.3 短名
+        # （RUNNER~1 vs runneradmin），实现内部会 resolve 路径，直接比字符串会假失败
+        self.assertEqual(Path(result["msapp"]).resolve(), target.resolve())
         self.assertIn("canvas", calls[0])
         self.assertIn("pack", calls[0])
         self.assertIn("SourceCode", calls[0])
