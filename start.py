@@ -211,13 +211,16 @@ def _venv_python() -> Path | None:
 
 
 def _has_uvicorn(python_exe: str | Path | None = None) -> bool:
-    """解释器能不能 import uvicorn。
+    """解释器能不能拉起本服务（uvicorn + playwright 都得在）。
 
-    用 DEVNULL 而不是管道：受限环境里 piped stdio 可能直接 EPERM。
+    只查 uvicorn 不够：Hermes 自己的 venv 带了 uvicorn 但**没有** playwright，
+    会被误判为可用，派生子进程后在 app.py import playwright 处静默退出
+    （后台模式无 stderr，crash.log 里才看得到）。用 DEVNULL 而不是管道：
+    受限环境里 piped stdio 可能直接 EPERM。
     """
     exe = str(python_exe or sys.executable)
     try:
-        r = subprocess.run([exe, "-c", "import uvicorn"],
+        r = subprocess.run([exe, "-c", "import uvicorn, playwright"],
                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                            timeout=30)
         return r.returncode == 0
@@ -294,7 +297,7 @@ def _detect_lang(argv: list[str] | None = None) -> str:
 TEXT = {
     "zh": {
         "already_running": "服务已在运行：http://127.0.0.1:{port}/ui/（托盘图标在系统托盘里）",
-        "missing_deps": "启动失败：当前 Python 缺依赖（无法 import uvicorn）。",
+        "missing_deps": "启动失败：当前 Python 缺依赖（无法 import uvicorn/playwright）。",
         "use_venv": "  项目里有虚拟环境，请用它启动：{venv} start.py",
         "install_deps": "  先安装依赖：python -m pip install -r requirements.txt",
         "auto_switched": "提示：当前 Python 缺依赖，已自动改用 {py}",

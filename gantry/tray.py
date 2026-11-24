@@ -421,9 +421,21 @@ class Tray:
         nid.uCallbackMessage = WM_TRAY
         nid.hIcon = self._hicon
         nid.szTip = self._tooltip()[:127]
-        if not self._shell32.Shell_NotifyIconW(NIM_ADD, ctypes.byref(nid)):
-            raise OSError(f"Shell_NotifyIcon 失败：{ctypes.get_last_error()}")
-        log.info("托盘图标已添加（pid=%s）", os.getpid())
+        # explorer 对连续 add/remove 托盘图标会偶发回 ERROR_ACCESS_DENIED(5)
+        # （服务重启瞬间旧图标刚删、新图标就加，几乎必现），隔一两秒重试就好；
+        # 自检进程同样命中过，失败就完全没有托盘可用，所以必须兜底重试。
+        last_err = 0
+        for attempt in range(3):
+            if self._shell32.Shell_NotifyIconW(NIM_ADD, ctypes.byref(nid)):
+                log.info("托盘图标已添加（pid=%s）", os.getpid())
+                return
+            last_err = ctypes.get_last_error()
+            if last_err != 5 or attempt == 2:    # 只重试 ACCESS_DENIED，其余直接抛
+                break
+            log.warning("Shell_NotifyIcon 被拒（ACCESS_DENIED），%.1fs 后重试 %s/2",
+                        1.5 * (attempt + 1), attempt + 1)
+            time.sleep(1.5 * (attempt + 1))
+        raise OSError(f"Shell_NotifyIcon 失败：{last_err}")
 
     def _remove_icon(self) -> None:
         try:
