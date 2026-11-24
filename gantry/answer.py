@@ -85,6 +85,13 @@ COPILOT_UNAVAILABLE_PATTERNS = [
     r"currently (?:busy|unavailable)",
     r"service (?:is )?currently unavailable",
     r"having trouble (?:responding|processing)",
+    # 每日聊天上限：2026-11 起 Copilot 新增的限制，原文
+    # \"You've used your daily chat limit. Please try again tomorrow.\"——
+    # 既不匹配 \"try again later\" 也不匹配 \"too many requests\"，之前会被
+    # 当畸形回答走进解析失败/换新会话，定时任务因此反复空转（用户实测）。
+    r"daily (?:chat |message )?limit",
+    r"try again tomorrow",
+    r"used your daily",
     r"请稍后(?:再试|重试)",
     r"稍后(?:再试|重试)",
     r"暂时无法(?:响应|处理|为你服务|回答)",

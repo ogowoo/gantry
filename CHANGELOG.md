@@ -19,6 +19,13 @@
 - 托盘图标注册（Shell_NotifyIcon）偶发返回 ERROR_ACCESS_DENIED(5)（重启
   瞬间旧图标刚删、新图标就加时几乎必现），原先一次失败就永远没有托盘。
   `_add_icon` 对该错误重试 3 次（退避 1.5s/3s）。
+- Copilot 新增「每日聊天上限」（"You've used your daily chat limit. Please try
+  again tomorrow."）不被识别为限流：原文既不含 "try again later" 也不含
+  "too many requests"，被当畸形回答走进解析失败/反复换新会话，定时任务
+  因此反复空转。`COPILOT_UNAVAILABLE_PATTERNS` 增加 daily (chat|message)
+  limit / try again tomorrow / used your daily 三个特征；命中后与普通限流
+  同路径：不记步、退避挂起、窗口结束自动继续。日常任务与定时任务共用同一
+  识别层，一并修复。
 
 ### Changed
 - 会话导入导出入口收进设置页新增「会话」页：导出所选在弹窗内勾选（带
