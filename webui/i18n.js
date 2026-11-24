@@ -1251,6 +1251,42 @@ Object.assign(I18N_EN, {
   "边框强调色与光晕的强度（100% 是原设计）": "Strength of the accent border and glow (100% is the original design)",
 });
 
+/* 定时任务（schedule 插件面板）+ 设置页「会话」管理补充 */
+Object.assign(I18N_EN, {
+  "新建任务": "New task",
+  "任务名（必填）": "Task name (required)",
+  "到点执行的完整任务描述（必填）": "Full task description to run at the scheduled time (required)",
+  "模型（留空跟随配置）": "Model (blank = follow config)",
+  "工作区（可选）": "Workspace (optional)",
+  "每天": "Daily",
+  "按间隔": "By interval",
+  "一次性": "One-time",
+  "下次": "Next",
+  "上次": "Last",
+  "已跑": "ran",
+  "已停用": "Disabled",
+  "已触发: ": "Triggered: ",
+  "触发失败: ": "Trigger failed: ",
+  "上次失败: ": "Last failure: ",
+  "已保存: ": "Saved: ",
+  "已删除: ": "Deleted: ",
+  "已导出 ": "Exported ",
+  "导入（覆盖）": "Import (overwrite)",
+  "导入失败: ": "Import failed: ",
+  "导入完成：新增 {a}、更新 {u}、跳过 {s}": "Import done: {a} added, {u} updated, {s} skipped",
+  "覆盖导入会先清空现有全部定时任务，确定继续？": "Overwrite import clears all existing scheduled tasks first. Continue?",
+  "取消编辑": "Cancel edit",
+  "任务名与任务描述都不能为空": "Task name and description are both required",
+  "确定删除定时任务 {name}？": "Delete scheduled task {name}?",
+  "（还没有定时任务，用上方表单创建）": "(No scheduled tasks yet — create one with the form above)",
+  "工作区": "Workspace",
+  "每 ": "Every ",
+  "每天 ": "Daily ",
+  "一次 ": "once ",
+  " 个任务": " task(s)",
+  "所选": "Selected",
+});
+
 /* 动态渲染出来的**属性**在 DOM 层翻译（title / placeholder / aria-label）。
    为什么不改源码：把 JS 生成的 HTML 属性写成 tr(...) / ${esc(tr(...))} 需要区分
    模板串与拼接串上下文，实测极易写坏（我自己就写坏过三次：转义引号截断、模板里

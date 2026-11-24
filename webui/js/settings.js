@@ -688,7 +688,7 @@ function renderSessMgr(){
  const items=window.sessCache.filter(s=>!String(s.parent_id||''));
  box.innerHTML=items.map(s=>
   `<div class="spickrow"><label class="spickmain"><input type="checkbox" value="${esc(s.id)}" data-sessmgr>
-   <span class="sstat ${esc(stateClassOf(s.state))}" title="${esc(stateLabel(s.state))}" aria-label="${esc(stateLabel(s.state))}">${stateIcon(s.state)}</span>
+   <span class="sstat ${esc(stateClassOf(s))}" title="${esc(stateLabel(s))}" aria-label="${esc(stateLabel(s))}">${stateIcon(s.state)}</span>
    <span class="spicktitle">${esc(s.title||s.id)}</span><code>${esc(s.id)}</code></label>
    <button type="button" class="smdel" title="${esc(tr('删除会话'))}" data-act="sessMgrDel" data-arg="${esc(s.id)}">🗑</button></div>`).join('')
   ||`<p class="sethint">${esc(tr('没有可导出的会话'))}</p>`;

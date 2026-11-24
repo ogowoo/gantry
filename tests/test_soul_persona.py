@@ -201,6 +201,12 @@ class ApiTests(unittest.TestCase):
         (self.tmp / "ws").mkdir(exist_ok=True)
         self.saved = (getattr(self.b.AGENT_TOOLS, "global_root", None),
                       getattr(self.b.AGENT_TOOLS, "root", None))
+        # 本机 config.json 可能关了 allow_workspace_personas（默认 True）；
+        # 测试要验的是「工作区 persona 可见」，与部署配置无关，强制打开并事后还原
+        cfg = self.b.AGENT_CFG
+        self._saved_cfg = cfg
+        self.b.AGENT_CFG = dict(cfg) if isinstance(cfg, dict) else {}
+        self.b.AGENT_CFG["allow_workspace_personas"] = True
         try:
             self.b.AGENT_TOOLS.global_root = self.tmp
             self.b.AGENT_TOOLS.set_root(self.tmp / "ws", False)
@@ -213,6 +219,10 @@ class ApiTests(unittest.TestCase):
             self.b.AGENT_TOOLS.global_root = g
             if r is not None:
                 self.b.AGENT_TOOLS.set_root(r, False)
+        except Exception:
+            pass
+        try:
+            self.b.AGENT_CFG = self._saved_cfg
         except Exception:
             pass
         shutil.rmtree(self.tmp, ignore_errors=True)

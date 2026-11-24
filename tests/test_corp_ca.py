@@ -120,11 +120,21 @@ class CorpCaTests(unittest.TestCase):
         fake.SetValueEx = _set
 
         real = sys.modules.get("winreg")
+        # setup_env 末尾会顺带刷新本进程 os.environ（指向不存在的假 bundle）；
+        # 不恢复的话 discover 单进程连跑时，后续所有 HTTP 客户端测试都会
+        # 因读不到该 CA 文件报 Errno 2（分模块跑没事，是因为子进程互不影响）。
+        import os
+        saved_env = {k: os.environ.get(k) for k in ("REQUESTS_CA_BUNDLE", "SSL_CERT_FILE")}
         sys.modules["winreg"] = fake
         try:
             changed1 = mod.setup_env(Path(r"C:\fake\ca-bundle.pem"))
             changed2 = mod.setup_env(Path(r"C:\fake\ca-bundle.pem"))
         finally:
+            for k, v in saved_env.items():
+                if v is None:
+                    os.environ.pop(k, None)
+                else:
+                    os.environ[k] = v
             if real is not None:
                 sys.modules["winreg"] = real
             else:
