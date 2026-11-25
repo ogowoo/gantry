@@ -14,6 +14,23 @@
 ### Fixed
 - 
 
+## [0.12.0-beta.34] - 2026-11-25
+
+### Added
+- 
+
+### Changed
+- 
+
+### Fixed
+- **发布流水线把 `unittest discover` 跑挂，导致 v0.12.0-beta.33 没有生成 GitHub
+  Release**：`release.yml` 的「Run unit tests」用 `python -m unittest discover -s tests`，
+  该命令在本仓库部分环境会无进度挂死，45 分钟 job 超时整轮被取消，Releases 页面因此
+  一直停在上一版（代码和 tag 其实早就推上去了）。改为
+  `python scripts/run_tests_chunked.py --timeout 180`：每个测试模块独立子进程 + 明确
+  超时，卡住只会让该模块记 TIMEOUT 并让构建失败，不会再拖死整条发布链路；并给该 step
+  加 `timeout-minutes: 25`。
+
 ## [0.12.0-beta.33] - 2026-11-25
 
 ### Added
