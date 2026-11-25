@@ -41,6 +41,9 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "token_env": "GITHUB_TOKEN",
     "max_download_mb": 200,
     "allow_dirty": False,
+    # zip 更新后自动同步依赖：无 git 设备没有手工维护 venv 的习惯，
+    # 新版本一旦加了依赖，不补装就会在下次启动报「缺少依赖」。
+    "sync_deps": True,
 }
 PROTECTED = {
     "data", "workspace", ".venv", ".git", "EdgeProfile", "config.json",
@@ -504,8 +507,55 @@ class Updater:
         except Exception as exc:                 # noqa: BLE001
             self._restore_zip(bdir, record)
             raise UpdateError(f"替换代码失败，已尝试恢复备份: {exc}") from exc
+        deps = self._sync_deps_after_zip(source_root, bdir)
         return {"changed": True, "backup": bdir.name, "entries": new_entries,
-                "source": info.get("source", "zip"), "sha256": got}
+                "source": info.get("source", "zip"), "sha256": got, **deps}
+
+    def _sync_deps_after_zip(self, source_root: Path, bdir: Path) -> dict[str, Any]:
+        """zip 更新替换代码后同步依赖（requirements-lock 变化时才跑 pip）。
+
+        永不抛异常：代码更新已成功，依赖同步失败只降级为警告——启动时的
+        「缺少依赖」提示仍然兜底，手动 pip install 即可补救。
+        """
+        if not bool(self.config.get("sync_deps", True)):
+            return {"deps_synced": False, "deps_note": "已禁用（update.sync_deps=false）"}
+        old_lock = bdir / "code" / "requirements-lock.txt"
+        new_lock = source_root / "requirements-lock.txt"
+        if not new_lock.is_file():
+            return {"deps_synced": False, "deps_note": "新版本未附 requirements-lock.txt，跳过"}
+        try:
+            old_bytes = old_lock.read_bytes() if old_lock.is_file() else b""
+            if old_bytes == new_lock.read_bytes():
+                return {"deps_synced": False, "deps_note": "依赖清单未变化，无需同步"}
+        except Exception:                        # noqa: BLE001
+            pass  # 读不出就当作有变化，跑一遍 pip 无害（已满足的包不会重装）
+        import sys
+        env = dict(os.environ)
+        # 公司 SSL inspection 网络：pip 走 certifi 不认代理自签根，
+        # 有合并好的 bundle 就优先用它（ensure_corp_ca.py 生成）。
+        bundle = self.root / "data" / "ca-bundle.pem"
+        if bundle.is_file():
+            env.setdefault("REQUESTS_CA_BUNDLE", str(bundle))
+            env.setdefault("SSL_CERT_FILE", str(bundle))
+        try:
+            p = subprocess.run(
+                [sys.executable, "-m", "pip", "install", "--no-input",
+                 "--disable-pip-version-check", "-r", str(new_lock)],
+                cwd=self.root, capture_output=True, text=True, errors="replace",
+                timeout=600, env=env, **hidden_kwargs())
+        except Exception as exc:                 # noqa: BLE001
+            log.warning("依赖同步启动失败: %s", exc)
+            return {"deps_synced": False,
+                    "deps_warning": f"依赖同步失败（{exc}）；请手动执行："
+                                    f"python -m pip install -r requirements-lock.txt"}
+        if p.returncode != 0:
+            tail = (p.stderr or p.stdout or "").strip()[-300:]
+            log.warning("依赖同步失败（exit %s）: %s", p.returncode, tail)
+            return {"deps_synced": False,
+                    "deps_warning": f"依赖同步失败（pip exit {p.returncode}）：{tail}；"
+                                    f"请手动执行：python -m pip install -r requirements-lock.txt"}
+        log.info("依赖已按 requirements-lock.txt 同步")
+        return {"deps_synced": True}
 
     def _download(self, url: str, dest: Path) -> None:
         headers = {"User-Agent": "Gantry-Updater"}

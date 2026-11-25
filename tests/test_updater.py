@@ -336,5 +336,63 @@ class UpdaterZipTests(unittest.TestCase):
         self.assertIn("0.11.0-beta.14", msg)
 
 
+class DepsSyncTests(unittest.TestCase):
+    """zip 更新后的依赖同步：锁文件变化才跑 pip，失败只降级为警告。"""
+
+    def _make(self, old_lock: bytes | None, new_lock: bytes | None,
+              config: dict | None = None):
+        root = Path(tempfile.mkdtemp(prefix="cbp_deps_"))
+        bdir = root / "update" / "backups" / "b1"
+        (bdir / "code").mkdir(parents=True)
+        source = root / "staging" / "src"
+        source.mkdir(parents=True)
+        if old_lock is not None:
+            (bdir / "code" / "requirements-lock.txt").write_bytes(old_lock)
+        if new_lock is not None:
+            (source / "requirements-lock.txt").write_bytes(new_lock)
+        up = u.Updater(root=root, config=config or {}, current="0.11.0")
+        return up, source, bdir
+
+    def test_unchanged_lock_skips_pip(self):
+        up, source, bdir = self._make(b"same", b"same")
+        with mock.patch.object(u.subprocess, "run") as run:
+            out = up._sync_deps_after_zip(source, bdir)
+        run.assert_not_called()
+        self.assertFalse(out["deps_synced"])
+        self.assertIn("未变化", out["deps_note"])
+
+    def test_changed_lock_runs_pip(self):
+        up, source, bdir = self._make(b"old", b"new")
+        with mock.patch.object(u.subprocess, "run") as run:
+            run.return_value = mock.Mock(returncode=0, stdout="", stderr="")
+            out = up._sync_deps_after_zip(source, bdir)
+        self.assertTrue(out["deps_synced"])
+        args = run.call_args[0][0]
+        self.assertEqual(args[1:4], ["-m", "pip", "install"])
+        self.assertIn(str(source / "requirements-lock.txt"), args)
+
+    def test_pip_failure_is_warning_not_rollback(self):
+        up, source, bdir = self._make(b"old", b"new")
+        with mock.patch.object(u.subprocess, "run") as run:
+            run.return_value = mock.Mock(returncode=1, stdout="", stderr="boom")
+            out = up._sync_deps_after_zip(source, bdir)   # 不得抛异常
+        self.assertFalse(out["deps_synced"])
+        self.assertIn("pip install -r requirements-lock.txt", out["deps_warning"])
+
+    def test_sync_deps_disabled(self):
+        up, source, bdir = self._make(b"old", b"new", {"sync_deps": False})
+        with mock.patch.object(u.subprocess, "run") as run:
+            out = up._sync_deps_after_zip(source, bdir)
+        run.assert_not_called()
+        self.assertIn("禁用", out["deps_note"])
+
+    def test_missing_new_lock_skips(self):
+        up, source, bdir = self._make(b"old", None)
+        with mock.patch.object(u.subprocess, "run") as run:
+            out = up._sync_deps_after_zip(source, bdir)
+        run.assert_not_called()
+        self.assertIn("未附", out["deps_note"])
+
+
 if __name__ == "__main__":
     unittest.main()
