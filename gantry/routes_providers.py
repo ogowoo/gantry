@@ -183,6 +183,18 @@ def _norm_env(raw: Any) -> Any:
     return names[0] if len(names) == 1 else names
 
 
+def _same_origin(a: str, b: str) -> bool:
+    """两个 URL 是否同源（scheme + host + 有效端口），用于凭据外送防护（AUD-P0-04）。"""
+    from urllib.parse import urlsplit
+
+    def _k(u: str) -> tuple:
+        p = urlsplit(u)
+        port = p.port or (443 if p.scheme.lower() == "https" else 80)
+        return (p.scheme.lower(), (p.hostname or "").lower(), port)
+
+    return _k(a) == _k(b)
+
+
 @router.post("/v1/providers")
 async def upsert_provider(payload: dict | None = None):
     """新增或修改一个提供商（写 config.json 的 providers.<name>）。"""
@@ -350,6 +362,10 @@ async def detect_models(payload: dict | None = None):
 
     不读写 config.json：用户可以在保存前先探测，把结果填进「模型列表」。
     key 解析顺序 = 表单 api_key > 表单环境变量 > 已保存配置的 key/OAuth token。
+
+    AUD-P0-04 凭据外送防护：api_key_env 只允许读取该提供商**已保存配置**里
+    声明过的环境变量名；已保存凭据只在 base_url 与保存地址**同源**时回退，
+    否则 400 要求显式提供 api_key——防止把密钥发到调用方指定的任意地址。
     """
     from . import providers as _prov
 
@@ -367,12 +383,35 @@ async def detect_models(payload: dict | None = None):
     env_names = ([str(x).strip() for x in env_spec if str(x).strip()]
                  if isinstance(env_spec, (list, tuple)) else
                  [x.strip() for x in str(env_spec).split(",") if x.strip()])
+    if env_names:
+        # AUD-P0-04：环境变量名必须来自该提供商已保存的配置，防止任意 env 外送。
+        saved_cfg_entry = ({} if not name else
+                           (_read_cfg().get("providers", {}) or {}).get(name, {}))
+        allowed = []
+        try:
+            allowed = _norm_env((saved_cfg_entry or {}).get("api_key_env"))
+        except HTTPException:
+            allowed = ""
+        if isinstance(allowed, str):
+            allowed = [allowed] if allowed else []
+        allowed = [str(x).lower() for x in allowed]
+        bad = [n for n in env_names if n.lower() not in allowed]
+        if bad or not allowed:
+            raise HTTPException(400,
+                "api_key_env 只能是该提供商已保存配置里声明过的环境变量名"
+                "（请先保存提供商，或直接填写 api_key）")
     for env_name in env_names:
         if key:
             break
         key = _prov._read_env(env_name) or ""
     if not key and name:
         saved = (b.PROVIDERS or {}).get(name)
+        if saved is not None:
+            saved_base = str(getattr(saved, "base_url", "") or "")
+            if not saved_base or not _same_origin(base_url, saved_base):
+                raise HTTPException(400,
+                    "base_url 与该提供商已保存地址不同源，拒绝发送已保存凭据；"
+                    "请显式填写 api_key")
         cur = getattr(saved, "current_api_key", None) if saved is not None else None
         if callable(cur):
             try:
@@ -477,8 +516,8 @@ async def test_provider(name: str):
         px = proxy() if callable(proxy) else None
         if px:
             kwargs["proxy"] = px
-        with httpx.Client(base_url=base_url, **kwargs) as client:
-            resp = client.get(path)
+        with httpx.AsyncClient(base_url=base_url, **kwargs) as client:
+            resp = await client.get(path)
         ms = int((time.time() - t0) * 1000)
         if resp.status_code == 401 or resp.status_code == 403:
             return {"ok": False, "kind": "http", "status": resp.status_code, "latency_ms": ms,

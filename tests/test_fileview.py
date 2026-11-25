@@ -61,6 +61,29 @@ class FileViewTests(unittest.TestCase):
         self.assertEqual(v["kind"], "binary")
         self.assertIn("cbpfile binary", render_message(v, "sid"))
 
+    def test_audit_p01_absolute_path_rejected(self):
+        """AUD-P0-01：绝对路径（盘符/根）必须拒绝——旧实现可直读 C:/Windows/win.ini。"""
+        self.assertIsNone(maybe_file_view("看下 C:/Windows/win.ini 的内容", self.root))
+        self.assertIsNone(maybe_file_view("show me C:\\Windows\\system.ini", self.root))
+        self.assertIsNone(maybe_file_view("看下 /etc/passwd 的内容", self.root))
+        # 相对路径仍在工作区内正常解析
+        v = maybe_file_view("看下 src/main.py", self.root)
+        self.assertIsNotNone(v)
+
+    def test_audit_p01_dotdot_stays_inside_workspace(self):
+        """AUD-P0-01：../ 越界 token 只允许按文件名在工作区内兜底，不得逃出工作区。"""
+        outside = self.root.parent / "secret.txt"
+        outside.write_text("SECRET", encoding="utf-8")
+        try:
+            v = maybe_file_view("看下 ../secret.txt 的内容", self.root)
+            if v is not None:
+                self.assertIn("secret", str(v.get("path") or "").lower())
+                # 命中的只能是工作区内的同名文件，绝不能是工作区外的那个
+                self.assertNotEqual(v.get("path"), str(outside))
+                self.assertNotIn("SECRET", str(v.get("content") or ""))
+        finally:
+            outside.unlink(missing_ok=True)
+
     def test_plain_question_not_matched(self):
         self.assertIsNone(maybe_file_view("这个项目结构怎么样", self.root))
         self.assertIsNone(maybe_file_view("继续优化性能", self.root))

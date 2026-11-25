@@ -515,9 +515,44 @@ class KbAddToolTests(unittest.TestCase):
         plugin.setup(self.ctx)
         f = self.tmp / "vpn.docx"
         f.write_bytes(make_docx())
-        res = self.run_coro(self.ctx.tools["kb_add"]("", "", "", [str(f)]))
+        orig = plugin._workspace_root
+        plugin._workspace_root = lambda: self.tmp
+        try:
+            res = self.run_coro(self.ctx.tools["kb_add"]("", "", "", [str(f)]))
+        finally:
+            plugin._workspace_root = orig
         self.assertTrue(res.get("ok"), res)
         self.assertEqual(res["added"][0]["kind"], "file")
+
+    def test_add_file_relative_to_workspace(self):
+        # AUD-P1-08：相对路径按会话工作区解析（旧实现 _root(ctx) 必抛 TypeError）
+        plugin.setup(self.ctx)
+        f = self.tmp / "vpn.docx"
+        f.write_bytes(make_docx())
+        orig = plugin._workspace_root
+        plugin._workspace_root = lambda: self.tmp
+        try:
+            res = self.run_coro(self.ctx.tools["kb_add"]("", "", "", ["vpn.docx"]))
+        finally:
+            plugin._workspace_root = orig
+        self.assertTrue(res.get("ok"), res)
+        self.assertEqual(res["added"][0]["kind"], "file")
+
+    def test_add_file_outside_workspace_rejected(self):
+        # AUD-P0-07：绝对路径不在工作区内 → 拒绝（防任意本机文件读）
+        plugin.setup(self.ctx)
+        outside = Path(tempfile.mkdtemp(prefix="kb_add_out_"))
+        f = outside / "secret.docx"
+        f.write_bytes(make_docx())
+        orig = plugin._workspace_root
+        plugin._workspace_root = lambda: self.tmp
+        try:
+            res = self.run_coro(self.ctx.tools["kb_add"]("", "", "", [str(f)]))
+        finally:
+            plugin._workspace_root = orig
+        self.assertFalse(res.get("added"))
+        self.assertTrue(any("拒绝" in (e.get("error") or "") for e in res.get("errors") or []))
+        shutil.rmtree(outside, ignore_errors=True)
 
     def test_requires_payload(self):
         plugin.setup(self.ctx)

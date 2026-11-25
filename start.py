@@ -25,6 +25,7 @@ Windows 注意：`os.execv` 是"新建进程再退旧的"，新进程有**新 PI
 """
 import json
 import os
+import re
 import secrets
 import subprocess
 import sys
@@ -97,8 +98,18 @@ def ensure_api_token() -> None:
     """
     if str(SERVER.get("host", "127.0.0.1")) not in ("127.0.0.1", "localhost", "::1"):
         return
-    if str(CFG.get("api_token") or "").strip():
+    # AUD-P0-03：api_token 可能是 ${VAR} 占位符。先按 bridge 相同语义加载 .env
+    # （已存在的环境变量优先，重复加载幂等），只有占位符能解析出**非空实值**才算
+    # "已配置"；未解析占位符（等于公开常量）或解析后为空（鉴权停用）都走生成。
+    from gantry import envfile as _envfile
+    _envfile.load_env_file(BASE / ".env")
+    raw = str(CFG.get("api_token") or "").strip()
+    if raw and "${" not in raw:
         return
+    if raw:
+        names = re.findall(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}", raw)
+        if names and all(os.environ.get(n, "").strip() for n in names):
+            return
     token_file = BASE / "data" / "api_token"
     token = ""
     try:
@@ -550,10 +561,48 @@ def _utf8_stdio() -> None:
             pass
 
 
+_INSTANCE_LOCK = None
+
+
+def _acquire_instance_lock() -> None:
+    """AUD-P1-13：单实例锁。不同端口的第二个实例会执行 recover_interrupted()，
+    把第一个实例正在跑的会话置 paused，并可能并发续跑同一 EdgeProfile（审核 ⑦-7）。
+    用 msvcrt/fcntl 独占锁 data/.instance.lock；重启场景（旧进程正在退出）给
+    15s 重试窗口，超时才拒绝。"""
+    global _INSTANCE_LOCK
+    lock_path = BASE / "data" / ".instance.lock"
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    deadline = time.monotonic() + 15
+    while True:
+        fh = None
+        try:
+            fh = open(lock_path, "a+b")
+            if os.name == "nt":
+                import msvcrt
+                msvcrt.locking(fh.fileno(), msvcrt.LK_NBLCK, 1)
+            else:
+                import fcntl
+                fcntl.flock(fh.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            _INSTANCE_LOCK = fh
+            return
+        except OSError:
+            try:
+                if fh is not None:
+                    fh.close()
+            except Exception:                    # noqa: BLE001
+                pass
+            if time.monotonic() > deadline:
+                print("[gantry] 已有另一个 Gantry 实例在运行（data/.instance.lock 被占用）；\n"
+                      "        如确认没有其它实例，删除该文件后重试。", file=sys.stderr)
+                raise SystemExit(3)
+            time.sleep(0.5)
+
+
 def main(argv: list[str]) -> int:
     _utf8_stdio()
     _install_crash_log()
     _install_hang_dump()
+    _acquire_instance_lock()
     from gantry.logcfg import setup_logging
 
     tray_child = ("--tray-child" in argv) or (os.environ.get("GANTRY_TRAY_CHILD") == "1")

@@ -669,6 +669,39 @@ def setup(ctx):
     async def _api_list(request):
         return _snapshot()
 
+    def _stdio_args_error(base: str, args: list) -> str:
+        """AUD-P0-10：解释器参数签名白名单——旧实现只查 basename，args 传 `-c`/
+        `-e` 即可任意代码执行并持久化（审核 ⑦-4）。返回错误文案；空串=放行。"""
+        args = [str(a) for a in args]
+        if base in ("python", "python.exe"):
+            if args and not (args[0] == "-m" and len(args) >= 2):
+                return "HTTP 接口的 python 只允许 `-m 模块` 形式（拒绝 -c/脚本路径）"
+            return ""
+        if base in ("node", "node.exe"):
+            blocked = {"-e", "--eval", "-p", "--print", "-r", "--require"}
+            if any(a in blocked for a in args):
+                return "HTTP 接口的 node 不允许 -e/--eval/-p/-r/--require"
+            return ""
+        if base in ("npx", "npx.cmd"):
+            blocked = {"-c", "--call", "-p", "--package"}
+            if any(a in blocked for a in args):
+                return "HTTP 接口的 npx 不允许 -c/--call/-p/--package"
+            pkgs = {str(p).lower() for p in
+                    ((ctx.config or {}).get("npx_packages") or [])}
+            for a in args:
+                if a.startswith("-"):
+                    continue
+                if a.lower() not in pkgs:
+                    return (f"HTTP 接口的 npx 只允许插件配置登记的包（未登记：{a}）"
+                            "——请先在 MCP 插件配置 npx_packages 里登记")
+            return ""
+        if base in ("uv", "uvx", "uvx.exe", "deno", "deno.exe", "bun", "bun.exe"):
+            if not bool((ctx.config or {}).get("allow_script_interpreters")):
+                return (f"HTTP 接口默认禁用 {base}：它可执行任意脚本；"
+                        "请在 MCP 插件配置开启 allow_script_interpreters 后重试")
+            return ""
+        return ""
+
     async def _api_add(request):
         try:
             body = await request.json()
@@ -689,6 +722,9 @@ def setup(ctx):
                 return {"name": name, "connected": False,
                         "error": f"HTTP 接口不允许 command={base or '(空)'}；"
                                  "请在 MCP 插件配置里设置"}
+            err = _stdio_args_error(base, list(spec.get("args") or []))
+            if err:
+                return {"name": name, "connected": False, "error": err}
         manager.add(name, spec)
         ctx.save_state(servers=manager.servers)
         try:

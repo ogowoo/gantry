@@ -201,6 +201,17 @@ async def lifespan(app):
         b.AGENT_SESSIONS.recover_interrupted()
     except Exception as exc:
         b.log(f"恢复中断会话失败（忽略）：{exc}")
+    # AUD-P2（审核 ⑦-9）：自升级 pending 归档不依赖浏览器。旧实现只在
+    # boot_browser 里调用，browser_startup=lazy 时重启后一直报 restart_pending，
+    # AGENT.md"服务启动时自动归档"不成立。这里先归档；浏览器启动时那次调用
+    # 保留（幂等，处理"归档后才又发生自升级"的窗口）。
+    try:
+        _applied = b.mark_self_upgrade_applied()
+        if _applied.get("applied"):
+            b.log(f"[自升级] 已加载上一轮自升级改动"
+                  f"（{len(_applied['applied'])} 条记录），待重启标记归档")
+    except Exception as exc:                     # noqa: BLE001
+        b.log(f"自升级归档检查失败（忽略）：{exc}")
     boot = None
     mode = str(b.CFG.get("browser_startup", "lazy")).lower()
     if mode == "eager":
@@ -258,8 +269,12 @@ async def periodic_suspend_resume():
             if not bool(b.AGENT_CFG.get("auto_resume", True)):
                 continue
             now = time.time()
-            rows = [r for r in b.AGENT_SESSIONS.list(include_archived=True)
-                    if str(r.get("state")) == "suspended"]
+            # AUD-P1-15：巡检用 light=True——全量 list 会解码 recent_steps 等大
+            # 字段（注释记录曾出现单会话 132MB），30 秒一次同步解码冻结事件循环
+            # （审核 ③-6）。
+            rows = await asyncio.to_thread(
+                b.AGENT_SESSIONS.list, include_archived=True, light=True)
+            rows = [r for r in rows if str(r.get("state")) == "suspended"]
             for row in rows:
                 end = float(row.get("retry_resume_at") or 0)
                 if not end or end > now:
@@ -431,12 +446,15 @@ async def origin_guard(request, call_next):
         origin = request.headers.get("origin") or ""
         referer = request.headers.get("referer") or ""
         allow_extra = tuple(CSRF_ALLOWED_ORIGINS or ())
-        if site in ("cross-site", "same-site"):
+        # AUD-P1-12：白名单 origin 必须先于 Sec-Fetch-Site 判定——真实浏览器从
+        # 白名单站点发写请求必带 Sec-Fetch-Site: cross-site，旧顺序先 403 了它，
+        # 白名单形同虚设（审核 ③-9，已实测）。
+        if origin and origin in allow_extra:
+            pass
+        elif site in ("cross-site", "same-site"):
             return JSONResponse({"detail": "拒绝跨站写入请求（Sec-Fetch-Site）"}, status_code=403)
-        if origin:
-            if origin in allow_extra:
-                pass
-            elif _is_local_origin(origin):
+        elif origin:
+            if _is_local_origin(origin):
                 want = request.url.port or (443 if request.url.scheme == "https" else 80)
                 if _local_port_mismatch(origin, want):
                     return JSONResponse({"detail": "拒绝来自其它端口的写入请求（跨源）"},
@@ -476,10 +494,20 @@ async def token_auth(request, call_next):
                         or request.headers.get("x-cbp-token") or "")
         token = request.query_params.get("token", "")
         # 常量时间比较：避免用逐字符比较泄漏前缀长度（本机场景风险低，但成本几乎为零）
-        ok = any(hmac.compare_digest(candidate, API_TOKEN)
-                 for candidate in (auth[len("Bearer "):] if auth.startswith("Bearer ") else auth,
-                                   header_token, token)
-                 if candidate)
+        # AUD-P1-12：compare_digest 只接受字节/ASCII 字符串，非 ASCII token 会抛
+        # TypeError → 500（已实测）；统一按 utf-8 编码比较，解码异常视为不匹配。
+        def _candidate_matches(candidate: str) -> bool:
+            if not candidate:
+                return False
+            try:
+                return hmac.compare_digest(candidate.encode("utf-8"),
+                                           str(API_TOKEN).encode("utf-8"))
+            except Exception:                    # noqa: BLE001
+                return False
+
+        ok = any(_candidate_matches(c)
+                 for c in (auth[len("Bearer "):] if auth.startswith("Bearer ") else auth,
+                           header_token, token))
         if not ok:
             return JSONResponse({"detail": "未授权：缺少或错误的 api_token"}, status_code=401)
     return await call_next(request)

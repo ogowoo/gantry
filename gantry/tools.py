@@ -199,6 +199,11 @@ MUTATING_TOOLS = {
     "run_python", "pwsh", "outlook_send", "save_workspace_file",
     "image_generate", "schedule_add", "schedule_remove", "schedule_run", "memory_write",
     "notebook_edit", "subagent_interrupt", "power_automate_generate",
+    # AUD-P0-05：补齐写/破坏性工具（审核 ④-2/①-1/⑤-1/⑥-6 曾可绕过只读档位）
+    "write_csv", "skill_create", "memory_forget",
+    "self_write_text_b64", "self_append_text_b64", "self_replace_text",
+    "copilot_file", "run_code", "teams_reply", "pa_import",
+    "power_apps_generate", "power_apps_pack", "kb_add",
 }
 
 APPROVAL_REQUIRED_TOOLS = ("delete_path", "outlook_send", "run_python")

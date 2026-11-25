@@ -68,6 +68,26 @@ def _root() -> Path:
     return Path(__file__).resolve().parent.parent.parent
 
 
+def _workspace_root() -> Path | None:
+    """当前任务工作区根；无任务上下文时返回 None（AUD-P0-07）。
+
+    kb_add 的 paths 必须收口到会话工作区：绝对路径只在工作区内放行，
+    防止"一条聊天消息把本机任意文件读进知识库"（审核 ⑤-1）。
+    """
+    try:
+        from gantry import bridge as _b
+
+        sid = _b.current_session()
+        rec = _b.AGENT_SESSIONS.get(sid) if sid else {}
+        ws = str((rec or {}).get("workspace") or "").strip()
+        if not ws:
+            return None
+        p = Path(ws)
+        return p.resolve() if p.is_absolute() else (_root() / ws).resolve()
+    except Exception:                            # noqa: BLE001
+        return None
+
+
 def _cfg(ctx, key: str) -> Any:
     v = (ctx.config or {}).get(key)
     return _DEFAULTS.get(key) if v in (None, "") else v
@@ -155,8 +175,16 @@ def _ocr_settings(ctx) -> dict[str, Any]:
     except Exception:                            # noqa: BLE001
         pass
     try:
-        disk = json.loads((_root(ctx) / "config.json").read_text(encoding="utf-8"))
+        # AUD-P1-08：_root() 无参（旧代码 _root(ctx) 必抛 TypeError 被 except 吞掉，
+        # 导致"磁盘优先"从未生效）；同时补消费 ctx.config（插件配置里配的 ocr 也生效）。
+        disk = json.loads((_root() / "config.json").read_text(encoding="utf-8"))
         out.update(dict((disk.get("kb") or {}).get("ocr") or {}))
+    except Exception:                            # noqa: BLE001
+        pass
+    try:
+        raw = (ctx.config or {}).get("ocr")
+        if isinstance(raw, dict):
+            out.update({k: v for k, v in raw.items() if v not in (None, "")})
     except Exception:                            # noqa: BLE001
         pass
     return out
@@ -379,11 +407,29 @@ def setup(ctx) -> None:
                 done.append({"ok": True, "kind": "url", **res})
             except Exception as exc:             # noqa: BLE001
                 errors.append({"ok": False, "kind": "url", "error": str(exc)[:200]})
+        ws_root = _workspace_root()
         for raw in (paths or []):
             try:
                 fp = Path(str(raw)).expanduser()
-                if not fp.is_absolute():
-                    fp = _root(ctx) / str(raw)
+                if fp.is_absolute():
+                    # AUD-P0-07：绝对路径必须落在会话工作区内，否则拒绝——
+                    # 旧实现可读 C:\...\config.json、data/pa-auth.json 等任意本机文件。
+                    if ws_root is None:
+                        raise RuntimeError("绝对路径需要会话工作区上下文；请用工作区相对路径")
+                    fp = fp.resolve()
+                    try:
+                        fp.relative_to(ws_root)
+                    except ValueError:
+                        raise RuntimeError(f"路径在工作区之外，已拒绝: {raw}")
+                else:
+                    base = ws_root or _root()
+                    fp = (base / str(raw)).resolve()
+                    try:
+                        fp.relative_to(ws_root or _root())
+                    except ValueError:
+                        raise RuntimeError(f"路径在工作区之外，已拒绝: {raw}")
+                if not fp.is_file():
+                    raise RuntimeError(f"文件不存在: {raw}")
                 data = fp.read_bytes()
                 res = kb_ingest.ingest_bytes(kb.dir, fp.name, data, title=fp.stem,
                                              source=str(fp))
@@ -401,8 +447,9 @@ def setup(ctx) -> None:
         "kb_add", kb_add,
         "把内容加入本地知识库：整理好的 text / 网页 url / 文件 paths（自动提取 docx/pdf/xlsx/pptx/图片）；登录页用 browser=true",
         {"text": "整理后的正文（Markdown 更好）", "title": "标题（用于文件名与出处）",
-         "url": "网页地址", "paths": "本地或工作区文件路径数组",
-         "category": "分类，默认 chat", "browser": "是否用自动化浏览器抓取（适合登录页/JS 渲染）"})
+         "url": "网页地址", "paths": "会话工作区内的文件路径（绝对路径必须在工作区内）",
+         "category": "分类，默认 chat", "browser": "是否用自动化浏览器抓取（适合登录页/JS 渲染）"},
+        approval=True)
 
     # ── HTTP 接口（面板/排障用）──
     async def _api_search(request):

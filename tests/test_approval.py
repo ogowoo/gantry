@@ -9,9 +9,28 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from gantry.agent import AgentRunner
+from gantry.agent import AgentRunner, _approval_args_summary
 from gantry.session_store import SessionStore
 from gantry.tools import ToolRegistry
+
+
+class ApprovalArgsSummaryTests(unittest.TestCase):
+    """AUD-P0-12：审批横幅必须带脱敏参数摘要（不盲签）。"""
+
+    def test_path_and_command_in_summary(self):
+        s = _approval_args_summary({"path": "C:/ws/a.txt", "content": "x" * 5000})
+        self.assertIn("path=C:/ws/a.txt", s)
+        self.assertLessEqual(len(s), 400, "摘要必须截断")
+
+    def test_empty_arguments_placeholder(self):
+        s = _approval_args_summary({})
+        self.assertEqual(s, "（无路径/命令参数）")
+
+    def test_list_value_joined(self):
+        s = _approval_args_summary({"paths": ["a.md", "b.md", "c.md", "d.md", "e.md"]})
+        self.assertIn("a.md", s)
+        self.assertIn("d.md", s)
+        self.assertNotIn("e.md", s, "最多展示前 4 项")
 
 
 class ApprovalStoreTests(unittest.TestCase):

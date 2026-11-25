@@ -60,12 +60,19 @@ def _candidates(text: str) -> list[str]:
 
 
 def _resolve(root: Path, token: str) -> Path | None:
+    # AUD-P0-01：文件视图只允许工作区内文件。绝对路径（盘符/根/UNC）一律拒绝
+    # （曾可直读 C:/Windows/win.ini）；相对路径 resolve 后必须仍在工作区内，
+    # 越界的相对 token 只允许按"文件名"在工作区内兜底查找。
     t = token.replace("\\", "/").strip().lstrip("./")
-    p = root / t
+    is_abs = bool(re.match(r"^[A-Za-z]:[/\\]", t)) or t.startswith(("/", "\\\\"))
+    if is_abs:
+        return None
     try:
+        p = (root / t).resolve()
+        p.relative_to(root.resolve())
         if p.is_file():
             return p
-    except OSError:
+    except (OSError, ValueError):
         pass
     name = Path(t).name
     if not name or "." not in name:

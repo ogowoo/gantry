@@ -9,7 +9,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from gantry.tools import ToolError, ToolRegistry
+from gantry.tools import MUTATING_TOOLS, ToolError, ToolRegistry
 
 
 class SandboxModeTests(unittest.TestCase):
@@ -72,6 +72,46 @@ class SandboxModeTests(unittest.TestCase):
         self.assertIn("改 A", state["plan"]["plan"])
         asyncio.run(reg.execute("write_text", {"path": "a.txt", "content": "x"}))
         self.assertTrue((self.ws / "a.txt").exists())
+
+    def test_audit_p05_mutating_tools_covered_in_read_only(self):
+        """AUD-P0-05：审核点名的写/破坏性工具必须在只读档位被拦（表驱动）。
+
+        这些工具此前不在 MUTATING_TOOLS 名单里，read-only/plan_mode 承诺可被
+        绕过（审核 ④-2/①-1/⑤-1/⑥-6）。用桩注册后验证沙箱门在**执行前**拦截，
+        不真正执行工具本体。
+        """
+        audited = {
+            "write_csv", "skill_create", "memory_forget",
+            "self_write_text_b64", "self_append_text_b64", "self_replace_text",
+            "copilot_file", "run_code", "teams_reply", "pa_import",
+            "power_apps_generate", "power_apps_pack", "kb_add",
+        }
+        reg = self._reg(sandbox_mode="read-only")
+        async def _stub(**kw):
+            return {"ok": True}
+
+        for name in sorted(audited):
+            with self.subTest(tool=name):
+                self.assertIn(name, MUTATING_TOOLS,
+                              f"{name} 必须登记进 MUTATING_TOOLS（AUD-P0-05）")
+                reg.register(name, _stub, "stub", {})
+                with self.assertRaises(ToolError) as ctx:
+                    asyncio.run(reg.execute(name, {"path": "x"}))
+                self.assertIn("SANDBOX_READ_ONLY", str(ctx.exception))
+
+    def test_audit_p05_all_mutating_blocked_in_read_only(self):
+        """MUTATING_TOOLS 的每个成员在 read-only 档位都应抛 SANDBOX_READ_ONLY。"""
+        reg = self._reg(sandbox_mode="read-only")
+        async def _stub(**kw):
+            return {"ok": True}
+
+        for name in sorted(MUTATING_TOOLS):
+            reg.register(name, _stub, "stub", {})
+        for name in sorted(MUTATING_TOOLS):
+            with self.subTest(tool=name):
+                with self.assertRaises(ToolError) as ctx:
+                    asyncio.run(reg.execute(name, {}))
+                self.assertIn("SANDBOX_READ_ONLY", str(ctx.exception))
 
 
 if __name__ == "__main__":

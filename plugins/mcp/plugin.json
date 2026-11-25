@@ -33,6 +33,10 @@
         "servers"
       ]
     },
+    "config": {
+      "npx_packages": [],
+      "allow_script_interpreters": false
+    },
     "i18n": {
       "en": {
         "MCP 服务器": "MCP servers",

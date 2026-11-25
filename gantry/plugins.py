@@ -577,8 +577,22 @@ class PluginHost:
         return [dict(x) for x in self.panels_list]
 
     # ── 安装 / 卸载 / 注册表（版本化）────────────────────────────────
+    # 插件名只允许安全字符（AUD-P1-06）：与目录名直接拼接，任何路径分隔符/盘符/.. 都必须拒绝。
+    _PLUGIN_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$")
+
     def _plugin_dir(self, name: str) -> Path:
-        return self.plugin_root / name
+        # AUD-P1-06：name 只允许安全字符且解析后必须留在插件根内——旧实现原样
+        # 拼路径，manifest 里写 "C:\\Users\\…" 或 ".." 可对插件目录外 rmtree/
+        # copytree（审核 ⑦-2）。
+        if not self._PLUGIN_NAME_RE.match(name) or name in (".", ".."):
+            raise PluginError(
+                f"插件名不合法：{name!r}（只允许字母/数字/._-，且不能是 . 或 ..）")
+        dest = (self.plugin_root / name).resolve()
+        try:
+            dest.relative_to(self.plugin_root.resolve())
+        except ValueError:
+            raise PluginError(f"插件名不合法：{name!r}（解析后越出插件目录）")
+        return dest
 
     @staticmethod
     def _version_tuple(ver: str) -> tuple[int, ...]:
@@ -688,7 +702,7 @@ class PluginHost:
         内置插件（没有 installed 元数据）默认拒绝卸载：它们随服务发布，
         删掉会破坏功能；请用 disable。外部安装的插件才可真正删除。
         """
-        dest = self._plugin_dir(name)
+        dest = self._plugin_dir(name)          # 含 AUD-P1-06 名称校验
         if not dest.is_dir() and name not in self.records:
             raise PluginError(f"没有名为 {name} 的插件")
         meta = (self._state.get(name) or {}).get("installed") or {}

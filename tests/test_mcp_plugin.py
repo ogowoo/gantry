@@ -173,6 +173,88 @@ class McpReconcileTests(unittest.TestCase):
         asyncio.run(scenario())
 
 
+class AddCtx:
+    """setup() 所需的完整接口（AUD-P0-10 端点安全测试用）。"""
+
+    def __init__(self, config=None):
+        self.config = config or {}
+        self.state: dict = {}
+        self.tools: dict = {}
+        self.apis: dict = {}
+        self.logs: list[str] = []
+
+    def log(self, msg, *a, **k):
+        self.logs.append(str(msg))
+
+    def save_state(self, **kw):
+        self.state.update(kw)
+
+    def register_tool(self, name, fn, desc, args=None, approval=False):
+        self.tools[name] = fn
+
+    def register_api(self, method, path, fn):
+        self.apis[path] = fn
+
+    def register_panel(self, panel):
+        pass
+
+
+class McpAddEndpointSecurityTests(unittest.TestCase):
+    """AUD-P0-10：HTTP api/add 的解释器参数签名白名单（审核 ⑦-4）。"""
+
+    def setUp(self):
+        self.mod = load_plugin()
+
+    def _add(self, spec, config=None):
+        ctx = AddCtx(config)
+        self.mod.setup(ctx)
+
+        class _Req:
+            def __init__(self, body):
+                self._b = body
+
+            async def json(self):
+                return self._b
+
+        fn = ctx.apis["api/add"]
+        r = asyncio.new_event_loop().run_until_complete(
+            fn(_Req({"name": "x", "spec": spec})))
+        self.mod.teardown(ctx)
+        return r
+
+    def test_python_minus_c_rejected(self):
+        r = self._add({"command": "python",
+                       "args": ["-c", "import os; os.system('calc')"]})
+        self.assertFalse(r["connected"])
+        self.assertIn("-m", r["error"])
+
+    def test_python_script_path_rejected(self):
+        r = self._add({"command": "python", "args": [str(Path(__file__))]})
+        self.assertFalse(r["connected"])
+        self.assertIn("-m", r["error"])
+
+    def test_node_eval_rejected(self):
+        r = self._add({"command": "node", "args": ["-e", "process.exit(0)"]})
+        self.assertFalse(r["connected"])
+        self.assertIn("node", r["error"])
+
+    def test_npx_unregistered_package_rejected(self):
+        r = self._add({"command": "npx", "args": ["some-evil-package"]})
+        self.assertFalse(r["connected"])
+        self.assertIn("npx", r["error"])
+
+    def test_deno_blocked_without_config_flag(self):
+        r = self._add({"command": "deno", "args": ["run", "x.ts"]})
+        self.assertFalse(r["connected"])
+        self.assertIn("allow_script_interpreters", r["error"])
+
+    def test_python_m_shape_passes_arg_gate(self):
+        # 合法形态不被参数校验拒绝（连接失败是另一回事——模块不存在）
+        r = self._add({"command": "python",
+                       "args": ["-m", "definitely_missing_module_xyz"]})
+        self.assertNotIn("只允许", r.get("error") or "")
+
+
 class McpHttpTests(unittest.TestCase):
     """streamable HTTP 传输：JSON 响应、SSE 响应、session 头、resources。"""
 

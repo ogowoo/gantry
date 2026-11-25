@@ -291,13 +291,44 @@ class DetectModelsTests(Base):
                                      json={"base_url": "file:///etc/passwd"}).status_code, 400)
 
     def test_no_credential_reports_plainly(self):
+        # 显式 api_key 为空 → 返回普通错误（不涉及 env/已保存凭据）
         with mock.patch.object(providers_mod, "_read_env", return_value=""):
             r = self.c.post("/v1/providers/detect-models",
-                            json={"base_url": "http://127.0.0.1:9/v1",
-                                  "api_key_env": "CBP_DEFINITELY_UNSET_KEY"})
+                            json={"base_url": "http://127.0.0.1:9/v1", "api_key": ""})
         d = r.json()
         self.assertFalse(d["ok"])
         self.assertIn("凭据", d["error"])
+
+    def test_env_name_must_belong_to_saved_provider(self):
+        # AUD-P0-04：未保存提供商 + api_key_env → 400，不允许读取任意环境变量
+        r = self.c.post("/v1/providers/detect-models",
+                        json={"base_url": "http://127.0.0.1:9/v1",
+                              "api_key_env": "CBP_DEFINITELY_UNSET_KEY"})
+        self.assertEqual(r.status_code, 400)
+        self.assertIn("api_key_env", r.json()["detail"])
+
+    def test_env_name_not_declared_by_provider_is_rejected(self):
+        # 已保存提供商，但 env 名不是它配置里声明过的 → 400
+        self.write_providers({"gw": {"base_url": "http://gw.example/v1",
+                                     "api_key_env": "GW_KEY", "models": "m1"}})
+        r = self.c.post("/v1/providers/detect-models",
+                        json={"name": "gw", "base_url": "http://gw.example/v1",
+                              "api_key_env": "GANTRY_API_TOKEN"})
+        self.assertEqual(r.status_code, 400)
+        self.assertIn("api_key_env", r.json()["detail"])
+
+    def test_cross_origin_saved_key_is_not_sent(self):
+        # AUD-P0-04：base_url 与已保存地址不同源 → 拒绝回退已保存凭据（防外送）
+        self.write_providers({"gw": {"base_url": "http://gw.example/v1",
+                                     "api_key": "saved-key", "models": "m1"}})
+        calls = []
+        resp = self._Resp(200, {"data": [{"id": "m1"}]})
+        with mock.patch("httpx.AsyncClient", self._client(resp, calls)):
+            r = self.c.post("/v1/providers/detect-models",
+                            json={"name": "gw", "base_url": "http://attacker.example/v1"})
+        self.assertEqual(r.status_code, 400)
+        self.assertIn("同源", r.json()["detail"])
+        self.assertEqual(calls, [])
 
     def test_openai_shape_lists_and_dedupes(self):
         calls = []

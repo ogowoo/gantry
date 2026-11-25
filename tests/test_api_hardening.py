@@ -69,6 +69,29 @@ class OriginGuardTests(unittest.TestCase):
         finally:
             A.CSRF_ALLOWED_ORIGINS = old
 
+    def test_audit_p12_allowlist_wins_over_sec_fetch_site(self):
+        # AUD-P1-12：真实浏览器从白名单站点发写请求必带 Sec-Fetch-Site: cross-site，
+        # 旧顺序先 403 了它，白名单形同虚设（审核 ③-9，已实测）。
+        old = A.CSRF_ALLOWED_ORIGINS
+        A.CSRF_ALLOWED_ORIGINS = ["http://trusted.example"]
+        try:
+            r = self.c.post(PROBE, headers={"Origin": "http://trusted.example",
+                                            "Sec-Fetch-Site": "cross-site"})
+            self.assertNotEqual(r.status_code, 403,
+                                "白名单 origin 必须先于 Sec-Fetch-Site 判定")
+        finally:
+            A.CSRF_ALLOWED_ORIGINS = old
+
+    def test_audit_p12_non_ascii_token_is_401_not_500(self):
+        # AUD-P1-12：compare_digest 遇非 ASCII 曾抛 TypeError → 500（已实测）
+        old = A.API_TOKEN
+        A.API_TOKEN = "secret-token"
+        try:
+            r = self.c.get(PROBE, params={"token": "中文令牌"})
+            self.assertEqual(r.status_code, 401, "非 ASCII token 应视为不匹配（401）")
+        finally:
+            A.API_TOKEN = old
+
 
 class SecurityHeaderTests(unittest.TestCase):
     def test_headers_present(self):
