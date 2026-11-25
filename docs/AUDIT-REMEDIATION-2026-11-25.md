@@ -5,6 +5,11 @@
 
 ## 执行状态（2026-11-25 完成本批）
 
+- ✅ 发布链路：beta.36（前两轮）/ beta.37（含第三轮）发布时 Trusted Release 的
+  「Run unit tests」步骤失败——原因是 P0-12 重做审批横幅后
+  `tests/test_interrupt_prominence.py` 仍在断言旧文案（已随 a323807 更新断言），
+  beta.38 已重发并携带修复。
+
 - ✅ P0 全部 12 项落地（AUD-P0-01 … AUD-P0-12），每项带回归测试或针对性用例；
 - ✅ P1 全部 16 项落地（AUD-P1-01 … AUD-P1-16；P1-16 含 CI 依赖一致性检查步骤）；
 - ✅ P2 顺手项（AUD-P2-01）：OWA 发送验证与 pop 空值、open_teams 不劫共享页、
