@@ -206,7 +206,8 @@ async def _drive_child(child_sid: str, task: str, model_id: str, max_steps: int,
                                approval_check=lambda tool, h: b.AGENT_SESSIONS.take_approval(
                                    child_sid, tool, h),
                                final_gate=lambda content: verify_task_plan(
-                                   child_sid, child_reg.root, content))
+                                   child_sid, child_reg.root, content,
+                                   store=b.TOOLS_EXTRA._task_store()))
         try:
             result = await runner.run(task, model_id)
             try:
@@ -221,8 +222,16 @@ async def _drive_child(child_sid: str, task: str, model_id: str, max_steps: int,
             # 否则把失败原因透传出去——fanout/orchestrator 以 error 字段判 ok，
             # 这里若不报，被拒的子任务会被父会话当作成功。
             st = get() or {}
-            if str(st.get("state")) in ("failed", "cancelled"):
-                err = str(st.get("last_error") or result.content or "子任务失败")[:300]
+            _state = str(st.get("state") or "")
+            # AUD-P1-03：只把显式 completed 当成功。waiting（待授权）/suspended
+            # （限流）等"非成功非失败"出口此前一律被 patch 成 completed 且
+            # error=None，父会话把未完成子任务当成功（审核 ②-4）。
+            if _state != "completed":
+                err = str(st.get("last_error") or result.content
+                          or f"子任务未完成（state={_state}）")[:300]
+                if _state not in ("failed", "cancelled"):
+                    b.AGENT_SESSIONS.patch(child_sid, state="failed",
+                                           last_error=err[:300])
                 return {"agent_id": child_sid, "description": (description or task)[:120],
                         "content": result.content, "steps": len(result.steps),
                         "model": model_id, "error": err,

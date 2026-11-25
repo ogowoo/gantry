@@ -98,6 +98,18 @@ def _check_outputs(task: dict[str, Any], root: Path) -> list[dict[str, Any]]:
     return checks
 
 
+def _command_env() -> dict[str, str]:
+    """验收命令的最小环境白名单（AUD-P1-04）。
+
+    不再继承完整父环境：.env 注入的密钥/令牌（GANTRY_API_TOKEN、云厂商 key 等）
+    不得被 `set`/`env` 类验收命令读进 stdout 回灌模型并落库（审核 ②-9）。
+    """
+    keys = ("PATH", "PATHEXT", "SystemRoot", "windir", "COMSPEC", "TEMP", "TMP",
+            "PYTHONIOENCODING", "PYTHONUTF8", "LANG", "LC_ALL",
+            "HOME", "USERPROFILE", "HOMEDRIVE", "HOMEPATH")
+    return {k: os.environ[k] for k in keys if k in os.environ}
+
+
 def _run_command(command: Any, root: Path, timeout: float = 60) -> dict[str, Any]:
     """不经 shell 执行命令（shell=False）：字符串命令用 shlex 拆成参数列表。
 
@@ -130,14 +142,17 @@ def _run_command(command: Any, root: Path, timeout: float = 60) -> dict[str, Any
         return {"ok": False, "detail": "empty command", "stdout": "", "stderr": ""}
     try:
         proc = subprocess.run(argv, cwd=str(root), shell=False, capture_output=True,
-                              text=True, timeout=max(1, min(float(timeout or 60), 300)))
+                              text=True, env=_command_env(),
+                              timeout=max(1, min(float(timeout or 60), 300)))
     except subprocess.TimeoutExpired:
         return {"ok": False, "detail": "command timeout", "stdout": "", "stderr": ""}
     except Exception as exc:
         return {"ok": False, "detail": f"{type(exc).__name__}: {exc}",
                 "stdout": "", "stderr": ""}
+    # AUD-P1-04：stdout/stderr 先脱敏再返回——命令输出会回灌模型并落库。
     return {"ok": True, "exit_code": proc.returncode,
-            "stdout": (proc.stdout or "")[-8000:], "stderr": (proc.stderr or "")[-4000:]}
+            "stdout": _redact_secrets((proc.stdout or "")[-8000:]),
+            "stderr": _redact_secrets((proc.stderr or "")[-4000:])}
 
 
 def _json_path(data: Any, path: str) -> Any:

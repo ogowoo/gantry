@@ -104,6 +104,29 @@ def _result_record(task: dict[str, Any], status: str, started: float,
     }
 
 
+async def _run_subagent_isolated(run_subagent: RunSubagent, prompt: str,
+                                 task: dict[str, Any], model: str,
+                                 max_steps: int, web_channel: bool):
+    """网页通道并行时清掉继承的 _PAGE_CTX，让子代理自己独占窗口（AUD-P0-08）。
+
+    复制 context 并清空 _PAGE_CTX 后在其中 create_task：Task 会继承清空后的
+    上下文，`_drive_child` 看到没有页面上下文就会走"独占窗口"分支——与
+    tools_extra._subagent_in_own_window 同一模式（实测有效）。
+    """
+    label = f"task:{task['id']}"
+    child_model = str(task.get("model") or model)
+    if not web_channel:
+        return await run_subagent(prompt, label, child_model, int(max_steps or 0))
+    import contextvars
+    from . import bridge as _b1
+
+    ctx = contextvars.copy_context()
+    ctx.run(_b1._PAGE_CTX.set, None)
+    task_obj = ctx.run(asyncio.create_task,
+                       run_subagent(prompt, label, child_model, int(max_steps or 0)))
+    return await task_obj
+
+
 async def run_plan(store: TaskStore, session_id: str, run_subagent: RunSubagent,
                    *, model: str = "", max_concurrency: int = 4,
                    timeout_seconds: float = 600, max_steps: int = 0,
@@ -115,6 +138,19 @@ async def run_plan(store: TaskStore, session_id: str, run_subagent: RunSubagent,
     if not sid:
         raise TaskPlanError("session_id 不能为空")
     cap = max(1, min(int(max_concurrency or 4), 8))
+    # AUD-P0-08：网页通道（父任务正持自己的页面上下文）时，并行子代理若继承
+    # _PAGE_CTX 会共用父标签页互相串台（审核 ②-1）。并行时给每个任务清掉页面
+    # 上下文、让子代理各自独占窗口；并发上限 = 空闲窗口数（父任务占一个）。
+    # 窗口数 = 1 时降为顺序执行（复用父页面，与 subagent_many 语义一致）。
+    web_channel = False
+    try:
+        from . import bridge as _b0
+        web_channel = (_b0._PAGE_CTX.get() is not None
+                       and not _b0.model_is_provider(model))
+        if web_channel:
+            cap = max(1, min(cap, int(_b0.web_subagent_parallel() or 1) - 1))
+    except Exception:                                # noqa: BLE001
+        web_channel = False
     timeout = max(0.05, float(timeout_seconds or 600))
     workspace = Path(workspace).resolve()
     results: list[dict[str, Any]] = []
@@ -184,8 +220,8 @@ async def run_plan(store: TaskStore, session_id: str, run_subagent: RunSubagent,
             prompt = _task_prompt(task)
             try:
                 result = await asyncio.wait_for(
-                    run_subagent(prompt, f"task:{task['id']}",
-                                 str(task.get("model") or model), int(max_steps or 0)),
+                    _run_subagent_isolated(run_subagent, prompt, task, model,
+                                           max_steps, web_channel),
                     timeout=timeout)
             except asyncio.TimeoutError:
                 result = {"error": f"子代理超时（>{timeout:.0f}s）", "content": ""}
@@ -202,8 +238,11 @@ async def run_plan(store: TaskStore, session_id: str, run_subagent: RunSubagent,
             elif review_fn is not None:
                 verdict = review_fn(task, result, workspace)
             else:
-                verdict = review_task(task, result, workspace,
-                                      allow_commands=allow_commands)
+                # AUD-P1-15：验收含同步子进程（最长 300s）与无上限读文件，
+                # 必须进线程池（审核 ②-8）。
+                verdict = await asyncio.to_thread(
+                    review_task, task, result, workspace,
+                    allow_commands=allow_commands)
             if verdict.get("ok"):
                 for p in _paths(task):
                     path_owner[p] = str(task["id"])

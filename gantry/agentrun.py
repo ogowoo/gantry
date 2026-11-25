@@ -522,8 +522,14 @@ async def run_agent(req: b.AgentRequest, attach_paths: list | None = None):
                     except Exception:
                         pass
                 try:
+                    # AUD-P2（审核 ②-6）：cancel 只在回合边界检查——生成期间点
+                    # 取消，等待循环只轮询 pause/interrupt，回合照常返回并执行动作。
+                    # 把 cancel_requested 并入中断判定：AgentInterrupted 回合作废，
+                    # 循环顶部看到 cancel_requested 即落 cancelled 返回。
                     ans=await agent_chat_once(send_prompt,model,make_new,pause_check=pause_check,
-                                              interrupt_check=lambda: b.interrupt_pending(sid))
+                                              interrupt_check=lambda: (b.interrupt_pending(sid)
+                                                                      or bool((b.AGENT_SESSIONS.get(sid)
+                                                                               or {}).get("cancel_requested"))))
                     if _cache_on and ans:
                         try:
                             b.AGENT_SESSIONS.save_turn(sid, _ci, _ph, ans,

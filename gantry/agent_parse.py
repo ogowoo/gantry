@@ -557,18 +557,12 @@ class ParseMixin:
         # 截断的 final 也要救：Copilot 生成 JSON 中途停顿/被上限截断时，界面上
         # 答案可能是完整的，我们却抓到最后少了一个引号的半截文本。final 没有
         # 副作用（只是答复），把已写出的内容取出来比白白浪费一个修复回合好。
-        m = re.search(r'["\']type["\']\s*:\s*["\']final["\']\s*,\s*["\']content["\']\s*:\s*["\'](.*)$',
-                      raw, re.I | re.S)
-        if m:
-            content = _decode_fragment(m.group(1))
-            content = re.sub(r'["\'}\s]+$', '', content).strip()
-            if content:
-                return {'type': 'final', 'content': content,
-                        '_recovered_truncated_json': True}
+        # AUD-P1-02：必须放在 _recover_partial_batch/_recover_truncated_write 之后，
+        # 且带 outer_broken_tool 守护——否则被截断的 write_text 内容里恰好含有
+        # {"type":"final","content":... 协议示例（文档/技能里就有）时，写入动作
+        # 会被整条丢弃、任务却以"完成"收尾（审核 ②-3，已复现）。
 
-        # 最后兜底：动作在 content 中间被 Copilot 输出上限截断。tool/path 前缀
-        # 完整、内容保留截断前有效部分时，宽容解码后按部分写入，不让整个
-        # 分块作废（否则文件永远停在最后一个完整分块）。
+        # 先尝试更"具体"的恢复（批量/写入恢复），再退回 final 兜底。
         recovered = cls._recover_partial_batch(raw)
         if recovered:
             return recovered
@@ -576,6 +570,16 @@ class ParseMixin:
         recovered = cls._recover_truncated_write(raw)
         if recovered:
             return recovered
+
+        if not outer_broken_tool:
+            m = re.search(r'["\']type["\']\s*:\s*["\']final["\']\s*,\s*["\']content["\']\s*:\s*["\'](.*)$',
+                          raw, re.I | re.S)
+            if m:
+                content = _decode_fragment(m.group(1))
+                content = re.sub(r'["\'}\s]+$', '', content).strip()
+                if content:
+                    return {'type': 'final', 'content': content,
+                            '_recovered_truncated_json': True}
 
         raise ValueError('未返回完整、可解析的 Agent JSON 动作')
 

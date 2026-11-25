@@ -35,6 +35,29 @@ def _decode_fragment(value: str) -> str:
             .replace('\x00', '\\'))       # 还原
 
 
+def _approval_args_summary(arguments: Any) -> str:
+    """审批横幅用的脱敏参数摘要（AUD-P0-12）：只展示路径/命令/收件人等关键字段，
+    截断长值——用户在授权点必须能看到要删/改的对象，而不是"盲签"。
+    """
+    try:
+        d = dict(arguments or {})
+        keys = [k for k in ("path", "paths", "source_path", "dest", "target",
+                            "command", "cmd", "chat", "to", "recipient",
+                            "url", "text", "subject") if k in d]
+        parts = []
+        for k in keys:
+            v = d[k]
+            if isinstance(v, (list, tuple)):
+                v = ", ".join(str(x) for x in v[:4])
+            s = str(v).replace("\n", " ")
+            if len(s) > 120:
+                s = s[:120] + "…"
+            parts.append(f"{k}={s}")
+        return "；".join(parts)[:400] or "（无路径/命令参数）"
+    except Exception:                            # noqa: BLE001
+        return ""
+
+
 def validate_token_budget(config: dict[str, Any]) -> None:
  context = int(config.get("context_token_budget", 128000))
  compact = int(config.get("compact_at_tokens", 76000))
@@ -70,7 +93,18 @@ AGENT_ACTION_SCHEMA: dict[str, Any] = {
 }
 
 
-_PRODUCTIVE_TOOLS = ("write_text", "write_text_b64", "append_text", "append_text_b64", "replace_text", "apply_patch", "exec", "pwsh", "copilot_file", "create_goal", "write_office", "edit_office", "send_outlook", "post_web", "subagent_many", "subagent", "task_run", "create_skill", "self_write_text_b64", "self_replace_text", "self_append_text_b64")
+_PRODUCTIVE_TOOLS = ("write_text", "write_text_b64", "append_text", "append_text_b64", "replace_text", "apply_patch", "exec", "pwsh", "copilot_file", "create_goal", "write_excel", "write_docx", "outlook_send", "post_web", "subagent_many", "subagent", "task_run", "skill_create", "self_write_text_b64", "self_replace_text", "self_append_text_b64")
+
+
+# AUD-P1-01：验证闭环的"代码写入工具"集合——apply_patch/replace_lines 等推荐
+# 编辑路径此前不在触发集合里，改 .py 后 final 可绕过 validate+unittest 双门
+# （审核 ②-2，已复现）。与 MUTATING_TOOLS 保持同源新增。
+_CODE_WRITING_TOOLS = frozenset({
+    "write_text", "append_text", "write_text_b64", "append_text_b64",
+    "replace_text", "apply_patch", "replace_lines", "replace_python_symbol",
+    "convert_indentation", "indent_lines", "copy_path", "move_path",
+    "copilot_file", "pwsh", "write_csv", "notebook_edit",
+})
 
 
 class AgentPaused(Exception):
@@ -570,9 +604,14 @@ class AgentRunner(PromptMixin, ParseMixin, TextMixin):
         self._required_tools = self._explicit_required_tools(_latest_ins)
         required_tool_strikes = 0
         # "动手"类工具：成功执行即视为真的产生了产出/改动（读取、验证类不算）。
+        # AUD-P1-01：补 apply_patch/replace_lines 等推荐编辑路径（此前真实改动
+        # 会被 noop 守卫误判成"没有任何产出"，白烧回合）。
         _action_tools = {"write_text", "append_text", "write_text_b64", "append_text_b64",
-                         "replace_text", "make_directory", "copy_path", "move_path",
+                         "replace_text", "apply_patch", "replace_lines",
+                         "replace_python_symbol", "convert_indentation", "indent_lines",
+                         "make_directory", "copy_path", "move_path",
                          "delete_path", "run_python", "write_excel", "write_docx",
+                         "write_csv", "pwsh",
                          "outlook_send", "copilot_file", "skill_create", "memory_write",
                          "subagent", "subagent_many", "task_run",
                          "self_write_text_b64", "self_append_text_b64", "self_replace_text"}
@@ -773,7 +812,20 @@ class AgentRunner(PromptMixin, ParseMixin, TextMixin):
                     if isinstance(last, dict) and last.get("status") == "invalid_action":
                         prompt = self._repair_prompt(last, last_json)
                     else:
-                        prompt = "继续同一任务。上一动作实际结果：\n" + last_json
+                        # AUD-P2（审核 ②-5）：批量动作只把最后一条结果回灌，前面的
+                        # "读了等于没读"。批量回合把整批动作结果按顺序紧凑拼进提示。
+                        _br = last.get("batch_result") if isinstance(last, dict) else None
+                        _batch_parts = []
+                        if isinstance(_br, dict) and int(_br.get("size") or 0) > 1:
+                            _n = min(len(history), int(_br["size"]))
+                            for _s in history[-_n:]:
+                                _c = self.compact_value(_s, 1500)
+                                _batch_parts.append(json.dumps(_c, ensure_ascii=False))
+                        if _batch_parts:
+                            prompt = ("继续同一任务。上一批动作的实际结果（按顺序）：\n"
+                                      + "\n".join(_batch_parts))
+                        else:
+                            prompt = "继续同一任务。上一动作实际结果：\n" + last_json
                     force_new = False
 
             # ── next-step 队列（P1-8，对应 DSH 的 ReactLoopInbox 两级队列）──
@@ -869,6 +921,12 @@ class AgentRunner(PromptMixin, ParseMixin, TextMixin):
                 all_steps.append(step); self.step_saver(step)
                 self.state_saver(recent_steps=history[-self.keep_recent:], last_error=step["error"])
                 if send_failures >= 3:
+                    # AUD-P1-03：连续发不出去必须把会话置 failed——此前只记
+                    # last_error 就返回，state 仍 running，主流程/面板卡死在
+                    # 执行中（审核 ②-4）。
+                    self.state_saver(state="failed",
+                                     recent_steps=history[-self.keep_recent:],
+                                     last_error=step["error"])
                     return AgentResult(
                         f"连续 {send_failures} 次未能把消息送进 Copilot 输入框：{reason}。"
                         "这通常不是限流，而是页面/输入框状态异常——可在界面点『切换到页面』查看，"
@@ -1043,6 +1101,18 @@ class AgentRunner(PromptMixin, ParseMixin, TextMixin):
                 if parse_failures >= self.max_parse_failures:
                     # 连续解析失败是回答格式问题，不是上下文耗尽：压缩后继续用当前会话。
                     # 不新建 Copilot 会话，也不覆盖用户可能已请求的 paused 状态。
+                    # AUD-P2（审核 ②-10）：压缩周期也必须有终点——旧实现每次清零计数，
+                    # 唯一出口是 max_total_steps=1000，网页通道可空烧数十小时额度。
+                    _compact_rounds = int(getattr(self, "_parse_compact_rounds", 0) or 0) + 1
+                    self._parse_compact_rounds = _compact_rounds
+                    if _compact_rounds >= 3:
+                        _fail_msg = ("模型连续多轮返回不可解析的回答（已压缩 %d 个周期仍无法恢复）。"
+                                     "这通常意味着：当前提供商/网页模型与动作协议不兼容、"
+                                     "协议被反复截断、或提示词被注入带偏。已停止自动重试。"
+                                     % _compact_rounds)
+                        self.state_saver(state="failed", last_error=_fail_msg,
+                                         recent_steps=history[-self.keep_recent:])
+                        return AgentResult(_fail_msg, all_steps)
                     self.state_saver(compact_requested=True, rollover_requested=False,
                                      last_error=_msg)
                     force_rollover = False
@@ -1132,7 +1202,9 @@ class AgentRunner(PromptMixin, ParseMixin, TextMixin):
                     # 不通过，不能直接 final；返工提示会进入下一回合。
                     if self.final_gate is not None:
                         try:
-                            _tg = self.final_gate(str(sub.get("content") or ""))
+                            # AUD-P1-15：验收门内是同步子进程/文件 IO，进线程池
+                            _tg = await asyncio.to_thread(
+                                self.final_gate, str(sub.get("content") or ""))
                         except Exception as _exc:          # noqa: BLE001
                             _tg = {"ok": False, "reason": f"验收门异常: {_exc}"}
                         if isinstance(_tg, dict) and not _tg.get("skipped", False) \
@@ -1195,6 +1267,15 @@ class AgentRunner(PromptMixin, ParseMixin, TextMixin):
                             syntax_validated, tests_passed = _auto["syntax_ok"], _auto["tests_ok"]
                             _save_gate()
                             if syntax_validated and tests_passed:
+                                # AUD-P2（审核 ②-11）：先看有没有 goal 续轮——旧实现
+                                # 先落 state=completed 再判断，goal 续跑期间会话显示
+                                # completed，重启后 auto_resume 只捞 paused 会半途而废。
+                                _g = self._goal_continue_step(total)
+                                if _g is not None:
+                                    history.append(_g); all_steps.append(_g); self.step_saver(_g)
+                                    total += 1
+                                    self.state_saver(total_steps=total, recent_steps=history[-self.keep_recent:])
+                                    break
                                 self._record_conv_stat(state, conv_steps + 1, conv_t + used_tokens,
                                                        conv_c + used_chars, "completed", model)
                                 self.state_saver(state="completed", total_steps=total + 1,
@@ -1203,12 +1284,6 @@ class AgentRunner(PromptMixin, ParseMixin, TextMixin):
                                                  estimated_chars=chars + used_chars)
                                 validation_required = syntax_validated = tests_passed = False
                                 _save_gate()
-                                _g = self._goal_continue_step(total)
-                                if _g is not None:
-                                    history.append(_g); all_steps.append(_g); self.step_saver(_g)
-                                    total += 1
-                                    self.state_saver(total_steps=total, recent_steps=history[-self.keep_recent:])
-                                    break
                                 return AgentResult(sub.get("content") or "任务已完成。", all_steps)
                         step = {"step": total + 1, "status": "validation_gate",
                                 "error": self._gate_message(gate_strikes, _auto)}
@@ -1242,6 +1317,12 @@ class AgentRunner(PromptMixin, ParseMixin, TextMixin):
                     validation_required = syntax_validated = tests_passed = False
                     _save_gate()
                     return AgentResult(sub.get("content") or "任务已完成。", all_steps)
+
+                # AUD-P2（审核 ②-6）：执行每个动作前再查一次取消——用户可能在
+                # 回合生成期间点了取消，动作仍会产生写/外发副作用。
+                if (self.state_getter() or {}).get("cancel_requested"):
+                    self.state_saver(state="cancelled")
+                    return AgentResult("任务已取消。", all_steps)
 
                 tool, arguments = sub.get("tool", ""), sub.get("arguments") or {}
                 step = {"step": total + 1, "tool": tool, "arguments": arguments,
@@ -1395,11 +1476,14 @@ class AgentRunner(PromptMixin, ParseMixin, TextMixin):
                                         '请让用户在本会话授权该操作，然后继续任务。')
                                 _st = {'step': total + 1, 'status': 'approval_required', 'tool': str(tool),
                                        'risk': step.get('risk'),
+                                       'args_summary': _approval_args_summary(arguments),
                                        'reason': '破坏性工具未获一次性授权', 'error': _msg}
                                 history.append(_st); all_steps.append(_st); self.step_saver(_st)
                                 self.state_saver(recent_steps=history[-self.keep_recent:], last_error=_msg,
                                                  state='waiting',
-                                                 approval_pending={'tool': str(tool), 'args_hash': _approval_hash})
+                                                 approval_pending={'tool': str(tool),
+                                                                   'args_hash': _approval_hash,
+                                                                   'args_summary': _approval_args_summary(arguments)})
                                 return AgentResult(_msg, all_steps)
                         if self.step_begin:
                             try:
@@ -1500,9 +1584,7 @@ class AgentRunner(PromptMixin, ParseMixin, TextMixin):
                     # 注意必须含 b64 写入族：提示词要求代码/JSON/HTML 一律用
                     # write_text_b64 / append_text_b64 写，漏掉它们等于给验证
                     # 闭环开了个后门（写完代码直接 final 也不会被拦）。
-                    if tool in {"write_text", "append_text", "write_text_b64", "append_text_b64",
-                                "replace_text", "copy_path",
-                                "move_path", "copilot_file"} and changed_path.lower().endswith((".py", ".json", ".html")):
+                    if tool in _CODE_WRITING_TOOLS and changed_path.lower().endswith((".py", ".json", ".html")):
                         validation_required = True
                         syntax_validated = False
                         tests_passed = False

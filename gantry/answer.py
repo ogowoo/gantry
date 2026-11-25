@@ -69,7 +69,9 @@ def _has_complete_agent_action(text: str) -> bool:
         # 用模块级已导入的 AgentRunner：函数体内 `from agent import ...`
         # 在包结构下必然 ModuleNotFoundError，会被下面裸 except 吞掉，
         # 使本函数恒返回 False（完整动作被当畸形、合法 final 被当限流）。
-        return AgentRunner._parse(text).get("type") in {"tool", "final"}
+        # AUD-P2（审核 ②-12）：批量协议 {"type":"actions"} 也是完整回答——
+        # 旧判定漏掉它，每个批量回合多等 malformed_grace（8s+）并记误导性诊断。
+        return AgentRunner._parse(text).get("type") in {"tool", "final", "actions"}
     except Exception:
         return False
 

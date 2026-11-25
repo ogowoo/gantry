@@ -33,9 +33,12 @@ class _GateBlockedRunner:
 
 class _OkRunner:
     def __init__(self, reg, turn, cfg, get, save, add_step, add_file, add_conv_stat, **kw):
-        pass
+        self._save = save
 
     async def run(self, task, model):
+        # 与真实 runner 的成功出口一致：返回前先落 state=completed
+        # （AUD-P1-03 后 _drive_child 只认显式 completed 为成功）。
+        self._save(state="completed", total_steps=2)
         return AgentResult("任务已完成", [{"step": 1, "status": "ok", "tool": "read_text"}])
 
 
