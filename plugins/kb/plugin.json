@@ -41,22 +41,7 @@
       "dir": "data/kb",
       "max_results": 6,
       "min_score": 0.0,
-      "auto_reindex": true,
-      "embedding": {
-        "backend": "fastembed",
-        "model": "BAAI/bge-small-zh-v1.5",
-        "cache_dir": "data/models/fastembed",
-        "dim": 512,
-        "local_files_only": false,
-        "threads": 0,
-        "w_vec": 0.75,
-        "w_cov": 0.25
-      },
-      "ocr": {
-        "engine": "rapidocr",
-        "xiaomi_model": "SeerRay-Lab/Xiaomi-OCR-0",
-        "eager": false
-      }
+      "auto_reindex": true
     },
     "allow_uninstall": true
   }

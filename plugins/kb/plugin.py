@@ -191,15 +191,25 @@ def _ocr_settings(ctx) -> dict[str, Any]:
 
 
 def _sem(ctx):
-    """按配置构造/缓存 SemanticIndex；后端不可用/关闭时返回 None。"""
+    """按配置构造/缓存 SemanticIndex；后端不可用/关闭时返回 None。
+
+    AUD-P3（审核 ⑤-4）：按合并后配置的签名缓存——配置变化（config.json 保存/
+    插件配置更新）后下一次调用自动重建，不再"改了不生效、重启前不变"。
+    """
     from gantry.kb_semantic import index_for
 
-    if getattr(ctx, "_sem", "missing") == "missing":
+    try:
+        sig = json.dumps(_emb_cfg(ctx), ensure_ascii=False, sort_keys=True)
+    except Exception:                            # noqa: BLE001
+        sig = None
+    if getattr(ctx, "_sem", "missing") == "missing" or getattr(ctx, "_sem_sig", None) != sig:
         try:
             ctx._sem = index_for(_kb(ctx), _emb_cfg(ctx))
+            ctx._sem_sig = sig
         except Exception as exc:                 # noqa: BLE001
             ctx.log(f"向量层初始化失败（退回 FTS）: {exc}")
             ctx._sem = None
+            ctx._sem_sig = sig
     return getattr(ctx, "_sem", None)
 
 
@@ -285,10 +295,17 @@ def setup(ctx) -> None:
                 except Exception as exc:         # noqa: BLE001
                     ctx.log(f"自动建向量失败（退回 FTS）: {exc}")
             if st["vectorised"] > 0:
-                hits = sem.hybrid(q, recall,
-                                  w_vec=float(e.get("w_vec") or 0.75),
-                                  w_cov=float(e.get("w_cov") or 0.25))
-                backend = f"hybrid({sem.embedder.name})"
+                # AUD-P3（审核 ⑤-4）：hybrid 异常时退回 FTS，而不是把"向量层
+                # 运行期失败"直接抛给模型（注释承诺过"退回 FTS"却从未实现）。
+                try:
+                    hits = sem.hybrid(q, recall,
+                                      w_vec=float(e.get("w_vec") or 0.75),
+                                      w_cov=float(e.get("w_cov") or 0.25))
+                    backend = f"hybrid({sem.embedder.name})"
+                except Exception as exc:         # noqa: BLE001
+                    ctx.log(f"hybrid 检索失败（退回 FTS）: {exc}")
+                    hits = kb.search(q, n)
+                    backend = "fts5-trigram"
         elif sem is not None and chosen == "vector":
             hits = sem.search(q, recall)
             backend = f"vector({sem.embedder.name})"

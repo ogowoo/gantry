@@ -362,6 +362,15 @@ class KnowledgeBase:
             con.execute("DELETE FROM files WHERE path=?", (rel,))
             removed += 1
         con.commit()
+        # AUD-P3（审核 ⑤-3）：向量行与 chunk 生命周期同步清理——旧实现只删
+        # chunks/FTS，改文档/删文档后 chunks_vec 留孤儿向量，检索 top-k 被孤儿
+        # 占满、stats 还报 complete（现场 data/kb.db 实证）。
+        try:
+            con.execute(
+                "DELETE FROM chunks_vec WHERE chunk_id NOT IN (SELECT id FROM chunks)")
+            con.commit()
+        except sqlite3.OperationalError:
+            pass   # 没有向量层（未建过 chunks_vec）的库跳过
         total_chunks = con.execute(
             f"SELECT COUNT(*) AS n FROM chunks WHERE {_SEARCHABLE}").fetchone()["n"]
         total_parents = con.execute(
