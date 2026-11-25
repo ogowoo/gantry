@@ -13,7 +13,7 @@ import { providersPaneHtml, loadProviders, provNew, provEdit, provCancel, provSa
 
 /* 设置左侧的“工具页”：不弹窗，直接把对应面板的 .dlg 移进设置右侧渲染。 */
 const TOOL_TABS = [
- {id:'models', label:'本地模型', mask:'modelsMask', run:()=>openModels()},
+ {id:'models', label:'模型', mask:'modelsMask', run:()=>openModels()},
  {id:'plugins', label:'插件管理', mask:'pluginsMask', run:()=>window.openPlugins(),
   extra:[{mask:'panelMask', run:()=>window.openPanels(), title:'插件面板'}]},
  {id:'kb', label:'知识库', mask:'kbMask', run:()=>openKb()},

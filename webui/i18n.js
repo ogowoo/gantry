@@ -1040,7 +1040,8 @@ Object.assign(I18N_EN, {
   "环境变量 {n} 已设置": "Env var {n} is set",
   "（未指定模型）": "(no model set)",
   "（未配置地址）": "(no base URL)",
-  "本地模型请在「本地模型」页管理": "Manage in-process models on the Local models tab",
+  "本地模型请在「模型」页管理": "Manage in-process models on the Models tab",
+  "进程内 GGUF 的模型、上下文与线程数在「模型」页的本地模型子页配置；这里只能改描述。": "Model, context and thread count for in-process GGUF are configured on the local-models sub-tab of the Models tab; only the description can be edited here.",
   "测试连接": "Test connection",
   // ── 提供商授权（OAuth / webchat）──
   "一键授权": "Authorize",

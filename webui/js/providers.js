@@ -49,7 +49,7 @@ function _provCard(p) {
           ? `<button type="button" class="btn ghost" data-act="provGetKey" data-arg="https://platform.deepseek.com/api_keys">${esc(tr('获取 Key（打开控制台）'))}</button>`
           : ''));
   const acts = p.kind === 'local'
-    ? `<span class="sethint">${esc(tr('本地模型请在「本地模型」页管理'))}</span>`
+    ? `<span class="sethint">${esc(tr('本地模型请在「模型」页管理'))}</span>`
     : `${oauthBtn}<button type="button" class="btn ghost" data-act="provEdit" data-arg="${esc(p.name)}">${esc(tr('编辑'))}</button>
        <button type="button" class="btn ghost" data-act="provTest" data-arg="${esc(p.name)}">${esc(tr('测试连接'))}</button>
        <button type="button" class="btn ghost${p.kind === 'custom' ? ' danger' : ''}" data-act="provDelete" data-arg="${esc(p.name)}">${esc(tr(p.kind === 'preset' ? '恢复默认' : '删除'))}</button>`;
@@ -113,7 +113,7 @@ function _provFormHtml(p) {
   const localOnly = isEdit && p.kind === 'local';
   if (localOnly) {
     return `<h5 class="setsection">${esc(tr('编辑本地提供商'))}：${esc(p.name)}</h5>
-      <p class="sethint">${esc(tr('进程内 GGUF 的模型、上下文与线程数在「本地模型」页配置；这里只能改描述。'))}</p>
+      <p class="sethint">${esc(tr('进程内 GGUF 的模型、上下文与线程数在「模型」页的本地模型子页配置；这里只能改描述。'))}</p>
       <label class="setrow"><span>${esc(tr('描述'))}</span>
         <input class="kbinput" id="provDesc" value="${esc(p.description || '')}"></label>
       <div class="setbtns">
