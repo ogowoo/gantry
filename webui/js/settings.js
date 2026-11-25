@@ -1,6 +1,6 @@
 // settings.js — 
 // 从原 webui/app.js 拆出的 ES 模块（该单体已退役，见 docs/ESM-MIGRATION.md）。
-import { SETTINGS_GROUPS, SANDBOX_UI, ENUM_LABEL, openMemory, showRestarting } from './themeboot.js';
+import { SETTINGS_GROUPS, SANDBOX_UI, ENUM_LABEL, openMemory } from './themeboot.js';
 import { CODE_EXT } from './codeux.js';
 import { stepFilterInput } from './steps.js';
 import { exportSessions, importSessions, deleteSessionsBulk } from './sessions.js';
@@ -855,6 +855,21 @@ async function _waitHealth(ms){
  return false;
 }
 
+/* 更新遮罩：安装期间整屏阻塞（防重复点击/误操作），成功后靠页面刷新自然消失。 */
+function _updateMask(text){
+ let el=document.getElementById('updateMask');
+ if(!el){el=document.createElement('div');el.id='updateMask';
+  el.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.72);z-index:10000;display:flex;align-items:center;justify-content:center';
+  document.body.appendChild(el)}
+ el.innerHTML='<div style="text-align:center;color:#fff">'
+  +'<div style="font-size:42px;margin-bottom:14px">⏳</div>'
+  +'<div id="updateMaskText" style="font-size:16px;line-height:1.7"></div></div>';
+ _updateMaskText(text);
+ el.style.display='flex';
+}
+function _updateMaskText(t){const e=document.getElementById('updateMaskText');if(e)e.textContent=t}
+function _updateMaskHide(){const el=document.getElementById('updateMask');if(el)el.style.display='none'}
+
 /* 检查 GitHub 更新：只检查不自动装；用户确认后才安装并等 /health 恢复。 */
 async function checkUpdate(){
  try{
@@ -866,25 +881,27 @@ async function checkUpdate(){
    tr('发现新版本 {a} → {b}（{m}）。更新前会备份代码，服务将重启。确定更新？',
       {a:r.current,b:r.latest,m:r.method}),tr('发现新版本'),false);
   if(!ok)return;
+  _updateMask(tr('正在下载并安装更新 {v}，请勿关闭页面…',{v:r.latest}));
   const d=await api('/v1/update/apply',{method:'POST',headers:{'Content-Type':'application/json'},
    body:JSON.stringify({version:r.latest,method:r.method,restart:true})});
-  toast(tr('已更新到 {v}，等待服务重启…',{v:d.target||r.latest}),'ok');
-  showRestarting(tr('正在更新到 {v}…',{v:d.target||r.latest}));
+  _updateMaskText(tr('已更新到 {v}，等待服务重启，完成后本页会自动刷新…',{v:d.target||r.latest}));
   if(await _waitHealth(120000)){location.reload();return}
+  _updateMaskHide();
   toast(tr('服务未在 120 秒内恢复，请查看 data/logs/crash.log'),'err');
- }catch(e){toast(tr('更新失败: ')+((e&&(e.text||e.detail||e.message))||e),'err')}
+ }catch(e){_updateMaskHide();toast(tr('更新失败: ')+((e&&(e.text||e.detail||e.message))||e),'err')}
 }
 
 async function rollbackUpdate(){
  if(!await window.dlgConfirm(tr('确定回滚最近一次代码更新并重启服务？'),tr('回滚最近更新'),true))return;
  try{
+  _updateMask(tr('正在回滚更新，请勿关闭页面…'));
   const d=await api('/v1/update/rollback',{method:'POST',headers:{'Content-Type':'application/json'},
    body:JSON.stringify({restart:true})});
-  toast(tr('已回滚：{b}',{b:d.backup||''}),'ok');
-  showRestarting(tr('正在回滚更新…'));
+  _updateMaskText(tr('已回滚：{b}，等待服务重启，完成后本页会自动刷新…',{b:d.backup||''}));
   if(await _waitHealth(120000)){location.reload();return}
+  _updateMaskHide();
   toast(tr('服务未在 120 秒内恢复，请查看 data/logs/crash.log'),'err');
- }catch(e){toast(tr('回滚失败: ')+((e&&(e.text||e.detail||e.message))||e),'err')}
+ }catch(e){_updateMaskHide();toast(tr('回滚失败: ')+((e&&(e.text||e.detail||e.message))||e),'err')}
 }
 
 /** 侧栏版本号点击：直接打开设置的危险区，并滚到更新面板。 */
