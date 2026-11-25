@@ -36,9 +36,26 @@ async def live_open(payload: dict | None = None):
         raise HTTPException(502, str(exc)[:200]) from exc
 
 
+@router.post("/v1/live/input")
+async def live_input(payload: dict | None = None):
+    """互动转发：面板的点击/滚轮/键盘写回受管浏览器页面。"""
+    from . import liveview
+    body = payload or {}
+    index = int(body.get("index") or 0)
+    try:
+        return await liveview.input_event(index, body)
+    except KeyError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    except Exception as exc:                             # noqa: BLE001
+        raise HTTPException(502, str(exc)[:200]) from exc
+
+
 @router.get("/v1/live/stream")
 async def live_stream(index: int = 0):
-    """SSE 画面流：data 行是 base64 JPEG；页面静止时发 ': ping' 心跳。"""
+    """SSE 画面流：data 是 JSON {"img": base64 JPEG, "w","h" 视口 CSS 像素}；
+    页面静止时发 ': ping' 心跳。"""
     from . import liveview
 
     async def _gen():
@@ -47,7 +64,7 @@ async def live_stream(index: int = 0):
                 if frame is None:
                     yield ": ping\n\n"
                 else:
-                    yield f"data: {frame}\n\n"
+                    yield f"data: {json.dumps(frame, separators=(',', ':'))}\n\n"
         except asyncio.CancelledError:
             raise
         except Exception as exc:                         # noqa: BLE001

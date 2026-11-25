@@ -93,7 +93,10 @@ class _FakeCdp:
         return {}
 
     def _fire(self, data, sid):
-        self.handlers["Page.screencastFrame"]({"data": data, "sessionId": sid})
+        self.handlers["Page.screencastFrame"]({
+            "data": data, "sessionId": sid,
+            "metadata": {"deviceWidth": 1280, "deviceHeight": 720},
+        })
 
     async def detach(self):
         self.sent.append("detach")
@@ -123,7 +126,11 @@ class TestStreamFrames(unittest.TestCase):
 
         with _patch_ctx(ctx):
             frames = asyncio.run(run())
-        self.assertEqual(frames[:2], ["Zmlyc3Q=", "c2Vjb25k"])
+        # 帧是 dict：base64 画面 + 页面视口 CSS 像素（v2 互动坐标换算用）
+        self.assertEqual(frames[:2], [
+            {"img": "Zmlyc3Q=", "w": 1280, "h": 720},
+            {"img": "c2Vjb25k", "w": 1280, "h": 720},
+        ])
         self.assertIn("Page.startScreencast", cdp.sent)
         self.assertEqual(cdp.sent.count("Page.screencastFrameAck"), 2)
 
@@ -158,7 +165,7 @@ class TestRoutes(unittest.TestCase):
         from gantry import routes_live
 
         async def fake_frames(index):
-            yield "Zmlyc3Q="
+            yield {"img": "Zmlyc3Q=", "w": 1280, "h": 720}
             yield None                       # 心跳
 
         with mock.patch.object(liveview, "stream_frames", fake_frames):
@@ -171,7 +178,8 @@ class TestRoutes(unittest.TestCase):
                 return chunks
 
             body = asyncio.run(read_body())
-        self.assertEqual(body, ["data: Zmlyc3Q=\n\n", ": ping\n\n"])
+        self.assertEqual(body, [
+            'data: {"img":"Zmlyc3Q=","w":1280,"h":720}\n\n', ": ping\n\n"])
 
     def test_plugin_registers_open_site(self):
         import importlib.util
@@ -195,6 +203,76 @@ class TestRoutes(unittest.TestCase):
                                new=mock.AsyncMock(return_value={"ok": True, "url": "https://x.com", "title": "X"})):
             r = asyncio.run(fn("https://x.com"))
         self.assertEqual(r["opened"], "https://x.com")
+
+
+class _InputFakePage(_FakePage):
+    """带 mouse/keyboard 记录的假页面，断言转发动作与坐标。"""
+
+    def __init__(self, url, title):
+        super().__init__(url, title)
+        self.calls = []
+        page = self
+        self.mouse = mock.Mock()
+        self.mouse.click = self._rec("click")
+        self.mouse.move = self._rec("move")
+        self.mouse.wheel = self._rec("wheel")
+        self.keyboard = mock.Mock()
+        self.keyboard.press = self._rec("press")
+        self.keyboard.insert_text = self._rec("insert_text")
+
+    def _rec(self, name):
+        async def fn(*a, **kw):
+            self.calls.append((name, a, kw))
+        return fn
+
+    async def noop(self):
+        pass
+
+
+class TestInputEvent(unittest.TestCase):
+    def _run(self, ev, index=0):
+        ctx = _FakeCtx([_InputFakePage("https://a.com", "A")])
+        with _patch_ctx(ctx):
+            r = asyncio.run(liveview.input_event(index, ev))
+        return r, ctx.pages[0].calls
+
+    def test_click(self):
+        r, calls = self._run({"kind": "click", "x": 100, "y": 50, "click_count": 2})
+        self.assertTrue(r["ok"])
+        self.assertEqual(calls, [("click", (100.0, 50.0), {"click_count": 2})])
+
+    def test_wheel_moves_then_wheels(self):
+        _, calls = self._run({"kind": "wheel", "x": 10, "y": 20, "delta_y": 300})
+        self.assertEqual([c[0] for c in calls], ["move", "wheel"])
+        self.assertEqual(calls[1][1], (0.0, 300.0))
+
+    def test_key_allowed(self):
+        _, calls = self._run({"kind": "key", "key": "Enter"})
+        self.assertEqual(calls, [("press", ("Enter",), {})])
+
+    def test_key_rejected(self):
+        with self.assertRaises(ValueError):
+            self._run({"kind": "key", "key": "F12"})
+
+    def test_text(self):
+        _, calls = self._run({"kind": "text", "text": "你好"})
+        self.assertEqual(calls, [("insert_text", ("你好",), {})])
+
+    def test_unknown_kind_and_bad_index(self):
+        with self.assertRaises(ValueError):
+            self._run({"kind": "drag"})
+        ctx = _FakeCtx([_FakePage("https://a.com", "A")])
+        with _patch_ctx(ctx):
+            with self.assertRaises(KeyError):
+                asyncio.run(liveview.input_event(5, {"kind": "click"}))
+
+    def test_route_error_codes(self):
+        from gantry import routes_live
+        with mock.patch.object(liveview, "input_event",
+                               new=mock.AsyncMock(side_effect=ValueError("未知输入类型：drag"))):
+            with self.assertRaises(HTTPException) as cm:
+                asyncio.run(routes_live.live_input({"index": 0, "kind": "drag"}))
+        self.assertEqual(cm.exception.status_code, 400)
 
 
 if __name__ == "__main__":

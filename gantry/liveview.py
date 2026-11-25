@@ -70,9 +70,11 @@ def last_open() -> dict[str, Any]:
     return dict(_last_open)
 
 
-async def stream_frames(index: int) -> AsyncGenerator[str | None, None]:
-    """对第 index 个页面起 CDP screencast，异步产出 base64 JPEG 帧。
+async def stream_frames(index: int) -> AsyncGenerator[dict[str, Any] | None, None]:
+    """对第 index 个页面起 CDP screencast，异步产出 {"img","w","h"} 帧字典。
 
+    w/h 是页面视口的 CSS 像素尺寸（screencastFrame 元数据），前端用它把
+    面板上的点击坐标映射回页面坐标（v2 互动转发的基础）。
     产出 None 表示心跳（页面静止无新帧），路由层转成 SSE 注释行保活。
     连接断开（生成器关闭）时自动 stopScreencast 并 detach。
     """
@@ -82,11 +84,13 @@ async def stream_frames(index: int) -> AsyncGenerator[str | None, None]:
         raise KeyError(f"页面序号无效：{index}")
     page = ctx.pages[index]
     cdp = await ctx.new_cdp_session(page)
-    latest: dict[str, Any] = {"data": None}
+    latest: dict[str, Any] = {"data": None, "meta": None}
     ev = asyncio.Event()
 
     def _on_frame(params: dict) -> None:
         latest["data"] = params.get("data")
+        meta = params.get("metadata") or {}
+        latest["meta"] = {"w": meta.get("deviceWidth"), "h": meta.get("deviceHeight")}
         sid = params.get("sessionId")
         # screencast 协议要求逐帧 ack，否则后续帧停发
         asyncio.get_running_loop().create_task(_ack(cdp, sid))
@@ -104,7 +108,8 @@ async def stream_frames(index: int) -> AsyncGenerator[str | None, None]:
             ev.clear()
             data, latest["data"] = latest["data"], None
             if data:
-                yield data
+                meta = latest["meta"] or {}
+                yield {"img": data, "w": meta.get("w"), "h": meta.get("h")}
     finally:
         for call in ("Page.stopScreencast",):
             try:
@@ -115,6 +120,49 @@ async def stream_frames(index: int) -> AsyncGenerator[str | None, None]:
             await cdp.detach()
         except Exception:                                # noqa: BLE001
             pass
+
+
+# 互动转发允许的按键：只放行导航/编辑键，功能键与组合键不开放
+_ALLOWED_KEYS = frozenset({
+    "Enter", "Tab", "Backspace", "Delete", "Escape",
+    "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight",
+    "Home", "End", "PageUp", "PageDown",
+})
+
+
+async def input_event(index: int, ev: dict[str, Any]) -> dict[str, Any]:
+    """把面板上的点击/滚轮/键盘转发回页面（v2 互动）。
+
+    坐标是页面视口的 CSS 像素（前端已按帧元数据换算），Playwright 的
+    mouse/keyboard 用的正是这个坐标系，不需要再缩放。
+    """
+    ctx = await _ctx()
+    if index < 0 or index >= len(ctx.pages) or ctx.pages[index].is_closed():
+        raise KeyError(f"页面序号无效：{index}")
+    page = ctx.pages[index]
+    kind = str((ev or {}).get("kind") or "")
+    x = float((ev or {}).get("x") or 0)
+    y = float((ev or {}).get("y") or 0)
+    if kind == "click":
+        count = int((ev or {}).get("click_count") or 1)
+        await page.mouse.click(x, y, click_count=max(1, min(3, count)))
+    elif kind == "wheel":
+        # wheel 前先把鼠标挪到指针位置，页面按指针处响应滚动
+        await page.mouse.move(x, y)
+        await page.mouse.wheel(float((ev or {}).get("delta_x") or 0),
+                               float((ev or {}).get("delta_y") or 0))
+    elif kind == "key":
+        key = str((ev or {}).get("key") or "")
+        if key not in _ALLOWED_KEYS:
+            raise ValueError(f"不支持的按键：{key}")
+        await page.keyboard.press(key)
+    elif kind == "text":
+        text = str((ev or {}).get("text") or "")[:200]
+        if text:
+            await page.keyboard.insert_text(text)
+    else:
+        raise ValueError(f"未知输入类型：{kind}")
+    return {"ok": True}
 
 
 async def _ack(cdp: Any, session_id: Any) -> None:
