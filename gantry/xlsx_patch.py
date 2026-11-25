@@ -32,7 +32,14 @@ NS_MAIN = "http://schemas.openxmlformats.org/spreadsheetml/2006/main"
 NS_REL = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
 NS_PKG_REL = "http://schemas.openxmlformats.org/package/2006/relationships"
 
-ROW_RE = re.compile(r"<row\b[^>]*\br=\"(\d+)\"[^>]*>.*?</row>", re.S)
+# AUD-P0-11：自闭合 <row .../>（带样式的隐藏/空行，openpyxl 常见写法）必须单独
+# 匹配保留；完整行的匹配用 tempered dot 禁止跨入下一个 <row——旧的 `.*?</row>`
+# 会把 `<row r="5" hidden="1"/><row r="6">…</row>` 吞成一个 r=5 的匹配，
+# 写第 5 行产出非法 XML、写第 6 行被静默忽略（审核 ⑥-2，已实证）。
+# group(1)=自闭合行号，group(2)=完整行号。
+ROW_RE = re.compile(
+    r'<row\b[^>]*\br="(\d+)"[^>]*?/>'
+    r'|<row\b[^>]*\br="(\d+)"[^>]*>(?:(?!<row\b).)*?</row>', re.S)
 CELL_RE = re.compile(r"<c\b(?P<attrs>[^>]*?)(?:/>|>(?P<body>.*?)</c>)", re.S)
 DIM_RE = re.compile(r"<dimension\b[^>]*\bref=\"([^\"]+)\"[^>]*/>")
 _COL_RE = re.compile(r"^([A-Z]+)")
@@ -118,7 +125,13 @@ def _rewrite_row(row_xml: str, writes: dict[int, Any]) -> str:
     if not rm:
         raise FastPathUnsupported("row 缺少行号")
     row_no = int(rm.group(1))
-    inner = row_xml[open_tag.end():-len("</row>")]
+    if prefix.rstrip().endswith("/>"):
+        # AUD-P0-11：自闭合行（如 <row r="5" hidden="1"/>）展开成完整行再写，
+        # 属性保留；不允许再产出"自闭合标签后跟子节点"的非法 XML。
+        prefix = prefix[:-2] + ">"
+        inner = ""
+    else:
+        inner = row_xml[open_tag.end():-len("</row>")]
     existing: dict[int, str] = {}
     for m in CELL_RE.finditer(inner):
         attrs = m.group("attrs")
@@ -184,14 +197,18 @@ def write_cells(path: str | Path, rows: list, sheet: str = "",
                 if value is not None:
                     written += 1
 
-        # 已有行：批量重写；新行：按行号插入
+        # 已有行：批量重写；新行：按行号插入。自闭合行与完整行都按行号精确
+        # 匹配（禁止跨行），行号重复时自闭合优先（AUD-P0-11）。
         new_rows: dict[int, str] = {}
         for row_no, writes in row_writes.items():
-            m = re.search(rf'<row\b[^>]*\br="{row_no}"[^>]*>.*?</row>', xml, re.S)
+            m = re.search(rf'<row\b[^>]*\br="{row_no}"[^>]*?/>', xml)
+            if not m:
+                m = re.search(rf'<row\b[^>]*\br="{row_no}"[^>]*>'
+                              rf'(?:(?!<row\b).)*?</row>', xml, re.S)
             if m:
                 new_rows[row_no] = _rewrite_row(m.group(0), writes)
         def _repl(m: re.Match) -> str:
-            n = int(m.group(1))
+            n = int(m.group(1) or m.group(2))
             return new_rows.get(n, m.group(0))
         if new_rows:
             xml = ROW_RE.sub(_repl, xml)
@@ -207,7 +224,7 @@ def write_cells(path: str | Path, rows: list, sheet: str = "",
             new_row = f'<row r="{row_no}">{row}</row>'
             insert_at = None
             for m in ROW_RE.finditer(xml):
-                if int(m.group(1)) > row_no:
+                if int(m.group(1) or m.group(2)) > row_no:
                     insert_at = m.start()
                     break
             if insert_at is None:

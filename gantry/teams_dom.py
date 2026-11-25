@@ -467,20 +467,32 @@ async def open_teams_for_login(wait: float = 8.0) -> dict[str, Any]:
     from .browser import ensure_browser_ready
 
     page = None
-    try:
-        page = _br.current_page()
-    except Exception:                            # noqa: BLE001
-        page = None
     ctx = getattr(_br, "ctx", None)
-    if page is None and ctx is not None:
+    if ctx is not None:
         page = await _existing_teams_page(ctx)
+    if page is None:
+        # AUD-P2（审核 ⑥-5）：绝不导航 current_page()——无任务上下文时它就是
+        # 正在服务 Copilot API/Agent 的共享页，导航走会打断进行中的对话/任务。
+        # 只认现有 Teams 标签，没有就新开一个。
+        try:
+            page = _br.current_page()
+        except Exception:                            # noqa: BLE001
+            page = None
+        is_teams = False
+        if page is not None:
+            try:
+                _u = str(page.url or "")
+                is_teams = ("teams.cloud.microsoft" in _u
+                            or "teams.microsoft.com" in _u)
+            except Exception:                        # noqa: BLE001
+                is_teams = False
+        if not is_teams:
+            page = None
     if page is None:
         await ensure_browser_ready()             # 按需拉起持久化 Edge 上下文
         ctx = getattr(_br, "ctx", None)
         if ctx is not None:
             page = await _existing_teams_page(ctx)
-        if page is None:
-            page = _br.current_page()
         if page is None and ctx is not None:
             try:
                 page = await ctx.new_page()

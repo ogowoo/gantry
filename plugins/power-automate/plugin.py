@@ -17,7 +17,8 @@ from typing import Any
 from gantry import power_automate_ui as ui
 from gantry.tools import ToolError
 
-_DEFAULTS = {"enabled": False, "dry_run": True, "max_items": 80}
+_DEFAULTS = {"enabled": False, "dry_run": True, "max_items": 80,
+            "allow_live_import": False}
 _TOOL_NAMES = ("pa_status", "pa_probe", "pa_snapshot", "pa_goto", "pa_click",
                "pa_fill", "pa_press", "pa_select", "pa_import")
 
@@ -117,7 +118,13 @@ def setup(ctx: Any) -> None:
             path = ctx.host.registry._path(raw)
         except Exception as exc:                 # noqa: BLE001
             raise ToolError(f"zip_path 不在工作区/沙箱内: {exc}") from exc
-        dry = bool(_cfg(ctx, "dry_run")) if dry_run is None else bool(dry_run)
+        # AUD-P2（审核 ⑥-8）：模型不能自己把 dry_run 关掉——"安全默认"由被约束方
+        # 关闭等于没有默认。真实导入需 allow_live_import=true，否则 dry_run 恒为真。
+        live_allowed = bool(_cfg(ctx, "allow_live_import"))
+        if not live_allowed:
+            dry = True
+        else:
+            dry = bool(_cfg(ctx, "dry_run")) if dry_run is None else bool(dry_run)
         return _trim(await ui.import_run(str(path), dry_run=dry))
 
     async def api_status(request=None) -> dict[str, Any]:

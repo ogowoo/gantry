@@ -885,6 +885,15 @@ def setup(ctx):
     async def _teams_status() -> dict:
         return bot.status()
 
+    def _send_allowed(force: bool = False) -> bool:
+        """写侧总闸（AUD-P0-09）：真实发送必须 dry_run=false 且 send_enabled=true；
+        或 force=true 且 allow_force_send=true。工具与 HTTP 端点统一走这道门，
+        防止"默认 dry_run 不会真发"的承诺被 api/send-api、api/compose?send=1 绕过。
+        """
+        if force and bool(_cfg(ctx, "allow_force_send")):
+            return True
+        return (not bool(_cfg(ctx, "dry_run"))) and bool(_cfg(ctx, "send_enabled"))
+
     async def _teams_reply(chat: str = "", text: str = "", force: bool = False,
                            message_id: str = "") -> dict:
         if not (text or "").strip():
@@ -892,10 +901,10 @@ def setup(ctx):
         if not str(chat or "").strip():
             return {"ok": False,
                     "error": "chat 不能为空：必须指定会话，禁止发到当前窗口"}
-        if bool(_cfg(ctx, "dry_run")) and not (
-                force and bool(_cfg(ctx, "allow_force_send"))):
+        if not _send_allowed(force):
             return {"ok": False,
-                    "error": "dry_run=true（force 需 allow_force_send=true）"}
+                    "error": "dry_run=true 或 send_enabled=false"
+                             "（force 需 allow_force_send=true）"}
         # 打开 + 校验标题 + 输入/发送在同一个页面锁里完成，避免中途被轮询插队
         expected = {"peer": chat}
         if message_id:
@@ -972,7 +981,8 @@ def setup(ctx):
         return await _teams_probe()
 
     async def _api_reindex(request=None):
-        return await _kb_reindex()
+        # AUD-P1-09：旧实现调用了不存在的 _kb_reindex（NameError → 必然 500）
+        return _kb(ctx).reindex(force=False)
 
     async def _api_page_mimic(request=None):
         """页面内请求同源 chatsvc（cookie+令牌+客户端头，只读）。"""
@@ -1017,11 +1027,19 @@ def setup(ctx):
         return await teams.api_search_rows(name)
 
     async def _api_send_api(request):
-        """直接走 chatsvc API 发消息（绕 UI；显式调用才发）。"""
+        """直接走 chatsvc API 发消息（绕 UI；显式调用才发）。
+
+        AUD-P0-09：与工具/机器人相同的写侧总闸——dry_run/send_enabled/
+        allow_force_send 判定通过才允许真实发送。
+        """
         try:
             body = await request.json()
         except Exception:                        # noqa: BLE001
             body = {}
+        force = bool(body.get("force"))
+        if not _send_allowed(force):
+            return {"error": "写侧未开启：dry_run=false 且 send_enabled=true 才可直发"
+                             "（或 force=true 且 allow_force_send=true）"}
         conv_id = str(body.get("conv_id") or "")
         text = str(body.get("text") or "")
         peer = str(body.get("peer") or "")
@@ -1045,7 +1063,10 @@ def setup(ctx):
     ctx.register_api("POST", "api/send-api", _api_send_api)
 
     async def _api_compose(request):
-        """写侧演练：打开会话并输入文本；?send=1 才真的点发送（默认不点）。"""
+        """写侧演练：打开会话并输入文本；?send=1 才真的点发送（默认不点）。
+
+        AUD-P0-09：send=true 时必须过写侧总闸（dry_run/send_enabled）。
+        """
         try:
             body = await request.json()
         except Exception:                        # noqa: BLE001
@@ -1055,6 +1076,10 @@ def setup(ctx):
         snippet = str(body.get("snippet") or "")
         conv_id = str(body.get("conv_id") or "")
         send = bool(body.get("send"))
+        force = bool(body.get("force"))
+        if send and not _send_allowed(force):
+            return {"error": "写侧未开启：dry_run=false 且 send_enabled=true 才可发送"
+                             "（或 force=true 且 allow_force_send=true）"}
         if not peer or not text:
             return {"error": "需要 peer 和 text"}
         expected = {

@@ -231,6 +231,10 @@ class OWABackend:
                     target = items[0]
                 if target is not None:
                     body = await _owa_click_and_read(target)
+        # AUD-P2：重搜后可能仍无结果（邮件被移走/搜索 UI 未返回），target 为 None
+        # 时 .pop 直接 AttributeError——改成明确的"找不到"错误。
+        if target is None:
+            raise RuntimeError(f"没有找到主题包含「{keyword}」的邮件")
         target.pop("_index", None)
         target["body"] = body[:20000]
         target["truncated"] = len(body) > 20000
@@ -294,8 +298,29 @@ class OWABackend:
         if not send_btn:
             raise RuntimeError("找不到发送按钮")
         await send_btn.click()
-        await asyncio.sleep(1)
-        return {"sent": True, "to": to, "subject": subject, "backend": "owa"}
+        # AUD-P2（审核 ⑥-4）：点击发送≠发送成功。收件人未解析/校验弹框、
+        # 点击被吞、网络失败时 UI 不会立即报错。等待撰写窗格关闭作为成功信号；
+        # 窗格还在时如实返回 unknown，而不是谎报已发送。
+        sent = False
+        try:
+            for _ in range(10):
+                await asyncio.sleep(0.6)
+                if await self._compose_pane_gone(to_box):
+                    sent = True
+                    break
+        except Exception:                        # noqa: BLE001
+            sent = False
+        return {"sent": sent, "unknown": not sent, "to": to, "subject": subject,
+                "backend": "owa"}
+
+    async def _compose_pane_gone(self, probe) -> bool:
+        """撰写窗格是否已关闭（收件人输入框随之消失）。"""
+        if owa_page is None or probe is None:
+            return True
+        try:
+            return await probe.count() == 0
+        except Exception:                        # noqa: BLE001
+            return False
 
 
 OWA_BACKEND = OWABackend()

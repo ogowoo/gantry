@@ -32,7 +32,9 @@ _LOG = _logging.getLogger(__name__)
 
 # 写路径串行化：write_csv/write_excel 并发写同一文件会产生交错行/截断，
 # 统一在模块级锁内完成（append 模式读-改-写也必须整体原子）。
-_WRITE_LOCK = threading.Lock()
+# AUD-P0-02：必须用 asyncio.Lock——threading.Lock 在 async 函数里跨 await 持有时，
+# 等待方会阻塞事件循环线程，与持锁方形成互等，整个服务永久卡死（审核 ⑥-1）。
+_WRITE_LOCK = asyncio.Lock()
 
 
 def _looks_like_valid_text(text: str) -> bool:
@@ -693,7 +695,7 @@ class OfficeMixin:
         before = self._hash(target)
         # 大文件优先走 XML 快路径（不再 load 整个工作簿）；失败回退 openpyxl。
         # 写锁内完成：并发 write_excel 同一文件会把 zip 写坏。
-        with _WRITE_LOCK:
+        async with _WRITE_LOCK:
             meta = await asyncio.to_thread(
                 self._write_excel_sync, target, rows, sheet, start_cell)
         after = self._hash(target)
@@ -922,7 +924,7 @@ class OfficeMixin:
         target.parent.mkdir(parents=True, exist_ok=True)
         before = self._hash(target)
         enc = encoding or "utf-8-sig"
-        with _WRITE_LOCK:
+        async with _WRITE_LOCK:
             if mode == "append" and target.is_file():
                 # append 无法原地原子：读旧内容 + 拼接 + 整盘替换，
                 # 在锁内完成，对其他写者仍表现为原子。

@@ -42,6 +42,18 @@ async def compose_text(text: str, page=None, send: bool = False) -> dict[str, An
     finally:
         release_page_lock()
 
+async def _clear_composer(page, box) -> None:
+    """清空输入框（Ctrl+A + Delete）。AUD-P2（M15）：超时取消在输入中途打断时，
+    必须清掉半条草稿再上抛——Teams 会把输入框存成服务端草稿，残留内容可能在
+    后续任意 Enter 时被误发。"""
+    try:
+        await box.click()
+        await page.keyboard.press("Control+A")
+        await page.keyboard.press("Delete")
+    except Exception:                            # noqa: BLE001
+        pass
+
+
 async def _compose_text_unlocked(text: str, page=None, send: bool = False,
                                  typing_delay_ms: int = 8,
                                  send_jitter_ms: int = 0) -> dict[str, Any]:
@@ -71,6 +83,11 @@ async def _compose_text_unlocked(text: str, page=None, send: bool = False,
                 await page.keyboard.press("Shift+Enter")
             await page.keyboard.type(line, delay=max(0, int(typing_delay_ms)))
         await asyncio.sleep(0.6)
+    except asyncio.CancelledError:
+        # AUD-P2（M15 未修复项）：reply_to 的 wait_for 超时会在这里取消，
+        # 输入框残留半条草稿。清空后原样上抛，保住取消语义。
+        await _clear_composer(page, box)
+        raise
     except Exception as exc:                     # noqa: BLE001
         return {**out, "error": f"输入失败: {str(exc)[:120]}"}
     # 发送按钮是否可用

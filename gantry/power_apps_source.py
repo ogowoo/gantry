@@ -170,7 +170,23 @@ def pack_msapp(source_dir: str | Path, msapp: str | Path | None = None,
     if not (src / "CanvasManifest.json").is_file():
         raise PowerAppsSourceError(f"不是 Canvas App source 目录（缺少 CanvasManifest.json）: {src}")
     out = Path(msapp).resolve() if msapp else src.with_suffix(".msapp")
-    exe = str(pac or "").strip() or shutil.which("pac") or ""
+    # AUD-P2（审核 ⑥-7）：pac 参数只允许 PATH 上的 pac 或配置固定路径——
+    # 旧实现把模型参数直接透传进 subprocess，可启动任意本机可执行文件，
+    # 绕过 allow_python/pwsh 的代码执行门。
+    exe = str(pac or "").strip()
+    if exe:
+        resolved_exe = shutil.which(exe)
+        # 配置的固定路径也接受，但文件名必须是 pac 本体（防"任意可执行文件"）
+        if not resolved_exe and Path(exe).is_file() \
+                and Path(exe).name.lower() in ("pac", "pac.exe"):
+            resolved_exe = str(Path(exe).resolve())
+        if not resolved_exe:
+            raise PowerAppsSourceError(
+                f"pac 参数必须是 PATH 上的 pac 可执行文件（收到: {exe}）；"
+                "不传 pac 会自动查找已安装的 pac")
+        exe = resolved_exe
+    else:
+        exe = shutil.which("pac") or ""
     if not exe:
         raise PowerAppsSourceError(
             "未找到 pac。安装方式：Windows MSI（powerapps-cli-1.0.msi）"

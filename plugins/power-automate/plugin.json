@@ -12,7 +12,8 @@
     "config": {
       "enabled": false,
       "dry_run": true,
-      "max_items": 80
+      "max_items": 80,
+      "allow_live_import": false
     },
     "contributes": {
       "tools": [

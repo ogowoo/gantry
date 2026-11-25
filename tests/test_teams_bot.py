@@ -479,6 +479,38 @@ class SetupTests(BotTestCase):
         self.assertIn("chat 不能为空", res["error"])
         plugin.teardown(ctx)
 
+    def test_send_api_endpoints_respect_write_gate(self):
+        # AUD-P0-09：默认 dry_run=true / send_enabled=false 时，
+        # api/send-api 与 api/compose?send=1 必须被拦截，不得真实发送。
+        ctx = FakeCtx(dry_run=True, send_enabled=False)
+        plugin.setup(ctx)
+        fns = {p: f for _, p, f in ctx.apis}
+
+        class _Req:
+            def __init__(self, body):
+                self._b = body
+
+            async def json(self):
+                return self._b
+
+        r = asyncio.new_event_loop().run_until_complete(
+            fns["api/send-api"](_Req({"conv_id": "c1", "text": "hi",
+                                      "peer": "p", "topic": "t"})))
+        self.assertIn("写侧未开启", r["error"])
+        r2 = asyncio.new_event_loop().run_until_complete(
+            fns["api/compose"](_Req({"peer": "p", "text": "hi", "send": True})))
+        self.assertIn("写侧未开启", r2["error"])
+        # force 且 allow_force_send 关闭 → 仍拦截
+        ctx2 = FakeCtx(dry_run=True, send_enabled=False, allow_force_send=False)
+        plugin.setup(ctx2)
+        fns2 = {p: f for _, p, f in ctx2.apis}
+        r3 = asyncio.new_event_loop().run_until_complete(
+            fns2["api/send-api"](_Req({"conv_id": "c1", "text": "hi",
+                                       "peer": "p", "topic": "t", "force": True})))
+        self.assertIn("写侧未开启", r3["error"])
+        plugin.teardown(ctx)
+        plugin.teardown(ctx2)
+
 
 class BotRetrievalTests(BotTestCase):
     """answer() 的知识库检索：有向量索引 → hybrid；没有 → FTS。"""
