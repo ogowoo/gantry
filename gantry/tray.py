@@ -145,6 +145,71 @@ def _kernel32():
     return k
 
 
+_TOKEN_QUERY = 0x0008
+_TOKEN_INFO_ELEVATION = 20     # GetTokenInformation 的 TokenElevation 信息类号
+
+
+class _TokenElevationInfo(ctypes.Structure):
+    """注意：类名不要和信息类常量同名——同名会让常量被类覆盖，
+    `GetTokenInformation` 收到一个类对象，ctypes 抛 ArgumentError，
+    外层宽异常又把"其实已提权"吞成 False（踩过一次）。"""
+    _fields_ = [("TokenIsElevated", wt.DWORD)]
+
+
+def is_elevated() -> bool:
+    """当前进程是否以**提升（管理员）权限**运行；非 Windows 或查询失败一律 False。
+
+    为什么托盘必须先判它：Windows 的 UIPI 不允许提升进程向**非提升**的
+    `explorer.exe` 注册通知图标，`Shell_NotifyIcon(NIM_ADD)` 会稳定返回
+    ERROR_ACCESS_DENIED(5)——重试多少次都没用（实测重试 3 次全被拒，最后托盘线程
+    抛异常退出，日志里只剩一串看不懂的 "Shell_NotifyIcon 失败：5"）。
+    提前判掉，把"为什么没有托盘"写成一句人能看懂的话。
+
+    注意**不要**用 `GetCurrentProcess()` 的伪句柄：没设 argtypes 时它会被截成
+    32 位，`OpenProcessToken` 直接 ERROR_INVALID_HANDLE(6)，于是永远判成"没提权"。
+    这里走 `OpenProcess(GetCurrentProcessId())`，argtypes 全部显式声明。
+    """
+    if os.name != "nt":
+        return False
+    try:
+        advapi32 = ctypes.WinDLL("advapi32", use_last_error=True)
+        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        kernel32.GetCurrentProcessId.argtypes = []
+        kernel32.GetCurrentProcessId.restype = wt.DWORD
+        kernel32.OpenProcess.argtypes = [wt.DWORD, wt.BOOL, wt.DWORD]
+        kernel32.OpenProcess.restype = wt.HANDLE
+        kernel32.CloseHandle.argtypes = [wt.HANDLE]
+        kernel32.CloseHandle.restype = wt.BOOL
+        advapi32.OpenProcessToken.argtypes = [wt.HANDLE, wt.DWORD,
+                                              ctypes.POINTER(wt.HANDLE)]
+        advapi32.OpenProcessToken.restype = wt.BOOL
+        advapi32.GetTokenInformation.argtypes = [wt.HANDLE, ctypes.c_int,
+                                                 ctypes.c_void_p, wt.DWORD,
+                                                 ctypes.POINTER(wt.DWORD)]
+        advapi32.GetTokenInformation.restype = wt.BOOL
+        process = kernel32.OpenProcess(0x1000, False,      # PROCESS_QUERY_LIMITED_INFORMATION
+                                       kernel32.GetCurrentProcessId())
+        if not process:
+            return False
+        try:
+            tok = wt.HANDLE()
+            if not advapi32.OpenProcessToken(process, _TOKEN_QUERY, ctypes.byref(tok)):
+                return False
+            try:
+                info = _TokenElevationInfo()
+                needed = wt.DWORD()
+                ok = advapi32.GetTokenInformation(
+                    tok, _TOKEN_INFO_ELEVATION, ctypes.byref(info),
+                    ctypes.sizeof(info), ctypes.byref(needed))
+                return bool(ok and info.TokenIsElevated)
+            finally:
+                kernel32.CloseHandle(tok)
+        finally:
+            kernel32.CloseHandle(process)
+    except Exception:                      # noqa: BLE001 - 查不到就当没提权
+        return False
+
+
 # ── 菜单动作（全部走本地 HTTP，避免依赖服务内部对象）──────────────────────────
 # ── 多语言文案 ─────────────────────────────────────────────────────────────
 # 托盘是原生菜单，拿不到浏览器的 localStorage（WebUI 语言存在那边），所以语言来源是：
@@ -351,6 +416,12 @@ class Tray:
         self._status_thread: threading.Thread | None = None
         self._status_stop = threading.Event()
         self._quitting = False
+        self._skip_reason = ""          # 非空 = 本机起不了托盘（目前只有 elevated）
+
+    @property
+    def skipped_reason(self) -> str:
+        """托盘被跳过的原因（"" = 正常启动）。启动方据此避免刷无意义的告警。"""
+        return self._skip_reason
 
     # ── 生命周期 ──
     def start(self) -> "Tray":
@@ -382,6 +453,17 @@ class Tray:
     # ── 消息循环 ──
     def _run(self) -> None:
         try:
+            # 提权进程注册不了托盘（UIPI 挡住 Shell_NotifyIcon），提前退出并说明原因，
+            # 不要让它伪装成"重试 3 次后崩溃"。
+            if is_elevated():
+                self._skip_reason = "elevated"
+                log.warning(
+                    "托盘已跳过：当前进程以管理员权限运行 —— Windows 不允许提升进程"
+                    "向非提升的任务栏注册图标（Shell_NotifyIcon 会返回 ACCESS_DENIED）。"
+                    "服务不受影响；用**普通权限**重新启动即可恢复托盘，"
+                    "不需要托盘时用 --no-tray 关掉这条提示。")
+                self._ready.set()
+                return
             self._create_window()
             self._add_icon()
             self._ready.set()
@@ -857,10 +939,18 @@ def default_menu(tray: Tray) -> list:
 
 
 def selftest(port: int, root: Path, seconds: float = 1.5) -> int:
-    """冒烟：真的建图标 → 发一条气泡 → 收尾。用于验证 Win32 调用在本机可用。"""
+    """冒烟：真的建图标 → 发一条气泡 → 收尾。用于验证 Win32 调用在本机可用。
+
+    返回 0=成功、1=失败、2=跳过（提权进程：本机就不该有托盘图标）。
+    """
     tray = Tray(port=port, root=root, menu_spec=default_menu)
     tray.start()
-    if not tray.wait_ready(5.0):
+    ready = tray.wait_ready(5.0)
+    if tray.skipped_reason == "elevated":
+        print("SKIP: 管理员权限下 Windows 不注册托盘图标（UIPI）。"
+              "用普通权限运行本自检，或直接以普通权限启动服务。")
+        return 2
+    if not ready:
         print("FAIL: 托盘未就绪")
         return 1
     tray.balloon("Gantry 托盘自检", "如果你能看到这条气泡，说明托盘能工作")

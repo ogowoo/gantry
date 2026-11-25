@@ -189,7 +189,11 @@ def start_tray(port: int, lang: str | None = None):
         tray = Tray(port=port, root=BASE, menu_spec=default_menu,
                     icon_path=BASE / "webui" / "favicon.ico", lang=lang)
         tray.start()
-        if tray.wait_ready(5.0):
+        ready = tray.wait_ready(5.0)
+        # 提权运行：托盘注册不了（UIPI），Tray 已记录过原因，这里不再重复告警
+        if tray.skipped_reason:
+            return None
+        if ready:
             log.info("托盘已就绪（右键图标有菜单）")
         else:
             log.warning("托盘未能在 5s 内就绪（服务继续运行）")
@@ -308,6 +312,8 @@ TEXT = {
         "crash_tail": "crash.log 最后几行：",
         "log_file": "日志文件：{path}",
         "tray_hint": "托盘图标在右下角系统托盘：右键可「打开控制台 / 启动自动化浏览器 / 重启 / 停止」。",
+        "tray_skipped": "托盘已跳过：当前以管理员权限运行 —— Windows 不允许提升进程注册任务栏图标。"
+                        "用普通权限启动即可恢复托盘（不需要托盘可加 --no-tray）。",
         "bg_failed_fg": "后台启动失败，改为前台运行…",
     },
     "tw": {
@@ -323,6 +329,8 @@ TEXT = {
         "crash_tail": "crash.log 最後幾行：",
         "log_file": "日誌檔案：{path}",
         "tray_hint": "托盤圖示在右下角系統托盤：右鍵可「開啟控制台 / 啟動自動化瀏覽器 / 重新啟動 / 停止」。",
+        "tray_skipped": "托盤已跳過：目前以系統管理員權限執行 —— Windows 不允許提升程序註冊工作列圖示。"
+                        "用一般權限啟動即可恢復托盤（不需要托盤可加 --no-tray）。",
         "bg_failed_fg": "後台啟動失敗，改為前景執行…",
     },
     "en": {
@@ -338,6 +346,9 @@ TEXT = {
         "crash_tail": "Last lines of crash.log:",
         "log_file": "Log file: {path}",
         "tray_hint": "Tray icon is in the system tray (bottom-right): right-click for menu (Open console / Start automation browser / Restart / Stop).",
+        "tray_skipped": "Tray skipped: running elevated — Windows does not allow an elevated process to "
+                        "register a taskbar icon. Start it with normal privileges to get the tray back "
+                        "(or add --no-tray to silence this).",
         "bg_failed_fg": "Background start failed, switching to foreground…",
     },
 }
@@ -402,7 +413,19 @@ def detach(args: list[str]) -> int:
             print(_t(lang, "crash_tail"), file=sys.stderr)
             print(tail, file=sys.stderr)
     print(_t(lang, "log_file", path=log_file(BASE)))
-    print(_t(lang, "tray_hint"))
+    if _tray_disabled(args):
+        return 0
+    # 提权派生时子进程会跳过托盘（UIPI 挡住 Shell_NotifyIcon），别再提示"托盘图标在右下角"
+    try:
+        from gantry.tray import is_elevated          # 只查令牌，不建图标
+
+        elevated = is_elevated()
+    except Exception:                                # noqa: BLE001
+        elevated = False
+    if elevated:
+        print(_t(lang, "tray_skipped"), file=sys.stderr)
+    else:
+        print(_t(lang, "tray_hint"))
     return 0
 
 

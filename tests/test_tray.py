@@ -382,5 +382,142 @@ class LogTests(unittest.TestCase):
             self.assertIn(frag, TRAY_SRC, f"托盘日志缺少：{frag}")
 
 
+class ElevatedTrayTests(unittest.TestCase):
+    """提权运行时 Windows 不注册托盘图标（UIPI → Shell_NotifyIcon 得 ACCESS_DENIED 5）。
+
+    用户实测：管理员权限下启动，日志里只有「重试 3 次 → 托盘线程异常退出」，
+    看不出真正原因。要求：提前判掉、只留一条说明原因的日志，服务照常运行。
+    """
+
+    def test_is_elevated_returns_bool(self):
+        from gantry import tray
+
+        self.assertIsInstance(tray.is_elevated(), bool,
+                              "is_elevated() 必须返回 bool，不能抛异常/返回 None")
+
+    def test_run_skips_window_and_icon_when_elevated(self):
+        from unittest import mock
+
+        from gantry import tray
+
+        t = tray.Tray(port=9, root=ROOT)
+        with mock.patch.object(tray, "is_elevated", return_value=True), \
+                mock.patch.object(tray.Tray, "_create_window",
+                                  side_effect=AssertionError("提权时不该建消息窗")), \
+                mock.patch.object(tray.Tray, "_add_icon",
+                                  side_effect=AssertionError("提权时不该注册图标")):
+            with self.assertLogs("gantry.tray", level="WARNING") as cap:
+                t._run()                      # 不抛异常 = 服务不会因托盘挂掉
+        self.assertEqual(t.skipped_reason, "elevated")
+        self.assertTrue(t._ready.is_set(), "跳过也必须置 ready，否则启动方白等 5 秒")
+        text = "\n".join(cap.output)
+        self.assertIn("管理员权限", text)
+        self.assertIn("--no-tray", text, "提示里要给出一条可执行的出路")
+
+    def test_skip_logs_exactly_once(self):
+        from unittest import mock
+
+        from gantry import tray
+
+        t = tray.Tray(port=9, root=ROOT)
+        with mock.patch.object(tray, "is_elevated", return_value=True):
+            with self.assertLogs("gantry.tray", level="WARNING") as cap:
+                t._run()
+        self.assertEqual(len(cap.output), 1, f"只该有一条告警，实际：{cap.output}")
+        self.assertNotIn("重试", "".join(cap.output), "提权场景不该再走 ACCESS_DENIED 重试")
+
+    def test_start_tray_returns_none_and_stays_silent(self):
+        """start.py 不该在跳过时再打一条「未能在 5s 内就绪」（误导成启动失败）。"""
+        from unittest import mock
+
+        import start
+
+        fake = mock.MagicMock()
+        fake.skipped_reason = "elevated"
+        fake.wait_ready.return_value = True
+        records: list[str] = []
+
+        class _Cap(logging.Handler):
+            def emit(self, record):                 # noqa: D102 - 测试用
+                records.append(record.getMessage())
+
+        handler = _Cap()
+        root_log = logging.getLogger()
+        root_log.addHandler(handler)
+        try:
+            with mock.patch("gantry.tray.Tray", return_value=fake):
+                self.assertIsNone(start.start_tray(9),
+                                  "跳过后应返回 None（main 里只做 stop，不需要假对象）")
+        finally:
+            root_log.removeHandler(handler)
+        self.assertFalse([m for m in records if "未能在 5s 内就绪" in m],
+                         f"跳过时不该报超时：{records}")
+
+    def test_selftest_reports_skip_not_failure(self):
+        """`--tray-selftest` 在提权下应报 SKIP(2)，不是 FAIL(1)。"""
+        from unittest import mock
+
+        from gantry import tray
+
+        with mock.patch.object(tray, "is_elevated", return_value=True):
+            code = tray.selftest(9, ROOT, seconds=0)
+        self.assertEqual(code, 2)
+
+    def test_detach_prints_skip_hint_when_elevated(self):
+        """提权派生时终端不该再说"托盘图标在右下角"，而要说清楚被跳过了。"""
+        from unittest import mock
+
+        import start
+
+        printed: list[str] = []
+        with mock.patch("gantry.tray.is_elevated", return_value=True), \
+                mock.patch.object(start, "health_ok", return_value=False), \
+                mock.patch.object(start, "_has_uvicorn", return_value=True), \
+                mock.patch.object(start.subprocess, "Popen", mock.MagicMock()), \
+                mock.patch.object(start, "_wait_ready", return_value=True), \
+                mock.patch("builtins.print",
+                           side_effect=lambda *a, **k: printed.append(" ".join(str(x) for x in a))):
+            rc = start.detach(["--lang", "zh"])
+        self.assertEqual(rc, 0)
+        text = "\n".join(printed)
+        self.assertIn("托盘已跳过", text)
+        self.assertNotIn("右下角", text)
+
+    def test_detach_prints_normal_hint_when_not_elevated(self):
+        from unittest import mock
+
+        import start
+
+        printed: list[str] = []
+        with mock.patch("gantry.tray.is_elevated", return_value=False), \
+                mock.patch.object(start, "health_ok", return_value=False), \
+                mock.patch.object(start, "_has_uvicorn", return_value=True), \
+                mock.patch.object(start.subprocess, "Popen", mock.MagicMock()), \
+                mock.patch.object(start, "_wait_ready", return_value=True), \
+                mock.patch("builtins.print",
+                           side_effect=lambda *a, **k: printed.append(" ".join(str(x) for x in a))):
+            rc = start.detach(["--lang", "zh"])
+        self.assertEqual(rc, 0)
+        self.assertIn("右下角", "\n".join(printed))
+
+    def test_no_tray_prints_no_hint(self):
+        from unittest import mock
+
+        import start
+
+        printed: list[str] = []
+        with mock.patch("gantry.tray.is_elevated", return_value=False), \
+                mock.patch.object(start, "health_ok", return_value=False), \
+                mock.patch.object(start, "_has_uvicorn", return_value=True), \
+                mock.patch.object(start.subprocess, "Popen", mock.MagicMock()), \
+                mock.patch.object(start, "_wait_ready", return_value=True), \
+                mock.patch("builtins.print",
+                           side_effect=lambda *a, **k: printed.append(" ".join(str(x) for x in a))):
+            start.detach(["--lang", "zh", "--no-tray"])
+        text = "\n".join(printed)
+        self.assertNotIn("右下角", text)
+        self.assertNotIn("托盘已跳过", text)
+
+
 if __name__ == "__main__":
     unittest.main()

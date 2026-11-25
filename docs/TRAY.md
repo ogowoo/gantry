@@ -36,6 +36,35 @@ python start.py --tray-selftest # 建一下图标再退出，验证 Win32 托盘
 图标 tooltip 显示 `Gantry vX · 运行中 · 端口 8765`——状态和端口放这里，菜单就不必为了
 显示它们而变宽。
 
+## 管理员权限下没有托盘图标（预期行为，不是故障）
+
+用**以管理员身份运行**的终端（或任何提权上下文）启动服务时，任务栏**不会**出现托盘图标，
+日志里只有一条：
+
+```
+WARNING gantry.tray: 托盘已跳过：当前进程以管理员权限运行 —— Windows 不允许提升进程
+向非提升的任务栏注册图标（Shell_NotifyIcon 会返回 ACCESS_DENIED）。服务不受影响；
+用**普通权限**重新启动即可恢复托盘，不需要托盘时用 --no-tray 关掉这条提示。
+```
+
+原因：Windows 的 UIPI 禁止提升进程向非提升的 `explorer.exe` 发 `Shell_NotifyIcon`
+消息，`NIM_ADD` 稳定返回 `ERROR_ACCESS_DENIED(5)`——**重试没有意义**。所以启动时先
+`is_elevated()` 判一次，命中就直接跳过（服务照常运行），不再刷"重试 3 次 → 托盘线程
+异常退出"的误导性日志。
+
+想要托盘：用普通权限启动即可，例如在**非管理员**的 PowerShell 里
+
+```powershell
+cd <安装目录>
+.\.venv\Scripts\python.exe start.py
+```
+
+确认当前权限状态：
+
+```powershell
+python start.py --tray-selftest   # 提权时打印 SKIP 并返回 2；正常时打印 OK 并返回 0
+```
+
 ## 日志
 
 后台模式没有终端，日志全部走文件：`data/logs/gantry.log`（`GANTRY_LOG_DIR` 可改目录，
