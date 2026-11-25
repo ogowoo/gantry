@@ -149,6 +149,43 @@
 - 验收：关键 DOM 变化可快速检测；必要工具可动态发现。
 - 依赖：P0-CI-01。
 
+### [ ] P2-UX-01 拖拽附件：把文件拖进对话页即复制到会话工作区
+
+- 来源：2026-11-25 用户反馈「任务要统计工作区里的 Tracker excel，但文件不在工作区」。
+  当前附件只支持**粘贴图片**（`data/uploads`，仅随消息发给 Copilot），没有通用文件上传；
+  用户以为"在界面上选了文件就已经挂载"，实际 agent 的文件工具只看得到会话工作区。
+- 目标：对话页支持拖拽/选择任意文件（xlsx、csv、pdf、代码…）→ 复制进会话工作区
+  （或 `workspace/<sid>/attachments/` 并写进提示词），任务里 agent 能直接用 `read_excel`
+  / `read_text`；同时给出"已放入 <绝对路径>"的回执。
+- 文件：webui/js/composer.js（拖拽 + 上传）、gantry/routes_core.py（上传落盘 + 大小/类型白名单）、
+  gantry/agentrun.py（落盘目录与提示词）、gantry/agent_prompt.py（告知附件位置）。
+- 验收：拖一个 .xlsx 进对话页 → 新任务里 `list_directory` 能看到它、`read_excel` 能读；
+  超限/危险扩展名（.exe/.bat）被拒绝并提示；不覆盖工作区同名文件（改名或确认）。
+- 依赖：P1-AGENT-01（先确认 agent 确实工作在会话工作区，否则上传了也看不到）。
+- 备注：用户 2026-11-25 明确"先不加"，等确认工作区问题后再做。
+
+### [ ] P1-AGENT-01 查清"模型只看到 2 个文件"的真实原因（工作区 vs Copilot 沙箱 / 线程记忆）
+
+- 现象（2026-11-25 异机）：会话工作区显示 `C:\gantry\workspace\Split Tracker`，
+  用户确认目录里**有 xlsx**；但 agent 的 `list_directory` 结果只有
+  `_validate_okam_inputs.py` + `__pycache__/…cpython-312.pyc`，回答是 Copilot 风格的
+  文件表格，并臆造"文件出现在 `/mnt/data` 就能继续"。用户怀疑"用久了 Copilot 记住了
+  我的操作形式，所以我能成功"。
+- 待查分支（按可能性）：
+  1. **工具根与会话工作区不一致**：`run_agent` 用 `req.workspace or 既有 workspace or
+     DEFAULT_WORKSPACE` 后 `T.set_root(...)`；需在出事机器上核对 `GET /v1/agent/sessions/<sid>`
+     的 `workspace`、步骤时间线里 `list_directory` 的 `arguments.path` 与返回的
+     `workspace_root`（beta.33 起结果里带绝对根），确认模型列的是哪个目录；
+  2. **模型没走本地工具**：回答卡片是 Copilot 生成的（Copilot 在自己的 `/mnt/data`
+     沙箱里 listdir），即这一轮实际是"普通对话/委托给 Copilot"，不是本地工具调用；
+     核对该步骤是否 `tool=list_directory`、是否有本地工具结果；
+  3. **Copilot 线程/长期记忆**：同一 Copilot 会话线程累积上下文（以及 memory_write
+     写入的记忆、skills）会让"老会话"表现更好，新会话/换机器就退化——需要记录
+     会话线程 ID 与新老会话对照实验。
+- 验收：在出事机器上用上面三条证据定位到唯一原因，并补一条回归测试或最小修复；
+  若属 Copilot 侧行为，则写进 docs 与提示词（"不要引用 Copilot 沙箱路径"）。
+- 依赖：无（beta.33 已提供 `workspace_root` 锚点，便于取证）。
+
 ## 里程碑
 
 - M1：关闭全部 P0。
