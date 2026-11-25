@@ -13,6 +13,9 @@ from . import bridge as b
 from .viewport import apply_outer_window_size, window_size
 from .window_pool import WindowBusy, WindowPool
 
+# AUD-P3（审核 ①-4）：浏览器启动/重建的全局互斥锁
+_START_LOCK = asyncio.Lock()
+
 
 def _window_size() -> dict[str, int]:
     return window_size(b.CFG)
@@ -40,23 +43,42 @@ def _launch_kwargs(headless: bool) -> dict:
 async def _start_browser(headless: bool) -> bool:
     """(Re)launch the persistent Edge context with the given headless mode.
 
-    headless is a launch-time parameter: toggling it always relaunches the
-    context. EdgeProfile persists, so the Copilot login survives the switch.
-    Caller must hold `lock`. Returns the mode actually in effect (headless
-    launch failure falls back to a visible window).
+    AUD-P3（审核 ①-4）：启动全程持单一 asyncio 锁——旧实现无互斥，快速双击
+    headless 切换/与 ensure_browser 并发会两次 launch_persistent_context 撞
+    Profile 锁，失败分支还会关掉另一路径刚建立的 ctx。
     """
+    async with _START_LOCK:
+        return await _start_browser_locked(headless)
+
+
+async def _start_browser_locked(headless: bool) -> bool:
+    """_start_browser 的锁内实现。"""
     # 已有上下文且在用的窗口：**不要关重建**（多窗口下会把用户正看的标签页全关掉，
     # 表现就是"开任务时窗口闪退"）。只有显式切换 headless 模式才需要重建。
     if b.ctx is not None:
         try:
-            busy = bool(b.WINDOWS.running()) or bool(getattr(b.WINDOWS, "stats", lambda: {})()
-                                                    .get("busy"))
+            busy = bool(b.WINDOWS.running()) or b.WINDOWS.any_occupied() \
+                or bool(getattr(b.WINDOWS, "stats", lambda: {})().get("busy"))
         except Exception:
             busy = False
         if (not busy) and bool(headless) == bool(b.HEADLESS_CURRENT):
+            # AUD-P3（审核 ①-5）：复用前探测页面/上下文存活——用户关掉自动化标签页
+            # 或 Edge 被杀后，旧实现拿着死页面走 bring_to_front 被吞，然后
+            # wait_copilot_ready 白等 120s 落 needs_login，"重试浏览器"无法自愈。
+            _page_dead = False
+            if b._PAGE_RAW is not None:
+                try:
+                    _page_dead = bool(b._PAGE_RAW.is_closed())
+                except Exception:                # noqa: BLE001
+                    _page_dead = False
+            if _page_dead:
+                b.set_shared_page(None)
             try:
                 if b.ctx.pages:
                     b.set_shared_page(b.ctx.pages[0])
+                elif b._PAGE_RAW is None:
+                    b.set_shared_page(await b.ctx.new_page())
+                if b._PAGE_RAW is not None:
                     b.WINDOWS.attach_existing(b._PAGE_RAW)   # 复用已有页面当 1 号窗口
             except Exception:
                 pass

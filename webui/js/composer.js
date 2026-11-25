@@ -170,22 +170,27 @@ function updateChannelUI(){
  try{refreshChatBarMeta()}catch(e){}}
 
 /* ── 排队消息：查看 / 编辑 / 删除 ── */
+let refreshQueueInflight=false;   // AUD-P3（审核 ⑧-5）：与 runtime 同款的 in-flight 防护
 async function refreshQueue(){
  if(serviceStopped)return;
- let box=document.getElementById('queueBox');if(!box)return;
- if(!window.current){box.innerHTML='';return}
+ if(refreshQueueInflight)return;
+ refreshQueueInflight=true;
+ let box=document.getElementById('queueBox');
  try{
+  if(!box){refreshQueueInflight=false;return}
+  if(!window.current){box.innerHTML='';refreshQueueInflight=false;return}
   let d=await api('/v1/agent/sessions/'+encodeURIComponent(window.current)+'/queue');
   // 正在处理的那条不算"排队"：它已经在跑，进度由运行状态面板显示，而且
   // 后端只允许改删"等待中"的条目（处理中的会 404）。这里只列等待项。
   let items=(d.pending||[]).filter(it=>!it.processing);
-  if(!items.length){box.innerHTML='';return}
+  if(!items.length){box.innerHTML='';refreshQueueInflight=false;return}
   box.innerHTML=items.map(it=>`<div class="qitem"><span class="qpos">#${it.position}</span><span class="qtext" title="${esc(it.content)}">${esc(it.content)}</span><span class="qmode">${it.mode==='agent'?'Agent':tr('对话')}</span><button title="${tr('编辑')}" data-edit="${esc(it.id)}">✎</button><button class="qdel" title="${tr('删除')}" data-del="${esc(it.id)}">×</button></div>`).join('');
    // 不再把 id 拼进内联 onclick（id 含引号即可突破 JS 字符串 → XSS）；与 loadMemory 同一范式
    box.querySelectorAll('[data-edit]').forEach(b=>b.onclick=()=>editQueueItem(b.dataset.edit));
    box.querySelectorAll('[data-del]').forEach(b=>b.onclick=()=>removeQueueItem(b.dataset.del));
    try{translateAttrs(box)}catch(e){}     // 队列项的 title 也走 DOM 层翻译
- }catch(e){box.innerHTML=''}}
+ }catch(e){if(box)box.innerHTML=''}
+ finally{refreshQueueInflight=false}}
 
 async function editQueueItem(itemId){
  if(!window.current)return;

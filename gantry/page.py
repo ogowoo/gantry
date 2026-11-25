@@ -1560,12 +1560,23 @@ async def completion_signal():
 
 
 async def updates():
-    deadline = time.monotonic() + b.TIMEOUT
+    # AUD-P3（审核 ①-9）：固定 180s 墙钟会把"还在持续出字"的长回答误杀——
+    # 与 Agent 通道"只要还在出字就继续等"的 idle-deadline 语义对齐：
+    #  · 文本一直在变化 → 等到 reply_hard_timeout_seconds（默认 1200s）才放弃；
+    #  · 没有新文本的空窗 → b.TIMEOUT（180s）内结束等待。
+    idle_timeout = float(b.TIMEOUT)
+    try:
+        hard_timeout = float(b.CFG.get("reply_hard_timeout_seconds",
+                                       max(idle_timeout * 5, 900)))
+    except Exception:                            # noqa: BLE001
+        hard_timeout = max(idle_timeout * 5, 900)
+    deadline = time.monotonic() + idle_timeout
+    hard_deadline = time.monotonic() + hard_timeout
     previous = ""
     emitted = 0
     unchanged_since = None
     started = False
-    while time.monotonic() < deadline:
+    while time.monotonic() < hard_deadline:
         await asyncio.sleep(b.POLL)
         current = await b.current_answer()
         if not current:
@@ -1592,6 +1603,13 @@ async def updates():
             await b.diagnostics("success")
             b.log(f"回答完成，共 {len(current)} 字符")
             return
+        if not started and time.monotonic() > deadline:
+            # 一个字都没等到：按原 180s 墙钟结束（长回答已在持续流出时不受此限）
+            break
+        if settled and unchanged_since is not None \
+                and time.monotonic() - unchanged_since > idle_timeout:
+            # 文本稳定超过一个空窗周期但完成信号始终没来：按超时收尾（部分内容保留）
+            break
     final = await b.current_answer()
     if final and await b.completion_signal():
         if len(final) > emitted:

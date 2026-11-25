@@ -139,6 +139,28 @@
 - 实施：参数摘要展示；主按钮「仅本次」；会话级二次确认；新增拒绝入口；尊重 approval_scope。
 - 验收：后端 args_summary 用例 + node --check + cross_module_refs。
 
+
+### [x] AUD-P3-01 KB 向量生命周期与 embedding 配置链路（审核 ⑤-3/⑤-4）
+
+- 问题：chunk 原地改文复用旧向量；孤儿向量占满 top-k；stats 误报 complete；plugin.json 的 embedding/ocr 覆盖 config.json；hybrid 失败直接抛错；local 后端只认 model_path。
+- 文件：gantry/kb.py、gantry/kb_semantic.py、plugins/kb/plugin.py、plugins/kb/plugin.json。
+- 实施：向量行加 text hash（懒迁移）逐行比对；reindex 清理孤儿向量；检索 JOIN chunks；stats 真实覆盖；_emb_cfg 签名缓存自动重建；plugin.json 只留非 embedding 默认；local 接受 model 路径；hybrid 失败退回 FTS。
+- 验收：原地改文重算、删除文档清理两个回归用例 + KB 全量测试。
+
+### [x] AUD-P3-02 浏览器/webchat 并发与恢复（审核 ①-4/①-5/①-7）
+
+- 问题：浏览器启动无互斥、忙判定漏空 sid 占用、标签页被关后重试无法自愈、webchat 同站并发串台。
+- 文件：gantry/browser.py、gantry/window_pool.py、gantry/webchat.py。
+- 实施：_START_LOCK 包住启动全程；Window.occupied 独立占用标记 + any_occupied；复用前探测页面存活并重建；webchat 每站点 asyncio.Lock 覆盖建页+发送+等待。
+- 验收：window_pool/webchat/browser 相关测试全绿。
+
+### [x] AUD-P3-03 流式等待与前端收口（审核 ①-9/⑧-5/⑧-9/⑧-11/⑨-7/⑨-10）
+
+- 问题：180s 墙钟误杀长回答；sessions/queue 轮询无 in-flight 防护；i18n 翻译缓存用首次快照；死代码；CHANGELOG 重复版本块；CI 无 JS 语法门。
+- 文件：gantry/page.py、webui/js/sessions.js、composer.js、i18n.js、settings.js、themeboot.js、CHANGELOG.md、.github/workflows/ci.yml。
+- 实施：idle-deadline（持续出字等到硬上限 1200s，无文本按 180s；稳定无信号按 180s 收尾）；轮询 in-flight；i18n 缓存随内容变化刷新；删 config 树编辑器等死代码；CHANGELOG 去重 234 行；CI 加 node --check。
+- 验收：node --check 全量、cross_module_refs、ESM/i18n 测试通过。
+
 ## P1
 
 ### [x] P1-RES-01 修复 SQLite ResourceWarning
