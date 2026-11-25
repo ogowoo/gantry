@@ -31,9 +31,20 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, urlencode, urlparse
 
-import requests
+import httpx
 
 log = logging.getLogger(__name__)
+
+
+def _post_form(url: str, data: dict, headers: dict | None = None,
+               timeout: float = 30.0) -> httpx.Response:
+    """表单 POST（OAuth 端点全是 application/x-www-form-urlencoded）。
+
+    用 httpx 不用 requests：requests 不在依赖清单里，zip 设备不会装它——
+    beta.23 就是因此起不来；httpx 是 providers 的既有硬依赖，必然在场。
+    trust_env 默认 True，公司代理（HTTPS_PROXY）自动生效。
+    """
+    return httpx.post(url, data=data, headers=headers or {}, timeout=_TIMEOUT)
 
 # ── 厂商注册表 ────────────────────────────────────────────────
 # flow=device：RFC 8628 设备码（无需本地端口，浏览器/无头环境都能用）
@@ -143,7 +154,7 @@ def _do_refresh(root: Path, name: str, rec: dict[str, Any]) -> dict[str, Any]:
     data = {"client_id": spec["client_id"],
             "grant_type": "refresh_token",
             "refresh_token": rec["refresh_token"]}
-    r = requests.post(spec["token_url"], data=data,
+    r = _post_form(spec["token_url"], data=data,
                       headers=spec.get("extra_headers") or {},
                       timeout=_TIMEOUT)
     if r.status_code != 200:
@@ -222,7 +233,7 @@ def start_device_flow(root: Path, name: str) -> dict[str, Any]:
         verifier, challenge = _pkce_pair()
         data["code_challenge"] = challenge
         data["code_challenge_method"] = "S256"
-    r = requests.post(spec["device_url"], data=data,
+    r = _post_form(spec["device_url"], data=data,
                       headers=spec.get("extra_headers") or {},
                       timeout=_TIMEOUT)
     body = r.json() if r.headers.get("content-type", "").startswith("application/json") else {}
@@ -262,7 +273,7 @@ def _poll_device(root: Path, name: str, flow: dict[str, Any]) -> None:
                     "grant_type": _DEVICE_GRANT}
             if flow.get("code_verifier"):
                 data["code_verifier"] = flow["code_verifier"]
-            r = requests.post(spec["token_url"], data=data,
+            r = _post_form(spec["token_url"], data=data,
                               headers=spec.get("extra_headers") or {},
                               timeout=_TIMEOUT)
             if r.status_code == 200:
@@ -369,7 +380,7 @@ def _run_callback_server(root: Path, name: str, spec: dict[str, Any],
     done = threading.Event()
 
     def _exchange(code: str) -> str:
-        r = requests.post(spec["token_url"], data={
+        r = _post_form(spec["token_url"], data={
             "grant_type": "authorization_code", "code": code,
             "redirect_uri": redirect_uri, "client_id": spec["client_id"],
             "code_verifier": verifier}, timeout=_TIMEOUT)
@@ -379,7 +390,7 @@ def _run_callback_server(root: Path, name: str, spec: dict[str, Any],
         # Codex：用 id_token 换一把能直接打 api.openai.com 的 API key
         if payload.get("id_token"):
             try:
-                ex = requests.post(spec["token_url"], data={
+                ex = _post_form(spec["token_url"], data={
                     "grant_type": "urn:ietf:params:oauth:grant-type:token-exchange",
                     "client_id": spec["client_id"],
                     "requested_token": "openai-api-key",

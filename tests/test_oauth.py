@@ -35,7 +35,7 @@ class StoreTests(unittest.TestCase):
         o._save_tokens(self.root, "kimi-coding",
                        {"access_token": "old", "refresh_token": "r1",
                         "expires_in": 30})          # 临期（< 120s 余量）
-        with mock.patch.object(o.requests, "post") as post:
+        with mock.patch.object(o, "_post_form") as post:
             post.return_value = mock.Mock(
                 status_code=200,
                 json=lambda: {"access_token": "new", "refresh_token": "r2",
@@ -47,7 +47,7 @@ class StoreTests(unittest.TestCase):
         o._save_tokens(self.root, "kimi-coding",
                        {"access_token": "old", "refresh_token": "bad",
                         "expires_in": 10})
-        with mock.patch.object(o.requests, "post") as post:
+        with mock.patch.object(o, "_post_form") as post:
             post.return_value = mock.Mock(status_code=401, json=lambda: {})
             self.assertEqual(o.get_access_token(self.root, "kimi-coding"), "")
 
@@ -73,7 +73,7 @@ class DeviceFlowTests(unittest.TestCase):
 
     def test_poll_success_saves_tokens(self):
         flow = self._flow()
-        with mock.patch.object(o.requests, "post") as post:
+        with mock.patch.object(o, "_post_form") as post:
             post.return_value = mock.Mock(
                 status_code=200,
                 json=lambda: {"access_token": "tok", "expires_in": 900})
@@ -87,14 +87,14 @@ class DeviceFlowTests(unittest.TestCase):
                             json=lambda: {"error": "authorization_pending"})
         ok = mock.Mock(status_code=200,
                        json=lambda: {"access_token": "tok2", "expires_in": 900})
-        with mock.patch.object(o.requests, "post", side_effect=[pending, ok]):
+        with mock.patch.object(o, "_post_form", side_effect=[pending, ok]):
             o._poll_device(self.root, "kimi-coding", flow)
         self.assertEqual(flow["status"], "ok")
         self.assertEqual(o.get_access_token(self.root, "kimi-coding"), "tok2")
 
     def test_poll_expired_fails(self):
         flow = self._flow()
-        with mock.patch.object(o.requests, "post") as post:
+        with mock.patch.object(o, "_post_form") as post:
             post.return_value = mock.Mock(status_code=400, content=b"{}",
                                           json=lambda: {"error": "expired_token"})
             o._poll_device(self.root, "kimi-coding", flow)
@@ -102,7 +102,7 @@ class DeviceFlowTests(unittest.TestCase):
         self.assertFalse(o.authorized(self.root, "kimi-coding"))
 
     def test_start_device_flow_hides_device_code(self):
-        with mock.patch.object(o.requests, "post") as post:
+        with mock.patch.object(o, "_post_form") as post:
             post.return_value = mock.Mock(
                 status_code=200,
                 headers={"content-type": "application/json"},
