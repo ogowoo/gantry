@@ -62,6 +62,15 @@ jobs:
           Copy-Item -LiteralPath config.example.json -Destination config.json -Force
           python -c "import json;p='config.json';d=json.load(open(p,encoding='utf-8'));d['api_token']='';json.dump(d,open(p,'w',encoding='utf-8'),ensure_ascii=False,indent=2)"
 
+      - name: Check frontend syntax (AUD-P3, 审核 ⑨-10)
+        shell: pwsh
+        run: |
+          node --version
+          Get-ChildItem webui\js\*.js | ForEach-Object { node --check $_.FullName }
+          node --check webui\boot.js
+          node --check webui\i18n.js
+          if ($LASTEXITCODE -ne 0) { throw "JS syntax check failed" }
+
       - name: Check dependency metadata consistency (AUD-P1-16)
         shell: pwsh
         run: |

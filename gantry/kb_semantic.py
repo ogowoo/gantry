@@ -194,24 +194,49 @@ class SemanticIndex:
         con = self.kb.db()
         con.execute(f"""CREATE TABLE IF NOT EXISTS {self.table}(
             chunk_id TEXT PRIMARY KEY, model TEXT, dim INTEGER, vec BLOB, at REAL)""")
+        # AUD-P3（审核 ⑤-3）：加文本 hash 列（老库懒迁移）。没有 hash 比对，
+        # 同一路径原地改文后 chunk_id 不变 → 复用旧向量，语义检索按旧正文打分。
+        cols = {r["name"] for r in con.execute(f"PRAGMA table_info({self.table})")}
+        if "hash" not in cols:
+            con.execute(f"ALTER TABLE {self.table} ADD COLUMN hash TEXT")
         con.commit()
+
+    def _chunk_hash(self, text: str) -> str:
+        import hashlib
+        return hashlib.sha1((text or "").encode("utf-8")).hexdigest()
 
     def stats(self) -> dict[str, Any]:
         con = self.kb.db()
-        row = con.execute(
-            f"SELECT COUNT(*) AS n, MAX(dim) AS dim FROM {self.table} WHERE model=?",
-            (self.embedder.name,)).fetchone()
-        total = con.execute(
-            "SELECT COUNT(*) AS n FROM chunks "
-            "WHERE COALESCE(chunk_kind,'legacy') <> 'parent'").fetchone()["n"]
+        rows = con.execute(
+            f"SELECT chunk_id, hash, dim FROM {self.table} WHERE model=?",
+            (self.embedder.name,)).fetchall()
+        have = {r["chunk_id"]: r for r in rows}
+        cur = con.execute(
+            "SELECT id, doc_title, heading, text FROM chunks "
+            "WHERE COALESCE(chunk_kind,'legacy') <> 'parent'").fetchall()
+        # AUD-P3（审核 ⑤-3）：真实覆盖——逐行比对"当前 chunk 文本 hash"与向量行
+        # 存的 hash；原地改文/孤儿向量一律不算已覆盖（旧实现按行数误报 complete）。
+        n = 0
+        dim = 0
+        for c in cur:
+            v = have.get(c["id"])
+            if v is None or not v["hash"]:
+                continue
+            h = self._chunk_hash("\n".join(
+                x for x in (c["doc_title"], c["heading"], c["text"]) if x))
+            if v["hash"] == h:
+                n += 1
+                dim = max(dim, int(v["dim"] or 0))
         return {"model": self.embedder.name,
-                "vectorised": int(row["n"] or 0), "dim": int(row["dim"] or 0),
-                "chunks": int(total), "complete": int(row["n"] or 0) >= int(total)}
+                "vectorised": n, "dim": dim,
+                "chunks": len(cur), "complete": n >= len(cur)}
 
     def _model_rows(self) -> list[sqlite3.Row]:
         con = self.kb.db()
+        # AUD-P3：JOIN chunks 过滤孤儿向量（孤儿曾占满 top-k，返回条数变少）
         return con.execute(
-            f"SELECT chunk_id, dim, vec FROM {self.table} WHERE model=?",
+            f"SELECT v.chunk_id, v.dim, v.vec FROM {self.table} v "
+            "JOIN chunks c ON c.id = v.chunk_id WHERE v.model=?",
             (self.embedder.name,)).fetchall()
 
     def _missing(self) -> list[dict[str, Any]]:
@@ -219,10 +244,17 @@ class SemanticIndex:
         rows = con.execute(
             "SELECT id, doc_title, heading, text FROM chunks "
             "WHERE COALESCE(chunk_kind,'legacy') <> 'parent'").fetchall()
-        have = {r["chunk_id"] for r in self._model_rows()}
-        return [{"id": r["id"], "text": "\n".join(
-            x for x in (r["doc_title"], r["heading"], r["text"]) if x)}
-            for r in rows if r["id"] not in have]
+        have = {r["chunk_id"]: r["hash"] for r in con.execute(
+            f"SELECT chunk_id, hash FROM {self.table} WHERE model=?",
+            (self.embedder.name,)).fetchall()}
+        out = []
+        for r in rows:
+            text = "\n".join(x for x in (r["doc_title"], r["heading"], r["text"]) if x)
+            h = self._chunk_hash(text)
+            if have.get(r["id"]) == h:
+                continue
+            out.append({"id": r["id"], "text": text, "hash": h})
+        return out
 
     # ── 建索引 ──
     def build(self, force: bool = False, batch: int = 16,
@@ -250,9 +282,9 @@ class SemanticIndex:
             for item, vec in zip(part, vecs):
                 con.execute(
                     f"INSERT OR REPLACE INTO {self.table}"
-                    "(chunk_id, model, dim, vec, at) VALUES(?,?,?,?,?)",
+                    "(chunk_id, model, dim, vec, at, hash) VALUES(?,?,?,?,?,?)",
                     (item["id"], self.embedder.name, len(vec),
-                     json.dumps(vec), time.time()))
+                     json.dumps(vec), time.time(), item.get("hash") or ""))
             con.commit()
             done += len(part)
             if progress:
@@ -411,7 +443,23 @@ def build_embedder(cfg: dict[str, Any] | None = None) -> Embedder | None:
     if backend == "local":
         from .local_models import LocalEmbedder
 
+        # AUD-P3（审核 ⑤-4）：UI 把 GGUF 路径存进 kb.embedding.model，而这里只读
+        # model_path——local 后端因路径为空静默退回 FTS。model 指向真实文件时
+        # 作为 model_path 兜底；裸文件名按仓库根/data/models(/embedding) 依次查找
+        # （现场实证：配置是 "bge-m3-FP16.gguf"，文件在 data/models/embedding/）。
         path = str(c.get("model_path") or "")
+        if not path:
+            cand = str(c.get("model") or "").strip()
+            if cand:
+                _root = Path(__file__).resolve().parent.parent
+                for _t in (Path(cand), _root / cand, _root / "data" / "models" / cand,
+                           _root / "data" / "models" / "embedding" / cand):
+                    try:
+                        if _t.is_file():
+                            path = str(_t.resolve())
+                            break
+                    except OSError:              # noqa: BLE001
+                        continue
         if not path:
             return None
         return LocalEmbedder(path, n_ctx=int(c.get("n_ctx") or 2048),

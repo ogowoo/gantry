@@ -22,6 +22,10 @@ log = logging.getLogger("gantry.webchat")
 
 # 每个站点的受管页面（进程内复用，关闭后自动重建）
 _PAGES: dict[str, Any] = {}
+# AUD-P3（审核 ①-7）：每站点一把锁——并发 /v1/chat/completions 共用同一页面时，
+# 提示词互相覆盖、两个请求读到同一条最后回答（串台=数据泄漏）；建页与发送全程
+# 持锁，跨会话并行对该站点串行化。
+_SITE_LOCKS: dict[str, asyncio.Lock] = {}
 
 # 选择器注册表。每个站点：
 #   url          站点入口
@@ -69,12 +73,28 @@ def site_spec(site: str) -> dict[str, Any]:
     return spec
 
 
+def _site_lock(site: str) -> asyncio.Lock:
+    lock = _SITE_LOCKS.get(site)
+    if lock is None:
+        lock = _SITE_LOCKS[site] = asyncio.Lock()
+    return lock
+
+
 async def ensure_site_page(site: str, wait_load: bool = True):
     """在共享持久化上下文里打开/复用站点页面。
 
     wait_load=False 时导航放后台跑（webchat-open 登录入口用）：接口秒回，
     窗口弹出就是可见进度，避免前端对着 120s 的 goto 干等看不到在干什么。
+
+    AUD-P3（审核 ①-7）：建页持站锁——"检查—创建—写入 _PAGES"并发时两个
+    调用互相覆盖并泄漏一个标签页。
     """
+    async with _site_lock(site):
+        return await _ensure_site_page_unlocked(site, wait_load)
+
+
+async def _ensure_site_page_unlocked(site: str, wait_load: bool = True):
+    """无锁版：chat() 已在站锁内，避免 asyncio.Lock 不可重入的死锁。"""
     from . import bridge as b      # 浏览器状态都在 bridge（ctx/pw）
     from . import browser          # 启动逻辑在 browser
 
@@ -123,9 +143,19 @@ async def check_login(site: str, timeout: float = 60.0) -> tuple[bool, str]:
 
 
 async def chat(site: str, prompt: str, timeout: float = _SITE_TIMEOUT) -> str:
-    """发一条消息并等待生成结束，返回最后一条助手回复的文本。"""
+    """发一条消息并等待生成结束，返回最后一条助手回复的文本。
+
+    AUD-P3（审核 ①-7）：发送+等待全程持站锁——同一站点的并发请求串行化，
+    提示词与回答不再互相覆盖。
+    """
     spec = site_spec(site)
-    page = await ensure_site_page(site)
+    async with _site_lock(site):
+        return await _chat_locked(site, spec, prompt, timeout)
+
+
+async def _chat_locked(site: str, spec: dict[str, Any], prompt: str,
+                       timeout: float) -> str:
+    page = await _ensure_site_page_unlocked(site)
     if not await page.evaluate(spec["login_ok_js"]):
         raise RuntimeError(f"{spec['label']} 未登录，无法发送。请先完成登录。")
 

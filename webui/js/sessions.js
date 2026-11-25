@@ -6,8 +6,11 @@ function toggleSessExpand(sid){
  sessSig='';drawSessions();
 }
 try{showSubagents=localStorage.getItem('gantry-show-subagents')==='1'}catch(e){}
+let refreshSessionsInflight=false;   // AUD-P3（审核 ⑧-5）：与 runtime 同款的 in-flight 防护
 async function refreshSessions(){
  if(serviceStopped)return;
+ if(refreshSessionsInflight)return;   // 后端变慢时请求堆积、响应乱序会把旧列表写回界面
+ refreshSessionsInflight=true;
  try{
   const q='?include_subagents=true';   // 全量：前端把子代理折叠到父会话下
   let d=await api('/v1/agent/sessions'+q);
@@ -15,6 +18,7 @@ async function refreshSessions(){
   subagentCount=d.subagent_count||0;
   drawSessions();
  }catch(e){}
+ finally{refreshSessionsInflight=false}
 }
 function toggleSubagents(){
  // 全部展开 / 全部折叠（子代理会话归集在父会话下）

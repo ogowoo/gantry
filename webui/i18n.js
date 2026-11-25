@@ -1691,6 +1691,13 @@ function i18nSwapText(el, attr) {
   if (store[attr] === undefined) {
     store[attr] = attr === "text" ? el.textContent : (el.getAttribute(attr) || "");
   }
+  // AUD-P3（审核 ⑧-9）：动态数值（计数/路径）变化后，若仍用首次快照当原文，
+  // 语言切换会把当前值覆盖回旧快照（如 "(12)" 变 "(15)" 后切语言又变回 "(12)"）。
+  // 当前文本既不是原文也不是译文时，说明内容被更新过——以当前文本为新原文。
+  const cur = attr === "text" ? el.textContent : (el.getAttribute(attr) || "");
+  if (cur !== store[attr] && cur !== tr(String(store[attr] || "").trim())) {
+    store[attr] = cur;
+  }
   const src = store[attr];
   const key = String(src || "").trim();
   if (!key || !i18nKnown(key)) return;

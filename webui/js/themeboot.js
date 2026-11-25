@@ -245,7 +245,7 @@ async function shutdownService(){
  }
 }
 /* ── 重启服务：优雅退出 → 就地 exec 重启；本页轮询 /health，恢复后自动刷新 ── */
-let restarting=false, restartStartedAt=0;
+let restartStartedAt=0;
 async function restartService(){
  if(window.restarting)return;
   if(!await dlgConfirm(

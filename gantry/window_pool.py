@@ -57,6 +57,9 @@ class Window:
         self.page = page
         self.lock = asyncio.Lock()
         self.sid: Optional[str] = None          # 正在这个窗口跑的会话
+        # AUD-P3（审核 ①-4）：占用标记独立于 sid——删除/刷新模型等独占操作以
+        # 空 sid 持有窗口，旧实现 running()/busy 统计看不到它们。
+        self.occupied = False
         self.created_at = time.time()
         self.last_used = time.time()
         # 页面级状态：不能放在全局，否则两个窗口会互相污染
@@ -192,6 +195,7 @@ class WindowPool:
                     pass
                 raise WindowBusy("等到的是已关闭的 Copilot 窗口（请重试或重开浏览器）")
         win.sid = sid or None
+        win.occupied = True
         win.last_used = time.time()
         await win.lock.acquire()
         return win
@@ -204,6 +208,7 @@ class WindowPool:
         表现为"开启任务后自动化窗口闪退"。缩容只由 set_max() 在**空闲**时做。
         """
         win.sid = None
+        win.occupied = False
         win.last_used = time.time()
         if win.lock.locked():
             try:
@@ -231,6 +236,14 @@ class WindowPool:
 
     def is_running(self, sid: str) -> bool:
         return bool(sid) and any(w.sid == sid for w in self._windows)
+
+    def any_occupied(self) -> bool:
+        """是否有窗口被占用——含空 sid 的独占操作（删除/刷新模型/切换等）。
+
+        AUD-P3（审核 ①-4）：这些操作持窗口锁但 sid 为空，旧实现
+        running()/any_window_busy 看不到，浏览器重启会掀掉正在进行的删除/刷新。
+        """
+        return any(getattr(w, "occupied", False) or w.sid for w in self._windows)
 
     def stats(self) -> dict[str, Any]:
         busy = [w for w in self._windows if w.sid]

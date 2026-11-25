@@ -154,6 +154,34 @@ class SemanticIndexTests(unittest.TestCase):
         again = self.idx.build()
         self.assertEqual(again["added"], 0, "第二次不该重复算")
 
+    def test_audit_53_inplace_edit_rebuilds_vector(self):
+        """AUD-P3（审核 ⑤-3）：同一路径原地改文（chunk_id 不变）后，旧向量不得复用。"""
+        self.idx.build()
+        (self.tmp / "data" / "kb" / "vpn.md").write_text(
+            "完全不同的内容：换端口 443 之后改走隧道模式。\n", encoding="utf-8")
+        self.kb.reindex()
+        # 改文后 stats 不得再报 complete（hash 不一致=未覆盖）
+        st = self.idx.stats()
+        self.assertFalse(st["complete"], "原地改文后旧向量必须失效")
+        res = self.idx.build()
+        self.assertGreaterEqual(res["added"], 1, "hash 不一致的 chunk 必须重算")
+        self.assertTrue(self.idx.stats()["complete"])
+
+    def test_audit_53_orphan_vectors_cleaned_and_not_counted(self):
+        """AUD-P3（审核 ⑤-3）：删除文档后向量行被清理；stats/检索不再把孤儿算进去。"""
+        self.idx.build()
+        (self.tmp / "data" / "kb" / "wifi.md").unlink()
+        self.kb.reindex()
+        st = self.idx.stats()
+        self.assertTrue(st["complete"], "清理孤儿后覆盖应真实")
+        self.assertEqual(st["vectorised"], st["chunks"])
+        rows = self.idx._model_rows()
+        ids = {r["chunk_id"] for r in rows}
+        self.assertTrue(ids, "剩余 chunk 的向量仍在")
+        # 检索不再返回已删除文档的内容
+        hits = self.idx.search("Wi-Fi", 10)
+        self.assertTrue(all("wifi" not in h["path"] for h in hits))
+
     def test_build_only_new_chunks(self):
         self.idx.build()
         (self.tmp / "data" / "kb" / "vpn.md").write_text(
