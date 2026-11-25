@@ -100,16 +100,18 @@ class WindowPool:
                     break
                 if w.sid or w.lock.locked():
                     continue
+                # AUD-P2（审核 ①-11）：先从池里摘除再 await close——旧实现
+                # close() 期间让出事件循环，acquire 的 _take_free 仍可能把这个
+                # 正在关闭的窗口发给任务（target closed，任务莫名失败）。
+                if w not in self._windows:
+                    continue
+                self._windows.remove(w)
+                w.in_pool = False
                 try:
                     if w.page is not None:
                         await w.page.close()
                 except Exception:
                     pass
-                try:
-                    self._windows.remove(w)
-                except ValueError:
-                    pass
-                w.in_pool = False
                 # 从空闲队列里摘掉（队列无法按值删除，取出再放回）
                 kept: list[Window] = []
                 while not self._free.empty():
@@ -139,12 +141,16 @@ class WindowPool:
 
     # ── 取用 / 归还 ────────────────────────────────────────────────
     def _take_free(self) -> Optional[Window]:
-        """从空闲队列取一个**活着**的窗口；坏页面就地丢弃。"""
+        """从空闲队列取一个**活着且仍在池中**的窗口；坏页面就地丢弃。"""
         while not self._free.empty():
             try:
                 win = self._free.get_nowait()
             except asyncio.QueueEmpty:
                 return None
+            # AUD-P2（审核 ①-11）：窗口可能正被 set_max 摘除关闭——不在
+            # _windows 里的窗口不得发给任务。
+            if win not in self._windows:
+                continue
             win.in_pool = False
             if _page_closed(win.page):
                 # 用户手动关了标签页/渲染进程崩了：从池里摘掉，继续找下一个

@@ -124,6 +124,9 @@ class LocalChatEngine:
         self.truncate = bool(truncate)
         self._llm: Any = None
         self._lock = threading.Lock()
+        # AUD-P2：加载互斥锁（审核 ⑤-10）——_ensure 的整个加载过程在锁内，
+        # 并发首调用只加载一份模型。
+        self._load_lock = threading.Lock()
         # 协作式取消：取消时置位，生成循环每轮检查；不能直接 kill 线程
         self._cancel = threading.Event()
         self._last_used = 0.0
@@ -196,43 +199,47 @@ class LocalChatEngine:
             f"未能用 {p.name} 初始化多模态投影：{str(last or '无可用 handler')[:160]}")
 
     def _ensure(self) -> Any:
-        self._maybe_idle_unload()
-        if self._llm is not None:
-            return self._llm
-        if not self.path or not Path(self.path).is_file():
-            raise LocalModelError(f"模型文件不存在：{self.path or '(未配置)'}")
-        cls = llama_class()
-        t0 = time.time()
-        self._loading = True
-        self._last_error = ""
-        try:
-            kw: dict[str, Any] = {"model_path": self.path, "n_ctx": self.n_ctx,
-                                  "verbose": self.verbose}
-            if self.n_threads:
-                kw["n_threads"] = self.n_threads
-            if self.chat_format:
-                kw["chat_format"] = self.chat_format
-            handler = self._chat_handler()
-            if handler is not None:
-                kw["chat_handler"] = handler
-            llm = cls(**kw)
-            if self._abort_load:
-                # 用户在加载途中点了「强行停止」：拿到上下文也不留，直接释放
-                self._abort_load = False
-                del llm
-                raise LocalModelError("加载被强行中止（模型未载入内存）")
-            self._llm = llm
-        except Exception as exc:                 # noqa: BLE001
-            if isinstance(exc, LocalModelError):
+        # AUD-P2（审核 ⑤-10）：加载本身必须在锁内——chat()/stream() 都是先
+        # _ensure 再拿 self._lock，两个并发首调用会同时 cls(**kw) 加载两份多 GB
+        # 模型，内存翻倍容易 OOM。
+        with self._load_lock:
+            self._maybe_idle_unload()
+            if self._llm is not None:
+                return self._llm
+            if not self.path or not Path(self.path).is_file():
+                raise LocalModelError(f"模型文件不存在：{self.path or '(未配置)'}")
+            cls = llama_class()
+            t0 = time.time()
+            self._loading = True
+            self._last_error = ""
+            try:
+                kw: dict[str, Any] = {"model_path": self.path, "n_ctx": self.n_ctx,
+                                      "verbose": self.verbose}
+                if self.n_threads:
+                    kw["n_threads"] = self.n_threads
+                if self.chat_format:
+                    kw["chat_format"] = self.chat_format
+                handler = self._chat_handler()
+                if handler is not None:
+                    kw["chat_handler"] = handler
+                llm = cls(**kw)
+                if self._abort_load:
+                    # 用户在加载途中点了「强行停止」：拿到上下文也不留，直接释放
+                    self._abort_load = False
+                    del llm
+                    raise LocalModelError("加载被强行中止（模型未载入内存）")
+                self._llm = llm
+            except Exception as exc:                 # noqa: BLE001
+                if isinstance(exc, LocalModelError):
+                    self._last_error = str(exc)[:200]
+                    raise
                 self._last_error = str(exc)[:200]
-                raise
-            self._last_error = str(exc)[:200]
-            raise LocalModelError(f"加载 {Path(self.path).name} 失败：{str(exc)[:200]}") from exc
-        finally:
-            self._loading = False
-        self.load_seconds = round(time.time() - t0, 2)
-        self.loads += 1
-        return self._llm
+                raise LocalModelError(f"加载 {Path(self.path).name} 失败：{str(exc)[:200]}") from exc
+            finally:
+                self._loading = False
+            self.load_seconds = round(time.time() - t0, 2)
+            self.loads += 1
+            return self._llm
 
     def warm(self) -> dict[str, Any]:
         """显式预热（eager 用）；失败不抛，返回状态供日志。"""

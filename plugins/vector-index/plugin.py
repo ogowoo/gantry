@@ -226,14 +226,16 @@ class VectorIndex:
             self.reset()
         self._ensure()
         rows = self._kb_rows()
-        if limit:
-            rows = rows[:max(1, int(limit))]
+        # AUD-P2（审核 ⑤-7）：limit 只限制**本次 build 的写入批数**，不得参与
+        # prune——旧实现 keep 只来自被截断的 rows，第 N 块之后全被当"KB 已不存在"
+        # 删除，索引尾部 90% 的 chunk 被静默清掉。
+        build_rows = rows[:max(1, int(limit))] if limit else rows
         model = str(self.cfg.get("model") or "")
         dim = int(self.cfg.get("dim") or 1024)
         old = {r["chunk_id"]: r for r in self._conn.execute(
             "SELECT chunk_id, model, dim, hash, rowid FROM meta").fetchall()}
         todo = []
-        for r in rows:
+        for r in build_rows:
             h = hashlib.sha1(r["text"].encode("utf-8")).hexdigest()
             prev = old.get(r["chunk_id"])
             if (not force and prev and prev["model"] == model
@@ -252,7 +254,7 @@ class VectorIndex:
                 self._upsert(r, vec)
                 made += 1
             self._conn.commit()
-        # 删除 KB 已不存在的块
+        # 删除 KB 已不存在的块：keep 必须用**完整** rows，不能用截断后的批次
         keep = {r["chunk_id"] for r in rows}
         for cid, prev in old.items():
             if cid not in keep:
@@ -264,7 +266,7 @@ class VectorIndex:
                 "at": time.time(), "added": made, "chunks": st["indexed"]})
         except Exception:                        # noqa: BLE001
             pass
-        return {**st, "added": made, "skipped": max(0, len(rows) - made)}
+        return {**st, "added": made, "skipped": max(0, len(build_rows) - made)}
 
     def _delete_row(self, rowid: int):
         if self._vec_ready:

@@ -259,11 +259,15 @@ class Updater:
             except UpdateError as exc:
                 errors.append(str(exc))
         latest = self.current
+        # AUD-P2（审核 ⑦-10）：检查全失败时不能报"已是最新"——WebUI/托盘只消费
+        # update_available，会把失败当"没有更新"展示，用户错过更新且无失败提示。
+        # check_failed=true 供前端区分"确实最新"和"无法检查"。
         return {
-            "ok": True, "current": self.current, "latest": latest,
+            "ok": not errors, "current": self.current, "latest": latest,
             "update_available": False, "method": want,
             "channel": self.channel, "repo": self.repo,
             "errors": errors, "checked_at": _now(),
+            "check_failed": bool(errors),
         }
 
     def _check_payload(self, latest: str, method: str, notes: str,
@@ -492,16 +496,33 @@ class Updater:
         record["entries"] = entries
         self._save_backup(bdir, record)
         new_entries = self._code_entries(source_root)
+        # AUD-P0-06：更新不再删除"新包里没有"的旧顶层条目（旧实现会把 AGENT.md/
+        # skills/personas/tests 等运行资产与用户自建目录 rmtree 掉——审核 ⑨-1）。
+        # plugins/skills/personas 按子项合并替换：只覆盖新包自带的子项，
+        # 用户安装的第三方插件/自建技能保留（审核 ⑦-3）。
+        _MERGE_DIRS = {"plugins", "skills", "personas"}
         try:
             for name in entries:
                 if name not in new_entries:
-                    self._remove_path(self.root / name)
+                    log.info("zip 更新：保留新包未包含的顶层条目 %s", name)
             for name in new_entries:
                 dst = self.root / name
                 src = source_root / name
+                if name in _MERGE_DIRS and src.is_dir():
+                    dst.mkdir(parents=True, exist_ok=True)
+                    for child in src.iterdir():
+                        self._remove_path(dst / child.name)
+                        if child.is_dir():
+                            shutil.copytree(child, dst / child.name,
+                                            ignore=shutil.ignore_patterns(
+                                                "__pycache__", "*.pyc"))
+                        else:
+                            shutil.copy2(child, dst / child.name)
+                    continue
                 self._remove_path(dst)
                 if src.is_dir():
-                    shutil.copytree(src, dst, ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
+                    shutil.copytree(src, dst,
+                                    ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
                 else:
                     shutil.copy2(src, dst)
         except Exception as exc:                 # noqa: BLE001

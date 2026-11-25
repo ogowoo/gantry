@@ -112,6 +112,43 @@ class UpdaterZipTests(unittest.TestCase):
         self.assertTrue((self.root / "gantry" / "old.py").is_file())
         self.assertFalse((self.root / "gantry" / "new.py").exists())
 
+    def test_zip_preserves_unknown_toplevel_and_user_plugins(self):
+        # AUD-P0-06：新包里没有的顶层条目（AGENT.md/skills/用户插件）不得被删除；
+        # plugins/ 按子项合并——用户装的第三方插件保留，新包自带插件正常安装。
+        (self.root / "AGENT.md").write_text("project rules\n", encoding="utf-8")
+        (self.root / "skills").mkdir()
+        (self.root / "skills" / "mine.md").write_text("skill\n", encoding="utf-8")
+        (self.root / "plugins").mkdir()
+        (self.root / "plugins" / "user-plugin").mkdir()
+        (self.root / "plugins" / "user-plugin" / "plugin.py").write_text("x=1\n",
+                                                                        encoding="utf-8")
+        with zipfile.ZipFile(self.zip_path, "w") as z:
+            z.writestr("gantry-new/gantry/version.py", 'VERSION = "0.11.0-beta.1"\n')
+            z.writestr("gantry-new/gantry/new.py", "new = 2\n")
+            z.writestr("gantry-new/start.py", "print('new')\n")
+            z.writestr("gantry-new/plugins/shipped/plugin.py", "shipped\n")
+
+        def fake_release(tag):
+            return {"tag": tag, "version": tag, "url": "https://github.com/x/y.zip",
+                    "sha256": "", "notes": "", "source": "release"}
+
+        def fake_download(url, dest):
+            shutil.copyfile(self.zip_path, dest)
+
+        with mock.patch.object(self.up, "_release_info", side_effect=fake_release), \
+                mock.patch.object(self.up, "_download", side_effect=fake_download), \
+                mock.patch.object(self.up, "_schedule_restart"):
+            out = self.up.apply(version="0.11.0-beta.1", method="zip", restart=False,
+                                force=True)
+        self.assertTrue(out["changed"])
+        self.assertTrue((self.root / "AGENT.md").is_file(),
+                        "新包没有的顶层条目应保留")
+        self.assertTrue((self.root / "skills" / "mine.md").is_file())
+        self.assertTrue((self.root / "plugins" / "user-plugin" / "plugin.py").is_file(),
+                        "用户插件不得被整目录替换清空")
+        self.assertTrue((self.root / "plugins" / "shipped" / "plugin.py").is_file(),
+                        "新包自带的插件应安装")
+
     def test_zip_missing_digest_requires_force(self):
         """release 无 SHA256 digest 时默认拒绝安装，仅 force=True 放行。"""
         def fake_release(tag):

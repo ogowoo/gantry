@@ -19,6 +19,8 @@ import uuid
 from . import bridge as b
 
 _MSG_QUEUES: dict[str, "collections.deque"] = {}
+# AUD-P2：每会话最大排队消息数（审核 ③-8 背压）
+MAX_QUEUE_DEPTH = 20
 _MSG_WAKE: dict[str, asyncio.Event] = {}
 _MSG_WORKERS: dict[str, asyncio.Task] = {}
 _MSG_INFLIGHT: dict[str, dict] = {}
@@ -140,6 +142,11 @@ async def enqueue_session_message(sid: str, content: str, model_id: str,
         _MSG_WAKE[sid] = asyncio.Event()
         # 必须走 b.：测试会替换 b._message_worker 成可控桩（不消费的 worker）
         _MSG_WORKERS[sid] = asyncio.create_task(b._message_worker(sid))
+    # AUD-P2（审核 ③-8）：每会话排队上限，超限拒绝——deque、messages 表与内存
+    # 无界增长（单条最多 12 万字符），单客户端即可拖垮进程。
+    if len(dq) >= MAX_QUEUE_DEPTH:
+        return {"session_id": sid, "queued": False,
+                "error": f"会话排队消息已达上限 {MAX_QUEUE_DEPTH}，请等处理完再发"}
     ahead = len(dq)
     item_id = uuid.uuid4().hex[:12]
     dq.append({"id": item_id, "content": content, "model_id": model_id,

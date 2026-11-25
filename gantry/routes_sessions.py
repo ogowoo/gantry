@@ -219,7 +219,10 @@ async def session_changes(sid: str):
     if not state:
         raise HTTPException(404, "Session 不存在")
     try:
-        data = b.SNAPSHOTS.changes(sid, default_root=_session_workspace_root(sid))
+        # AUD-P2（审核 ③-6）：changes 对最多 800 个文件做 read_bytes+SequenceMatcher，
+        # 同步跑在 async handler 里会冻结事件循环——放进线程池。
+        data = await asyncio.to_thread(
+            b.SNAPSHOTS.changes, sid, default_root=_session_workspace_root(sid))
     except Exception as exc:
         raise HTTPException(500, f"统计改动失败: {exc}") from exc
     data["deliverables"] = b.declared_deliverables(sid)
@@ -448,6 +451,10 @@ async def delete_session(sid: str, delete_remote: bool = False, force_local: boo
         urls = list(dict.fromkeys(state.get("conversation_urls") or []))
         if state.get("current_url") and state["current_url"] not in urls:
             urls.append(state["current_url"])
+        # AUD-P1-10：会话记录里的 URL 同样过白名单——导入的导出文件可被篡改
+        # （conversation_urls 原样落库），不校验就会驱动带 SSO 登录态的浏览器
+        # 导航任意地址（审核 ③-2，M19 残留）。
+        urls = _copilot_delete_urls(urls)
         if b.session_running(sid):
             raise HTTPException(409, "Session 正在运行，不能删除")
         try:
@@ -490,6 +497,21 @@ async def delete_session(sid: str, delete_remote: bool = False, force_local: boo
                     "部分 Copilot 会话删除失败，本地 Session 已保留。可检查后使用 "
                     "force_local=true 仅清理本地记录。", lang),
             }
+
+    # AUD-P1-11：仅本地删除也必须拒绝运行中的会话（含未结束的子代理）——旧实现
+    # 只在 delete_remote 分支检查，运行中的 runner 会继续向已删会话写孤儿行、
+    # delete 还级联删掉正在跑的子会话（审核 ③-3）。
+    _running = b.session_running(sid)
+    if not _running:
+        try:
+            _running = any(
+                str(r.get("parent_id") or "") == sid
+                and b.session_running(str(r.get("id") or ""))
+                for r in b.AGENT_SESSIONS.list(include_archived=False))
+        except Exception:                        # noqa: BLE001
+            pass
+    if _running:
+        raise HTTPException(409, "Session 正在运行，不能删除（含未结束的子代理；可先暂停/取消）")
 
     local_deleted = b.AGENT_SESSIONS.delete(sid)
     b.RUNTIME.pop(sid, None)
@@ -627,8 +649,13 @@ async def continue_session_message(sid: str, req: a.SessionMessageRequest,
         b.AGENT_SESSIONS.set_mode(sid, "agent" if req.agent_mode else "chat")
     except Exception as exc:      # 落库失败不阻断发送
         b.log(f"会话模式落库失败（不影响执行）：{exc}")
-    return await b.enqueue_session_message(sid, content, model_id,
-                                           bool(req.agent_mode), attach_paths, message_id)
+    # AUD-P2：队列满（背压上限）时返回 429，而不是 200 + error 字段——
+    # 否则客户端以为已排队，消息却永远不会被处理（审核 ③-8）。
+    _queued = await b.enqueue_session_message(sid, content, model_id,
+                                              bool(req.agent_mode), attach_paths, message_id)
+    if not _queued.get("queued"):
+        raise HTTPException(429, _queued.get("error") or "会话排队消息已满")
+    return _queued
 
 
 @router.post("/v1/agent/sessions/{sid}/continue")
@@ -1006,6 +1033,40 @@ async def grant_approval(sid: str, payload: dict):
     return {"ok": True, "tool": tool, "args_hash": args_hash,
             "scope": scope, "note": note, "note_code": note_code}
 
+@router.post("/v1/agent/sessions/{sid}/approvals/deny")
+async def deny_approval(sid: str, payload: dict | None = None):
+    """拒绝当前待审批的操作（AUD-P0-12）。
+
+    与前端"暂不授权"（仅本地收起）不同：这是真正的拒绝——清掉 approval_pending、
+    置 paused 并写恢复提示，模型恢复后被告知"不要再尝试同一操作"。
+    """
+    session = b.AGENT_SESSIONS.get(sid)
+    if not session:
+        raise HTTPException(404, "会话不存在")
+    pend = (session or {}).get("approval_pending") or {}
+    tool = str(pend.get("tool") or (payload or {}).get("tool") or "")
+    try:
+        b.AGENT_SESSIONS.patch(sid, last_error=None, approval_pending=None, state="paused")
+    except Exception:
+        pass
+    try:
+        _step_no = int((session or {}).get("total_steps", 0)) + 1
+        _step = {"step": _step_no, "status": "approval_denied", "tool": tool,
+                 "reason": "用户拒绝了该操作（会话已暂停）",
+                 "result": {"tool": tool, "args_hash": str(pend.get("args_hash") or "")}}
+        b.AGENT_SESSIONS.add_step(sid, _step_no,
+                                  int((session or {}).get("conversation_index", 0)), _step)
+    except Exception:
+        pass
+    try:
+        _hint = ("用户拒绝了刚才需要授权的操作（%s）。不要再尝试同一操作；"
+                 "请改用替代方案，或停下来向用户说明。" % (tool or "未知工具"))
+        b.set_resume_hint(sid, _hint)
+    except Exception:
+        pass
+    return {"ok": True, "tool": tool, "note": "已拒绝；会话已暂停"}
+
+
 @router.get("/v1/agent/workspace/files")
 async def workspace_files(sid: str = "", q: str = "", limit: int = 50):
     """@ 弹层的文件检索：按相对路径子串匹配（工作区守卫，拒绝越界）。
@@ -1024,8 +1085,10 @@ async def workspace_files(sid: str = "", q: str = "", limit: int = 50):
         root = Path(root).resolve()
     except Exception:
         raise HTTPException(400, "工作区不可用")
-    return {"files": search_files(root, q, limit=max(1, min(int(limit or 50), 200))),
-            "root": str(root)}
+    # AUD-P1-15：检索是同步磁盘 IO（递归工作区），放线程池防冻结事件循环
+    files = await asyncio.to_thread(
+        search_files, root, q, max(1, min(int(limit or 50), 200)))
+    return {"files": files, "root": str(root)}
 
 
 @router.post("/v1/agent/copilot/cleanup-marked")

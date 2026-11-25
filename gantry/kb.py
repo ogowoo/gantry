@@ -147,6 +147,16 @@ def _hard_split(text: str) -> list[str]:
         if size + len(para) > MAX_CHUNK_CHARS and buf:
             parts.append("\n\n".join(buf))
             buf, size = [], 0
+        # AUD-P2（审核 ⑤-6）：单段本身超限（无空行的长文/HTML 转文本/日志）必须
+        # 按字符硬切，否则一个 parent 无限膨胀，kb_search 回灌巨型 parent_text
+        # 撑爆模型上下文（实测 "A"*5000 曾被切成单段 5000）。
+        while len(para) > MAX_CHUNK_CHARS:
+            cut = para[:MAX_CHUNK_CHARS]
+            if buf:
+                parts.append("\n\n".join(buf))
+                buf, size = [], 0
+            parts.append(cut)
+            para = para[MAX_CHUNK_CHARS:]
         buf.append(para)
         size += len(para) + 2
     if buf:

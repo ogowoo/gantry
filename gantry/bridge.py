@@ -648,6 +648,13 @@ class AgentRequest(BaseModel):
 
 
 def log(s):
+    # AUD-P2（审核 ⑦-5）：后台模式 stdout/stderr 全进 DEVNULL，print 等于丢弃。
+    # 同时写 logging（落 data/logs/gantry.log），前台 print 保留。
+    try:
+        import logging as _logging
+        _logging.getLogger("gantry.bridge").info("%s", s)
+    except Exception:                            # noqa: BLE001
+        pass
     print(f"[{datetime.now():%H:%M:%S}] {s}", flush=True)
 
 

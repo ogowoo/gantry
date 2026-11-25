@@ -852,7 +852,12 @@ async def list_local_models():
     if not root.exists():
         return {"models": [], "root": str(root)}
     try:
-        report = model_store.scan(root, extra_roots=_external_model_dirs())
+        # AUD-P1-15：scan 里每个 GGUF 的 read_header 最多读 16MB 并解析全部张量
+        # 条目，同步跑在事件循环会卡秒级（审核 ⑤-8）。列表只做轻量识别（类别/
+        # 位置），体检在校验阶段再触发，故 verify_data=False。
+        report = await asyncio.to_thread(
+            model_store.scan, root, extra_roots=_external_model_dirs(),
+            verify_data=False)
     except Exception as exc:                 # noqa: BLE001
         b.log(f"扫描模型库失败：{exc}")
         return {"models": [], "root": str(root),

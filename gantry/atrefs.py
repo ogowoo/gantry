@@ -8,6 +8,7 @@
 """
 from __future__ import annotations
 
+import os
 import re
 from pathlib import Path
 
@@ -96,23 +97,21 @@ def search_files(root: Path, query: str, limit: int = 50) -> list[str]:
         return []
     out = []
     try:
-        walker = root.rglob("*")
-        for f in walker:
-            if len(out) >= limit * 4:      # 先多收一点再排序截断
-                break
-            try:
-                if not f.is_file():
+        # AUD-P1-15：用 os.walk 在目录层直接剪枝（_SKIP_DIRS 命中即不进），
+        # 旧实现 rglob 会先递归进 node_modules/.venv 再逐文件过滤，同步 IO
+        # 在 async 路由里冻结事件循环（审核 ①-10）。
+        for dirpath, dirnames, filenames in os.walk(root):
+            dirnames[:] = [d for d in dirnames if d not in _SKIP_DIRS
+                           and not d.startswith(".")]
+            for name in filenames:
+                if len(out) >= limit * 4:      # 先多收一点再排序截断
+                    return sorted(out, key=lambda r: (r.lower().find(q) if q else 0, len(r), r))[:limit]
+                if name.startswith("."):
                     continue
-                rel = f.relative_to(root).as_posix()
-            except ValueError:
-                continue
-            if any(part in _SKIP_DIRS for part in rel.split("/")):
-                continue
-            if rel.startswith("."):
-                continue
-            if q and q not in rel.lower():
-                continue
-            out.append(rel)
+                rel = os.path.relpath(os.path.join(dirpath, name), root).replace("\\", "/")
+                if q and q not in rel.lower():
+                    continue
+                out.append(rel)
     except OSError:
         return []
     out.sort(key=lambda r: (r.lower().find(q) if q else 0, len(r), r))

@@ -18,6 +18,7 @@ config.json 的 providers 段可覆盖预设或新增任意 OpenAI 兼容提供�
 
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 import urllib.request
@@ -288,13 +289,17 @@ class ApiProvider:
             return system_proxy()
         return None
 
-    def _client(self, use_proxy: bool = True):
+    def _client(self, use_proxy: bool = True, api_key: str = ""):
         kwargs: dict[str, Any] = {}
         if use_proxy:
             proxy = self.proxy_url()
             if proxy:
                 kwargs["proxy"] = proxy
-        api_key = self.current_api_key()
+        # AUD-P1-15：current_api_key 内含 OAuth 同步刷新（httpx.post，最长 30s），
+        # 在 async 路径直接调用会冻结事件循环（审核 ③-5）。刷新由调用方先放
+        # to_thread（`await asyncio.to_thread(self.current_api_key)`），这里只消费
+        # 传入/缓存的 key——_client 保持同步签名，测试的 AsyncClient mock 不受影响。
+        api_key = api_key or self.api_key
         headers: dict[str, str] = {"Authorization": f"Bearer {api_key}"}
         if self.api == "anthropic":
             # Kimi Coding 实测 Bearer 与 x-api-key 都接受；带上协议版本头更稳
@@ -452,12 +457,13 @@ class ApiProvider:
         `/v1/chat/completions` 用这个把提供商的 tool_calls 原样透传给 DSH 等客户端；
         内部 Agent 调用仍走 `complete()`（只要正文）。
         """
-        self.require_ready()
+        await asyncio.to_thread(self.require_ready)
         if self.api == "anthropic":
             body = self._anthropic_body(model, messages, self.max_tokens or 8192,
                                         stream=False, tools=tools, tool_choice=tool_choice)
             try:
-                async with self._client() as client:
+                api_key = await asyncio.to_thread(self.current_api_key)
+                async with self._client(api_key=api_key) as client:
                     resp = await client.post("/v1/messages", json=body)
             except (httpx.TimeoutException, httpx.TransportError) as exc:
                 raise ProviderUnavailable(self.net_error_text(exc)) from exc
@@ -503,7 +509,8 @@ class ApiProvider:
         last_exc: Exception | None = None
         for use_proxy in attempts:
             try:
-                async with self._client(use_proxy=use_proxy) as client:
+                api_key = await asyncio.to_thread(self.current_api_key)
+                async with self._client(use_proxy=use_proxy, api_key=api_key) as client:
                     resp = await client.post("/chat/completions", json=payload)
                     if resp.status_code >= 400 and "response_format" in payload:
                         # 服务不支持该参数：去掉后重试一次（能力探测，不报错给用户）
@@ -560,13 +567,14 @@ class ApiProvider:
         `/v1/chat/completions` 用它把提供商的 tool_calls 分片原样转发给客户端；
         `stream()` 只是它的纯文本视图（内部 Agent 用）。
         """
-        self.require_ready()
+        await asyncio.to_thread(self.require_ready)
         if self.api == "anthropic":
             body = self._anthropic_body(model, messages, self.max_tokens or 8192,
                                         stream=True, tools=tools, tool_choice=tool_choice)
             tool_index = 0
             try:
-                async with self._client() as client:
+                api_key = await asyncio.to_thread(self.current_api_key)
+                async with self._client(api_key=api_key) as client:
                     async with client.stream("POST", "/v1/messages", json=body) as resp:
                         await self._check_status_stream(resp)
                         async for line in resp.aiter_lines():
@@ -697,7 +705,7 @@ class LocalProvider(ApiProvider):
                                tool_choice: Any = None) -> dict[str, Any]:
         import asyncio
 
-        self.require_ready()
+        await asyncio.to_thread(self.require_ready)
         if hasattr(self.engine, 'clear_cancel'):
             self.engine.clear_cancel()
         res = await asyncio.to_thread(
@@ -713,7 +721,7 @@ class LocalProvider(ApiProvider):
                             tool_choice: Any = None):
         import asyncio
 
-        self.require_ready()
+        await asyncio.to_thread(self.require_ready)
         queue: asyncio.Queue = asyncio.Queue()
         loop = asyncio.get_running_loop()
 
@@ -785,7 +793,7 @@ class WebchatProvider(ApiProvider):
                                tool_choice: Any = None) -> dict[str, Any]:
         from . import webchat
 
-        self.require_ready()
+        await asyncio.to_thread(self.require_ready)
         prompt = webchat.flatten_messages(messages, response_schema)
         text = await webchat.chat(self.site, prompt)
         return {"content": text, "tool_calls": None,
