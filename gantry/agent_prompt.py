@@ -20,6 +20,45 @@ SELF_UPGRADE_TASK_LEAD_ZH = """
 """
 
 
+_WS_RULE_ZH = (
+    "【工作区】你的本地文件工具只能访问这个目录（绝对路径，就是当前工作目录）：\n"
+    "{root}\n"
+    "- 相对路径都相对该目录；子目录用 / 分隔；目录或文件名含空格时**原样**传给工具，"
+    "不要自己加引号、转义或替换成下划线。\n"
+    "- 这里**没有** /mnt/data，也没有 Copilot 网页的沙箱文件系统：Copilot 自己能读到什么"
+    "与你的文件工具无关，不要假设用户的文件“已经上传到会话”。\n"
+    "- 任务需要的输入文件不在工作区时：先用 list_directory 确认，然后把上面的**绝对路径**"
+    "告诉用户，请他放进去（或直接给出文件所在路径）；不要猜路径、不要全盘搜索、"
+    "不要声称使用了界面上传/附件。\n"
+    "- 产出写在工作区里，用相对路径。"
+)
+
+
+def workspace_rule(root: str) -> str:
+    """【工作区】绝对路径锚点 + "没有 Copilot 沙箱文件" 的硬约束。
+
+    为什么必须有（2026-11-25 实测）：提示词里只写"路径相对于当前工作目录"、不给绝对
+    路径时，模型 list_directory('.') 拿到的也只有相对名，一旦任务需要的输入文件不在
+    工作区，它就会臆造"文件已在界面选中但没挂载 / 文件出现在 /mnt/data 就能继续"
+    ——那是 Copilot 网页自带沙箱的概念，Gantry 的文件工具根本碰不到，用户只看到
+    "好像不能识别工作目录"。会话工作区可变，所以这段在装配时按当前 root 生成。
+    """
+    if not root:
+        return ""
+    try:
+        from .prompt import _cfg_lang
+
+        lang = prompt_lang.effective_lang(_cfg_lang())
+    except Exception:                            # noqa: BLE001
+        lang = prompt_lang.effective_lang(None)
+    zh = _WS_RULE_ZH.format(root=root)
+    if lang == "en":
+        return prompt_lang.EN.get("workspace_rule", zh).format(root=root)
+    if lang == "tw":
+        return prompt_lang.to_tw(zh)
+    return zh
+
+
 class PromptMixin:
     def _system_prompt(self) -> str:
         # copilot_attach / copilot_file 只在浏览器（Copilot 网页）会话可用。
@@ -66,6 +105,18 @@ class PromptMixin:
         except Exception:                         # noqa: BLE001
             pass
         reg.add("protocol", agent_protocol, order=-1000)
+        # 工作区绝对路径。**order 必须大于 tools(100)**：协议段最后一行是"可用工具："，
+        # 工具清单 JSON 必须紧跟其后（有测试与不变量检查这个邻接关系）。放在 130，
+        # 即紧随工具清单 + file_ops 之后。自升级任务目标在安装目录，跳过（见
+        # _self_upgrade_rules 的强提示），免得两句"根在哪"互相拉扯。
+        try:
+            _ws = str(getattr(self.tools, "root", "") or "")
+        except Exception:                        # noqa: BLE001
+            _ws = ""
+        _self_task = bool(getattr(self.tools, "allow_self_upgrade", False)) and \
+            ("自升级" in (getattr(self, "_task_text", "") or ""))
+        if _ws and not _self_task:
+            reg.add("workspace_root", workspace_rule(_ws), order=130)
         # 文件操作只用 Python 系工具，禁止拿 shell 改文件：
         # PowerShell 的 Get-Content -Raw / Set-Content -Encoding utf8 会破坏 UTF-8
         # 源码（实测把中文写成 "é¦–è½®æ…" 这类乱码，只能整篇重写）。文件工具本身

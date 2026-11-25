@@ -53,6 +53,49 @@ class PromptStabilityTests(unittest.TestCase):
         self.assertIn("read_excel", a)
         self.assertNotIn("read_excel", b)
 
+    def test_workspace_absolute_path_is_injected(self):
+        """工作区绝对路径必须进提示词（否则模型缺文件时会臆造 /mnt/data）。"""
+        r = self._runner()
+        prompt = r._system_prompt()
+        self.assertIn(str(self.ws.resolve()), prompt,
+                      "提示词里没有工作区绝对路径：模型无法告诉用户把文件放到哪里")
+        self.assertEqual(prompt.count(str(self.ws.resolve())), 1,
+                         "工作区路径只该出现一次，别处重复会浪费 token 且易前后矛盾")
+        self.assertIn("【工作区】", prompt)
+
+    def test_workspace_section_forbids_copilot_sandbox(self):
+        """要明确否掉 Copilot 沙箱（/mnt/data）而不是留给模型自由联想。"""
+        prompt = self._runner()._system_prompt()
+        self.assertIn("没有", prompt)
+        self.assertIn("/mnt/data", prompt)
+        self.assertIn("沙箱", prompt)
+
+    def test_workspace_section_skipped_for_self_upgrade_task(self):
+        """自升级任务的目标在安装目录，不能同时注入"你的根是工作区"。"""
+        cfg = {"max_total_steps": 10, "allow_self_upgrade": True}
+        r = AgentRunner(ToolRegistry(self.ws, cfg), lambda *a, **k: None, cfg,
+                        state_getter=lambda: {"state": "ready"},
+                        state_saver=lambda **k: None, step_saver=lambda s: None,
+                        file_event_saver=lambda e: None)
+        r._task_text = "[自升级任务] 修一下控制台的按钮"
+        self.assertNotIn("【工作区】", r._system_prompt())
+        # 普通任务（即使开了自升级权限）仍旧注入，别把整段规则误关掉
+        r._task_text = "统计工作区里的 excel"
+        self.assertIn("【工作区】", r._system_prompt())
+
+    def test_workspace_section_localized_to_english(self):
+        """英文提示词模式下不能整段露中文（其余分段都有 EN 译本，这段也不例外）。"""
+        from gantry import prompt_lang
+
+        prompt_lang.set_request_lang("en")
+        try:
+            prompt = self._runner()._system_prompt()
+        finally:
+            prompt_lang.set_request_lang("zh")
+        self.assertIn("[Workspace]", prompt)
+        self.assertIn("NO /mnt/data", prompt)
+        self.assertNotIn("【工作区】", prompt)
+
 
 if __name__ == "__main__":
     unittest.main()

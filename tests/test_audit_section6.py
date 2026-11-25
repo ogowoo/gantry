@@ -73,6 +73,25 @@ class DirIncrementalTests(unittest.TestCase):
         self.assertIn("new.py", out.get("changed_since_last_list") or [])
         self.assertIn("mtime", out["items"][0])
 
+    def test_result_carries_absolute_workspace_root(self):
+        """列表结果必须带**绝对**工作区根。
+
+        用户实测（2026-11-25）：工作区里没有目标 Excel 时，模型只拿到相对文件名，
+        就臆造"文件在 /mnt/data / 已上传到会话"然后原地宣布完成。把根钉进结果里，
+        模型才能把"请把文件放到 <绝对路径>"说清楚。
+        """
+        ws = Path(tempfile.mkdtemp(prefix="cbp_dir_root_"))
+        (ws / "数据.xlsx").write_text("x", encoding="utf-8")
+        out = asyncio.run(ToolRegistry(ws, {}).list_directory("."))
+        self.assertEqual(out.get("workspace_root"), str(ws.resolve()))
+        self.assertEqual(out.get("abs_path"), str(ws.resolve()))
+        # 子目录：workspace_root 仍是根，abs_path 指到子目录
+        sub = ws / "Split Tracker"
+        sub.mkdir()
+        out2 = asyncio.run(ToolRegistry(ws, {}).list_directory("Split Tracker"))
+        self.assertEqual(out2.get("workspace_root"), str(ws.resolve()))
+        self.assertEqual(out2.get("abs_path"), str(sub.resolve()))
+
 
 class DirTreeTests(unittest.TestCase):
     def test_list_directory_tree_basic(self):

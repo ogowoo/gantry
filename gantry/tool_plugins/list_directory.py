@@ -31,7 +31,11 @@ async def list_directory(registry, path: str = ".", since_mtime: float | None = 
             items.append({"name": item.name, "type": "unknown", "size": 0})
     import time as _t
     cache[key] = _t.time()
-    out = {"path": path, "items": items[:1000], "truncated": len(items) > 1000}
+    # workspace_root / abs_path：把"根在哪"钉进工具结果。只回相对名时模型没有绝对锚点，
+    # 缺输入文件就会臆造"文件在 /mnt/data 或已上传"（实测），用户看到的是"不认工作目录"。
+    out = {"path": path, "abs_path": str(target),
+           "workspace_root": str(getattr(registry, "root", "") or ""),
+           "items": items[:1000], "truncated": len(items) > 1000}
     if changed:
         out["changed_since_last_list"] = sorted(changed)[:200]
         out["note"] = ("自上次列出以来有 %d 个条目发生变化（见 changed_since_last_list）——"

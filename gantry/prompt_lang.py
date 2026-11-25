@@ -296,6 +296,23 @@ WriteAllText to edit files.""",
         "(the workspace only contains other projects, unrelated to this service).\n"
     ),
 
+    "workspace_rule": (
+        "[Workspace] Your local file tools can only access this directory (absolute path; "
+        "this IS the current working directory):\n"
+        "{root}\n"
+        "- Relative paths are relative to it; separate subdirectories with /; when a directory "
+        "or file name contains spaces, pass it VERBATIM — do not add quotes or escapes, and do "
+        "not replace spaces.\n"
+        "- There is NO /mnt/data here, and no Copilot web sandbox filesystem: whatever Copilot "
+        "itself can read has nothing to do with your file tools, so never assume the user's "
+        "files were already uploaded to the session.\n"
+        "- If a required input file is not in the workspace: confirm with list_directory, then "
+        "tell the user the ABSOLUTE path above and ask them to put the file there (or give you "
+        "its path). Do not guess paths, do not scan the whole disk, and do not claim you used a "
+        "UI upload/attachment.\n"
+        "- Write outputs inside the workspace using relative paths."
+    ),
+
 }
 
 # 文件分流（一句，随通道不同）：协议里以 {{CBP_FILE_ROUTING}} 引用
