@@ -23,11 +23,19 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--timeout", type=int, default=180, help="单个模块超时（秒）")
     ap.add_argument("--only", default="", help="只跑名字含该关键字的模块")
+    ap.add_argument("--skip", default="",
+                    help="跳过名字含这些关键字的模块（逗号分隔）；用于 CI 上已知会挂的模块")
     args = ap.parse_args()
 
     mods = sorted(p.stem for p in TESTS.glob("test_*.py"))
     if args.only:
         mods = [m for m in mods if args.only in m]
+    skips = [s.strip() for s in (args.skip or "").split(",") if s.strip()]
+    if skips:
+        dropped = [m for m in mods if any(s in m for s in skips)]
+        mods = [m for m in mods if not any(s in m for s in skips)]
+        if dropped:
+            print(f"SKIP    {len(dropped)} 个模块（--skip {' '.join(skips)}）：{', '.join(dropped)}")
     bad = []
     t0 = time.time()
     # 与子进程内 tests/__init__.py 同一套 redirect：测试临时目录统一进仓库外的

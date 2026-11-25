@@ -186,6 +186,20 @@
   若属 Copilot 侧行为，则写进 docs 与提示词（"不要引用 Copilot 沙箱路径"）。
 - 依赖：无（beta.33 已提供 `workspace_root` 锚点，便于取证）。
 
+### [ ] P1-CI-02 查清 test_liveview 在 GitHub Windows runner 上挂死
+
+- 现象：`run_tests_chunked.py` 里 `test_liveview` 在本地 1s 通过（全部用假页面 /
+  假 CDP / mock，无真实浏览器），但在 GH hosted Windows runner 上稳定跑满
+  180s 被判 TIMEOUT，直接拖挂 Trusted Release（v0.12.0-beta.34 的发布失败）。
+- 当前处置：release.yml 用 `--skip test_liveview` 先移出发布门（浏览器相关覆盖
+  仍由 `browser-integration.yml` 提供），避免发布流水线被单模块拖死。
+- 待查：在 CI 里加 `faulthandler.dump_traceback_later(120)` 或按测试方法粒度打印
+  进度，定位卡在哪个用例（怀疑 `asyncio` 事件循环 + `loop.call_later` 回调在
+  无人值守会话下的行为差异）；定位后再把该模块加回发布门。
+- 验收：CI 上 `test_liveview` 单独跑通（或确实证明是环境限制并加明确 skip 条件），
+  release.yml 去掉 `--skip test_liveview`。
+- 依赖：无。
+
 ## 里程碑
 
 - M1：关闭全部 P0。

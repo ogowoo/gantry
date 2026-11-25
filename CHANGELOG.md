@@ -14,6 +14,21 @@
 ### Fixed
 - 
 
+## [0.12.0-beta.35] - 2026-11-25
+
+### Added
+- `scripts/run_tests_chunked.py` 新增 `--skip`（逗号分隔关键字），CI 上可跳过已知会挂的
+  模块而不必改脚本或删测试。
+
+### Changed
+- 发布门（release.yml）改用 `--skip test_liveview`：该模块在 GitHub Windows runner 上
+  稳定挂到 180s 超时（本地 1s，全部 mock），会把整条 Trusted Release 拖失败
+  （v0.12.0-beta.34 即因此没发出 Release）。浏览器相关覆盖仍由
+  `browser-integration.yml` 提供，待定位原因后加回（docs/TODO.md P1-CI-02）。
+
+### Fixed
+- 
+
 ## [0.12.0-beta.34] - 2026-11-25
 
 ### Added
