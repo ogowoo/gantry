@@ -161,6 +161,12 @@
 - 实施：idle-deadline（持续出字等到硬上限 1200s，无文本按 180s；稳定无信号按 180s 收尾）；轮询 in-flight；i18n 缓存随内容变化刷新；删 config 树编辑器等死代码；CHANGELOG 去重 234 行；CI 加 node --check。
 - 验收：node --check 全量、cross_module_refs、ESM/i18n 测试通过。
 
+### [x] AUD-LIVE-01 真机实测：KB 向量全量重建 + 重启链路（2026-11-25 晚）
+
+- 结果：local bge-m3 嵌入 23/23 块 complete=true；embedding 配置链路修复生效；
+  重启后登录态保持、liveview 正常。裸文件名 model 的路径回退已补（ff0d5ea）。
+- 待办：Copilot 超限窗口恢复后补测只读任务/fileview 绝对路径/@引用（挂起任务 bad38gviv 观察中）。
+
 ## P1
 
 ### [x] P1-RES-01 修复 SQLite ResourceWarning

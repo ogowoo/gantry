@@ -27,6 +27,20 @@
   （⑧-5/⑧-6）、i18n 翻译缓存（⑧-9）、死代码清理（⑧-11）、CHANGELOG 去重
   （⑨-7）、前端质量门进 CI（⑨-10）。
 
+## 实测验证记录（2026-11-25 晚，真机 + 真 Copilot 会话）
+
+- 服务从 fix/audit-round3 代码重启（POST /v1/restart）：单实例锁/占位符 token 路径正常，
+  EdgeProfile 登录态保持，copilot_ready=true。
+- KB 向量实弹（⑤-3/⑤-4）：修复前 /v1/plugins/kb/api/vector-stats 报
+  available=false、旧实现曾谎报 23/23 complete；修复后 local:bge-m3-FP16
+  可用，全量嵌入 23/23 块（3.75s），complete=true，维度自校正 1024。
+  现场发现 model 是裸文件名（实际在 data/models/embedding/）→ 已加路径回退链
+  （ff0d5ea）并重测通过。
+- liveview /v1/live/pages 正常返回 Copilot 页面。
+- 只读 Agent 任务因 Copilot 当日超限挂起中：正好观察 suspended 路径与
+  auto_resume（③-6 巡检 light=True 的实测点）；待窗口恢复后补测 fileview
+  绝对路径拒绝、只读意图守卫、@引用展开。
+
 ## 执行原则
 
 1. 每项修复带回归测试（安全类修复必须有"防回退"用例）。
