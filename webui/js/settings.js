@@ -1,6 +1,7 @@
 // settings.js — 
 // 从原 webui/app.js 拆出的 ES 模块（该单体已退役，见 docs/ESM-MIGRATION.md）。
 import { SETTINGS_GROUPS, SANDBOX_UI, ENUM_LABEL, openMemory } from './themeboot.js';
+import { toggleLiveView } from './liveview.js';
 import { CODE_EXT } from './codeux.js';
 import { stepFilterInput } from './steps.js';
 import { exportSessions, importSessions, deleteSessionsBulk } from './sessions.js';
@@ -937,6 +938,7 @@ const ACTIONS={
  openTask:()=>openTask(),
  openManual:()=>openManual(),
  toggleBrowser:()=>toggleBrowser(),
+ toggleLiveView:()=>toggleLiveView(),
  toggleTheme:()=>toggleTheme(),
  cycleLang:()=>cycleLang(),
  drawSessions:()=>drawSessions(),

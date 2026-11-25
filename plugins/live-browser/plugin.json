@@ -1,0 +1,17 @@
+{
+  "name": "live-browser",
+  "version": "0.1.0",
+  "description": "实时视图：让 Agent 在受管浏览器打开网站，用户在对话页右侧实时看到浏览器画面，边分析边继续对话",
+  "gantry": {
+    "entry": "plugin.py",
+    "permissions": [
+      "tools"
+    ],
+    "contributes": {
+      "tools": [
+        "open_site"
+      ]
+    },
+    "allow_uninstall": true
+  }
+}

@@ -33,6 +33,11 @@ const I18N_EN = {
   "使用手册": "Manual",
  "目录": "Contents",
   "切换自动化浏览器窗口的显示/隐藏": "Show / hide the automation browser window",
+  "实时视图": "Live view",
+  "实时视图：在右侧看受管浏览器画面": "Live view: watch the managed browser on the right",
+  "选择要观看的页面": "Choose a page to watch",
+  "受管浏览器没有打开的页面": "No pages open in the managed browser",
+  "已关闭实时视图（新页面打开时会重新展开）": "Live view closed (it will reopen when a new page is opened)",
   "主题：深色（点击切换）": "Theme: dark (click to cycle)",
   "跨会话搜索对话内容": "Search across sessions",
   "终止服务 / 退出（优雅停机；正在跑的任务会中断，状态已落库，重启后可恢复）":

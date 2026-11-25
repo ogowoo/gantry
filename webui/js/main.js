@@ -7,6 +7,7 @@
 //
 // 等所有块迁完，app.js 就空了，index.html 只留这一个 <script type="module">。
 import { S } from './state.js';
+import { startLiveAutoOpen } from './liveview.js';
 import { startScope, stopScope, scopeFrame } from './scope.js';
 import { atUpdate, atPick, atClose, bindAtMenu } from './atmenu.js';
 import { toast } from './toast.js';
@@ -412,4 +413,5 @@ try{applyTheme(themeChoice(),false);watchSystemTheme()}catch(e){}
   
 }
 // 原 app.js 的启动调用点：DOM 就绪后统一跑
-if(document.readyState==='loading'){document.addEventListener('DOMContentLoaded',bootInit)}else{bootInit()}
+function bootAll(){bootInit();startLiveAutoOpen()}
+if(document.readyState==='loading'){document.addEventListener('DOMContentLoaded',bootAll)}else{bootAll()}
