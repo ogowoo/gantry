@@ -85,6 +85,12 @@ PRESETS: dict[str, dict[str, Any]] = {
         "vision": True,              # /v1/messages 接受 base64 image block
         "description": "Kimi Coding（Anthropic Messages 协议）",
     },
+    # ChatGPT 网页版：用你的网页登录会话对话，不走 API 计费。
+    # backend=webchat → gantry/webchat.py 用共享 EdgeProfile 驱动 chatgpt.com。
+    "chatgpt-web": {"backend": "webchat", "site": "chatgpt-web",
+                    "models": ["gpt-5.1", "gpt-5", "gpt-5-mini"],
+                    "description": "ChatGPT 网页版：网页登录会话对话，无需 API key"
+                                   "（受消费条款约束，见 docs）"},
     "kimi": {
         "base_url": "https://api.moonshot.cn/v1",
         "api_key_env": ["MOONSHOT_API_KEY", "KIMI_API_KEY", "MONSHOT_API_KEY"],
@@ -705,6 +711,59 @@ class LocalProvider(ApiProvider):
         return str(msg.get("content") or "")
 
 
+class WebchatProvider(ApiProvider):
+    """网页版聊天提供商（`backend: "webchat"`）：Playwright 驱动 chatgpt.com 等
+    网页会话，复用共享 EdgeProfile 的登录态，不走 API 计费。
+
+    与 ApiProvider 同构（complete_message / stream_chunks），因此 /v1/models、
+    Agent、/v1/chat/completions 都不需要改。限制：无原生 tool_calls、无严格
+    json_schema（退化为提示词约束）、吞吐受网页生成速度限制。
+    """
+
+    def __init__(self, name: str, cfg: dict[str, Any]):
+        super().__init__(name, cfg)
+        self.backend = "webchat"
+        self.site = str(cfg.get("site") or name)
+        self.base_url = self.base_url or "webchat://browser"
+        self.api_key = self.api_key or "webchat"   # 登录态即凭据，无需 key
+
+    @property
+    def configured(self) -> bool:
+        from .webchat import WEBCHAT_SITES
+        return self.site in WEBCHAT_SITES
+
+    def require_ready(self) -> None:
+        from .webchat import WEBCHAT_SITES
+        if self.site not in WEBCHAT_SITES:
+            raise ProviderError(f"提供商 {self.name} 的 webchat 站点未注册：{self.site}")
+
+    async def complete_message(self, model: str, messages: list[dict[str, Any]],
+                               response_schema: dict[str, Any] | None = None,
+                               *, tools: list[dict[str, Any]] | None = None,
+                               tool_choice: Any = None) -> dict[str, Any]:
+        from . import webchat
+
+        self.require_ready()
+        prompt = webchat.flatten_messages(messages, response_schema)
+        text = await webchat.chat(self.site, prompt)
+        return {"content": text, "tool_calls": None,
+                "finish_reason": "stop", "raw": {"webchat": True}}
+
+    async def stream_chunks(self, model: str, messages: list[dict[str, Any]],
+                            response_schema: dict[str, Any] | None = None,
+                            *, tools: list[dict[str, Any]] | None = None,
+                            tool_choice: Any = None):
+        # 网页生成完成后一次性给出：网页流式抓取收益低、闪烁风险高，先不切片
+        msg = await self.complete_message(model, messages, response_schema)
+        yield {"delta": {"content": msg["content"]}, "finish_reason": None}
+        yield {"delta": {}, "finish_reason": "stop"}
+
+    async def complete(self, model: str, messages: list[dict[str, Any]],
+                       response_schema: dict[str, Any] | None = None) -> str:
+        msg = await self.complete_message(model, messages, response_schema)
+        return str(msg.get("content") or "")
+
+
 def _autodiscover_local(merged: dict[str, dict[str, Any]]) -> None:
     """data/models/ 里有对话 GGUF 且没人配过本地提供商时，自动注册 `local/` 提供商。
 
@@ -771,8 +830,11 @@ def build_providers(cfg: dict[str, Any]) -> dict[str, ApiProvider]:
         # 未显式配置时按已知能力给默认值（不支持的会在 4xx 时自动降级重试）
         cfg2.setdefault("json_mode", JSON_MODE_BY_PROVIDER.get(name.lower(), "auto"))
         # backend=local（或给了 model_path）→ 进程内引擎，不走 HTTP
-        if str(cfg2.get("backend") or "").lower() == "local" or cfg2.get("model_path"):
+        backend = str(cfg2.get("backend") or "").lower()
+        if backend == "local" or cfg2.get("model_path"):
             out[name] = LocalProvider(name, cfg2)
+        elif backend == "webchat":
+            out[name] = WebchatProvider(name, cfg2)
         else:
             out[name] = ApiProvider(name, cfg2)
     return out

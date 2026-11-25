@@ -120,6 +120,9 @@ async def main():
         print(f"检测到服务正在运行（端口 {PORT}）。直接登录会导致 EdgeProfile 锁冲突。")
         print("请先停止服务再运行 login.py；或服务有窗口模式下直接在自动化窗口里登录。")
         sys.exit(1)
+    # --url=https://chatgpt.com/ ：给 webchat 站点登录用（默认仍是 Copilot）
+    url = next((a.split("=", 1)[1] for a in sys.argv[1:]
+                if a.startswith("--url=")), "") or CFG["copilot_url"]
     async with async_playwright() as pw:
         ctx = await pw.chromium.launch_persistent_context(
             user_data_dir=str(PROFILE),
@@ -129,9 +132,9 @@ async def main():
         )
         page = ctx.pages[0] if ctx.pages else await ctx.new_page()
         await apply_outer_window_size(page, CFG)
-        await page.goto(CFG["copilot_url"], wait_until="domcontentloaded", timeout=120000)
+        await page.goto(url, wait_until="domcontentloaded", timeout=120000)
         print(GUIDE)
-        print("请完成登录，确认 Copilot 可正常对话后按 Enter。")
+        print(f"请完成登录（{url}），确认可正常对话后按 Enter。")
         await asyncio.to_thread(input)
         await ctx.close()
 

@@ -90,6 +90,11 @@ def _entry_view(name: str, entry: dict[str, Any], *, custom: bool,
                 if entry.get("oauth") else {"supported": False})
     backend = str(entry.get("backend") or "").lower()
     is_local = backend == "local" or bool(entry.get("model_path"))
+    web_site = str(entry.get("site") or "") if backend == "webchat" else ""
+    web_url = ""
+    if web_site:
+        from . import webchat as _wc
+        web_url = str((_wc.WEBCHAT_SITES.get(web_site) or {}).get("url") or "")
     models = [str(m) for m in (entry.get("models") or [])]
     base_url = str(entry.get("base_url") or "")
     if preset and preset.get("base_url") and custom:
@@ -106,6 +111,8 @@ def _entry_view(name: str, entry: dict[str, Any], *, custom: bool,
         "api_key_in_config": in_config,
         "oauth": oauth_st,
         "backend": backend or "http",
+        "web_site": web_site,
+        "web_url": web_url,
         "model_path": str(entry.get("model_path") or ""),
         "models": models,
         "max_tokens": int(entry.get("max_tokens") or 0),
@@ -356,6 +363,13 @@ async def test_provider(name: str):
                 "path": mp,
                 "error": "" if ok else (f"模型文件不存在：{mp}" if mp else "未配置 model_path")}
 
+    if str(getattr(provider, "backend", "")).lower() == "webchat":
+        from . import webchat
+        ok, error = await webchat.check_login(str(getattr(provider, "site", "")))
+        return {"ok": ok, "kind": "webchat",
+                "latency_ms": int((time.time() - t0) * 1000), "error": error,
+                "web_url": str(getattr(provider, "site", ""))}
+
     base_url = str(getattr(provider, "base_url", "") or "")
     if not base_url:
         return {"ok": False, "kind": "http", "latency_ms": 0, "error": "未配置 base_url"}
@@ -407,6 +421,31 @@ async def test_provider(name: str):
             text = str(exc)[:200]
         return {"ok": False, "kind": "http", "latency_ms": int((time.time() - t0) * 1000),
                 "error": text[:300]}
+
+
+@router.post("/v1/providers/{name}/webchat-open")
+async def webchat_open(name: str):
+    """在受管浏览器里打开 webchat 站点（登录用）。
+
+    登录态与 Copilot 自动化共享同一个 EdgeProfile，用户在受管窗口里登录一次，
+    webchat 提供商即可用；headless 部署下请改用 scripts/login.py --url=...。
+    """
+    from . import webchat
+    key = str(name or "").strip().lower()
+    provider = (b.PROVIDERS or {}).get(key)
+    if provider is None:
+        raise HTTPException(404, f"提供商不存在：{key or '(空)'}")
+    if str(getattr(provider, "backend", "")).lower() != "webchat":
+        raise HTTPException(400, f"{key} 不是 webchat 提供商")
+    site = str(getattr(provider, "site", ""))
+    try:
+        await webchat.ensure_site_page(site)
+    except Exception as exc:                             # noqa: BLE001
+        raise HTTPException(502, f"打开站点失败：{str(exc)[:200]}") from exc
+    url = str(webchat.WEBCHAT_SITES[site]["url"])
+    return {"ok": True, "url": url,
+            "hint": "已在受管浏览器打开登录页；若服务以无窗口模式运行，"
+                    "请改用 scripts/login.py --url=" + url}
 
 
 @router.post("/v1/providers/default-model")

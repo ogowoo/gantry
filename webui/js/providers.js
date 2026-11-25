@@ -17,7 +17,9 @@ function _provBadge(p) {
   const kind = `<span class="prov-kind prov-kind-${esc(p.kind)}">${esc(tr(KIND_LABEL[p.kind] || p.kind))}</span>`;
   const key = p.kind === 'local'
     ? `<span class="prov-key ${p.configured ? 'ok' : 'warn'}">${esc(tr(p.configured ? '模型就绪' : '模型缺失'))}</span>`
-    : p.oauth && p.oauth.supported && p.oauth.authorized
+    : p.backend === 'webchat'
+      ? `<span class="prov-key ${p.configured ? 'ok' : 'warn'}" title="${esc(tr('网页登录会话，无需 API Key'))}">🌐 ${esc(tr('网页版'))}</span>`
+      : p.oauth && p.oauth.supported && p.oauth.authorized
       ? `<span class="prov-key ok" title="${esc(tr('OAuth 授权有效'))}">✅ OAuth</span>`
       : p.api_key_env_active
         ? `<span class="prov-key ok" title="${esc(tr('环境变量 {n} 已设置').replace('{n}', p.api_key_env_active))}">🔑 ${esc(p.api_key_env_active)}</span>`
@@ -34,14 +36,18 @@ function _provCard(p) {
     ? `<span class="sethint">+${p.models.length - 6}</span>` : '';
   const where = p.kind === 'local'
     ? esc(p.model_path || tr('（未指定模型）'))
-    : esc(p.base_url || tr('（未配置地址）'));
+    : (p.backend === 'webchat'
+      ? esc(p.web_url || tr('（未注册站点）'))
+      : esc(p.base_url || tr('（未配置地址）')));
   const oauthBtn = (p.oauth && p.oauth.supported)
     ? (p.oauth.authorized
         ? `<button type="button" class="btn ghost danger" data-act="provOauthDisconnect" data-arg="${esc(p.name)}">${esc(tr('断开授权'))}</button>`
         : `<button type="button" class="btn ghost" data-act="provOauth" data-arg="${esc(p.name)}">${esc(tr('一键授权'))}</button>`)
-    : (p.name === 'deepseek'
-        ? `<button type="button" class="btn ghost" data-act="provGetKey" data-arg="https://platform.deepseek.com/api_keys">${esc(tr('获取 Key（打开控制台）'))}</button>`
-        : '');
+    : (p.backend === 'webchat'
+        ? `<button type="button" class="btn ghost" data-act="provWebchatOpen" data-arg="${esc(p.name)}">${esc(tr('打开登录页'))}</button>`
+        : (p.name === 'deepseek'
+          ? `<button type="button" class="btn ghost" data-act="provGetKey" data-arg="https://platform.deepseek.com/api_keys">${esc(tr('获取 Key（打开控制台）'))}</button>`
+          : ''));
   const acts = p.kind === 'local'
     ? `<span class="sethint">${esc(tr('本地模型请在「本地模型」页管理'))}</span>`
     : `${oauthBtn}<button type="button" class="btn ghost" data-act="provEdit" data-arg="${esc(p.name)}">${esc(tr('编辑'))}</button>
@@ -334,7 +340,7 @@ function _oauthDeviceModal(name, flow) {
     <p><a href="${esc(flow.verification_uri_complete || flow.verification_uri || '#')}" target="_blank" rel="noopener"
       style="word-break:break-all">${esc(flow.verification_uri_complete || flow.verification_uri || '')}</a></p>
     <p id="oauthFlowStatus" class="sethint"></p>
-    <button type="button" class="btn ghost" id="oauthCancelBtn">${esc(tr('取消'))}</button>
+    <button type="button" class="btn ghost" data-act="provOauthCancel">${esc(tr('取消'))}</button>
   </div>`;
   document.body.appendChild(wrap);
   wrap.addEventListener('click', (e) => { if (e.target === wrap) provOauthCancel(); });
@@ -342,8 +348,6 @@ function _oauthDeviceModal(name, flow) {
   if (code) code.addEventListener('click', () => {
     try { navigator.clipboard.writeText(flow.user_code || ''); toast(tr('验证码已复制'), 'ok'); } catch (e) {}
   });
-  const btn = wrap.querySelector('#oauthCancelBtn');
-  if (btn) btn.addEventListener('click', () => provOauthCancel());
 }
 
 function _closeOauthModal() {
@@ -373,6 +377,18 @@ export async function provOauthDisconnect(node) {
 export function provGetKey(node) {
   const url = node && node.dataset ? (node.dataset.arg || '') : '';
   if (url) window.open(url, '_blank');
+}
+
+export async function provWebchatOpen(node) {
+  const name = node && node.dataset ? (node.dataset.arg || '') : '';
+  if (!name) return;
+  try {
+    const r = await api('/v1/providers/' + encodeURIComponent(name) + '/webchat-open',
+      { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+    toast(r.hint || tr('已在受管浏览器打开登录页'), 'ok', 8000);
+  } catch (e) {
+    toast(tr('打开登录页失败: ') + ((e && (e.detail || e.message)) || String(e)), 'err');
+  }
 }
 
 export async function provTest(node) {
