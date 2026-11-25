@@ -34,7 +34,13 @@ async def diagnostics(tag):
 async def visible(selectors):
     for selector in selectors:
         loc = b.page.locator(selector)
-        for i in range(await loc.count() - 1, -1, -1):
+        # AUD-P2（M24 未修复项）：count() 无 try——瞬态页面错误（导航中/崩溃）
+        # 会中断 send 主流程。这里与 visible_locator 一致地兜底为"不可见"。
+        try:
+            count = await loc.count()
+        except Exception:
+            continue
+        for i in range(count - 1, -1, -1):
             try:
                 if await loc.nth(i).is_visible():
                     return loc.nth(i)
