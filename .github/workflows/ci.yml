@@ -62,30 +62,29 @@ jobs:
           Copy-Item -LiteralPath config.example.json -Destination config.json -Force
           python -c "import json;p='config.json';d=json.load(open(p,encoding='utf-8'));d['api_token']='';json.dump(d,open(p,'w',encoding='utf-8'),ensure_ascii=False,indent=2)"
 
-      - name: Run deterministic offline tests
+      - name: Check dependency metadata consistency (AUD-P1-16)
         shell: pwsh
         run: |
           @'
-          import unittest
-
-          excluded = {"test_copilot_file", "test_model_menu_scan"}
-          discovered = unittest.defaultTestLoader.discover("tests", pattern="test_*.py")
-
-          def offline_tests(suite):
-              selected = unittest.TestSuite()
-              for test in suite:
-                  if isinstance(test, unittest.TestSuite):
-                      selected.addTests(offline_tests(test))
-                  elif test.__class__.__module__.split(".")[-1] not in excluded:
-                      selected.addTest(test)
-              return selected
-
-          suite = offline_tests(discovered)
-          count = suite.countTestCases()
-          if count == 0:
-              raise SystemExit("No offline tests were discovered.")
-          print(f"Running {count} deterministic offline tests.")
-          result = unittest.TextTestRunner(verbosity=2, failfast=True).run(suite)
-          if not result.wasSuccessful():
-              raise SystemExit(1)
+          import re, tomllib
+          from pathlib import Path
+          proj = tomllib.loads(Path("pyproject.toml").read_text(encoding="utf-8"))
+          deps = list(proj["project"]["dependencies"])
+          for extra in (proj["project"].get("optional-dependencies") or {}).values():
+              deps += list(extra)
+          names = {re.split(r"[<>=!~; ]", d)[0].lower() for d in deps}
+          req = [l for l in Path("requirements.txt").read_text(encoding="utf-8").splitlines()
+                 if l.strip() and not l.strip().startswith("#")]
+          missing = [r for r in req if re.split(r"[<>=!~; ]", r)[0].lower() not in names]
+          if missing:
+              raise SystemExit("requirements.txt 里这些依赖不在 pyproject.toml：%s" % ", ".join(missing))
+          print("Dependency metadata consistent.")
           '@ | python -
+
+      - name: Run deterministic offline tests
+        shell: pwsh
+        run: |
+          # AUD-P1-17（审核 ⑨-2）：与发布门一致——test_liveview 在 GitHub Windows
+          # runner 上稳定挂到 180s（本地 1s），单进程 discover 无每模块超时兜底，
+          # 会把整个 job 拖到 20 分钟超时。改用分块运行并同步 skip 策略。
+          python scripts/run_tests_chunked.py --timeout 180 --skip test_liveview,test_copilot_file,test_model_menu_scan

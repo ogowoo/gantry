@@ -32,6 +32,14 @@ def main() -> int:
         mods = [m for m in mods if args.only in m]
     skips = [s.strip() for s in (args.skip or "").split(",") if s.strip()]
     if skips:
+        # AUD-P2（审核 ⑨-6）：skip 必须是真实测试模块名——子串匹配且模块改名/拼错
+        # 时静默失效，发布门以为自己跳过了挂死模块、实际照样跑（或反过来漏跑）。
+        all_mods = set(mods)
+        unknown = [s for s in skips if not any(s in m for m in all_mods)]
+        if unknown:
+            print("ERROR    --skip 里这些关键字匹配不到任何测试模块：%s" % ", ".join(unknown),
+                  file=sys.stderr)
+            return 2
         dropped = [m for m in mods if any(s in m for s in skips)]
         mods = [m for m in mods if not any(s in m for s in skips)]
         if dropped:

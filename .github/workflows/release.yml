@@ -134,7 +134,11 @@ jobs:
         run: |
           $stage = "dist/Gantry-$env:VERSION"
           New-Item -ItemType Directory -Force -Path $stage | Out-Null
-          $required = @("app.py", "start.py", "install.py", "gantry", "webui", "scripts", "docs", "plugins", "requirements.txt", "requirements-lock.txt", "config.example.json", "README.md")
+          # AUD-P0-06：发布包必须自包含全部顶层运行资产——updater 已不再删除
+          # "新包里没有"的旧条目，但首次安装与 git→zip 迁移仍依赖这里补全；
+          # 缺 AGENT.md/skills/personas/tests/可选 requirements 会让 agent_prompt、
+          # soul、install.py --ocr 等运行路径失效（审核 ⑨-1）。
+          $required = @("app.py", "start.py", "install.py", "gantry", "webui", "scripts", "docs", "plugins", "skills", "personas", "tests", "AGENT.md", "pyproject.toml", "requirements.txt", "requirements-lock.txt", "requirements-embed.txt", "requirements-local.txt", "requirements-ocr.txt", "requirements-ocr-xiaomi.txt", "config.example.json", "README.md", "README.zh-CN.md", "README.zh-TW.md")
           foreach ($item in $required) {
             if (-not (Test-Path -LiteralPath $item)) { throw "Missing required release path: $item" }
             Copy-Item -LiteralPath $item -Destination $stage -Recurse -Force

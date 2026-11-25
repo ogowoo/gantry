@@ -18,7 +18,15 @@ dependencies = [
   "python-calamine>=0.3,<1",
   "python-docx>=1.1,<2",
   "python-pptx>=1.0,<2",
-  "pypdf>=4.0,<6",
+  # AUD-P1-16：与 requirements.txt/lock 对齐（审核 ⑨-4）——
+  # 旧约束 pypdf>=4,<6 会把实测使用的 6.21.4 降级，且 pyyaml 等运行依赖缺失，
+  # `pip install .` 装出未经 CI 验证的组合（power_apps_source 顶层 import yaml）。
+  "pypdf>=6.21.4,<7",
+  "pyyaml>=6,<7",
+  "beautifulsoup4>=4.12,<5",
+  "fpdf2>=2.8,<3",
+  "Pillow>=10,<14",
+  "numpy>=2,<3",
 ]
 
 [project.optional-dependencies]

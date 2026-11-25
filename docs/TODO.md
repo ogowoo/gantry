@@ -55,6 +55,90 @@
 - 验收：所有门禁失败关闭；缺失或空制品会阻止上传，正式发布使用 --verify-tag。
 - 依赖：P0-CI-01、P0-SUP-01（已完成）。
 
+### [x] AUD-P0-01 fileview 绝对路径任意文件读（审核 ④-1，实测复现）
+
+- 问题：`fileview._resolve` 无 resolve+relative_to 校验，`C:/Windows/win.ini` 等绝对路径直接读。
+- 文件：gantry/fileview.py、tests/。
+- 实施：`(root/t).resolve()` + `relative_to(root.resolve())`，拒绝盘符/绝对路径。
+- 验收：新增绝对路径/`..` 越界回归用例；全部旧用例通过。
+
+### [x] AUD-P0-02 write_excel 写锁跨 await 死锁（审核 ⑥-1）
+
+- 问题：`threading.Lock` 在 async 函数内跨 `await asyncio.to_thread` 持有，并发可永久卡死服务。
+- 文件：gantry/tools_office.py。
+- 实施：`_WRITE_LOCK` 改 `asyncio.Lock`，两处改 `async with`。
+- 验收：并发 write_excel/write_csv 用例 + 全量回归。
+
+### [x] AUD-P0-03 全新安装 api_token 占位符失效（审核 ⑦-1）
+
+- 问题：config 里 `${GANTRY_TOKEN}` 未解析/空值被当成"已配置"，鉴权失效或成公开常量。
+- 文件：start.py、tests/。
+- 实施：含未解析 `${...}` 或解析后为空 → 视为未配置，生成 data/api_token。
+- 验收：无 .env / 空 .env / 正常 .env 三用例。
+
+### [x] AUD-P0-04 detect-models 凭据外送到调用方 URL（审核 ③-1）
+
+- 问题：`api_key_env`/已保存 provider 凭据被发到请求体指定的任意 base_url。
+- 文件：gantry/routes_providers.py、tests/。
+- 实施：已保存凭据仅在 base_url 同源时回退；env 名只允许该 provider 已配置项。
+- 验收：跨 URL 外送用例返回 400。
+
+### [x] AUD-P0-05 MUTATING_TOOLS 名单补齐（审核 ④-2/①-1）
+
+- 问题：read-only/plan_mode 只按工具名拦截，write_csv/skill_create/memory_forget/self_*/copilot_file/run_code 等可绕过。
+- 文件：gantry/tools.py、tests/test_sandbox_modes.py。
+- 实施：补全名单；补表驱动测试（每个写工具在 read-only 下抛 SANDBOX_READ_ONLY）。
+- 验收：表驱动测试通过。
+
+### [x] AUD-P0-06 发布包自包含 + 更新器不删未知资产（审核 ⑨-1/⑦-3）
+
+- 问题：zip 包缺 AGENT.md/skills/personas/tests/可选 requirements；updater 对"新包不存在"的旧条目 rmtree。
+- 文件：.github/workflows/release.yml、gantry/updater.py、tests/test_updater.py。
+- 实施：打包清单补齐；未知顶层项保留；plugins/skills/personas 按子项合并替换。
+- 验收：test_updater 增加"未知顶层项与用户插件存活"用例。
+
+### [x] AUD-P0-07 kb_add 任意路径读取（审核 ⑤-1）
+
+- 问题：绝对路径读本机任意文件入 KB，绕过沙箱与审批。
+- 文件：plugins/kb/plugin.py、gantry/tools.py。
+- 实施：路径收口到会话工作区；注册 approval=True 并加入 MUTATING_TOOLS。
+- 验收：越界路径用例 + read-only 档位用例。
+
+### [x] AUD-P0-08 task_run 网页通道并行子代理串台（审核 ②-1）
+
+- 问题：子代理继承父 `_PAGE_CTX`，同一标签页并发 new_chat/输入/取答。
+- 文件：gantry/orchestrator.py。
+- 实施：网页通道按 `_subagent_in_own_window` 模式清 `_PAGE_CTX` 自占窗口；窗口不足 cap=1。
+- 验收：网页通道并行任务取窗口的用例。
+
+### [x] AUD-P0-09 teams-bot send-api 绕过 dry_run 门控（审核 ⑥-3）
+
+- 问题：`/api/send-api`、`/api/compose?send=true` 直接发送，绕过 dry_run/send_enabled。
+- 文件：plugins/teams-bot/plugin.py。
+- 实施：两个端点接入与 `_teams_reply` 相同的门控判定。
+- 验收：dry_run 下拒绝真实发送的用例。
+
+### [x] AUD-P0-10 MCP 命令白名单 args 绕过（审核 ⑦-4）
+
+- 问题：python args 传 `-c` 即任意代码执行并持久化。
+- 文件：plugins/mcp/plugin.py。
+- 实施：python 仅 `-m`；node 禁 `-e/--eval`；npx 仅允许登记的包名。
+- 验收：恶意 args 400 用例。
+
+### [x] AUD-P0-11 xlsx_patch 自闭合 &lt;row/&gt; 吞行（审核 ⑥-2）
+
+- 问题：ROW_RE 跨自闭合行匹配，写第 5 行损坏文件/写第 6 行被静默忽略。
+- 文件：gantry/xlsx_patch.py、tests/test_xlsx_patch.py。
+- 实施：自闭合行单独匹配保留；完整行禁止跨 &lt;row 匹配。
+- 验收：自闭合行/跨行/末尾插入回归用例。
+
+### [x] AUD-P0-12 审批横幅盲签重做（审核 ⑧-1）
+
+- 问题：不显示参数、主按钮默认整会话放行、"暂不授权"无限等待。
+- 文件：gantry/agent.py、gantry/routes_sessions.py、webui/js/approvals.js。
+- 实施：参数摘要展示；主按钮「仅本次」；会话级二次确认；新增拒绝入口；尊重 approval_scope。
+- 验收：后端 args_summary 用例 + node --check + cross_module_refs。
+
 ## P1
 
 ### [x] P1-RES-01 修复 SQLite ResourceWarning
@@ -129,8 +213,126 @@
 - 验收：不同故障场景返回明确状态码。
 - 依赖：P1-OBS-01。
 
-## P2
+### [x] AUD-P1-01 验证门/行动检测漏 apply_patch 等推荐编辑工具（审核 ②-2）
 
+- 问题：apply_patch/replace_lines/replace_python_symbol/convert_indentation/indent_lines/pwsh/write_csv 改 .py 不触发 validate+unittest 双门，且 noop 守卫误判"无产出"。
+- 文件：gantry/agent.py、tests/。
+- 实施：按 file_event.path 扩展名统一判定，与 MUTATING_TOOLS 同源。
+- 验收：apply_patch→final 被 validation_gate 拦截的回归用例。
+
+### [x] AUD-P1-02 截断 final 兜底抢在写入恢复之前（审核 ②-3）
+
+- 问题：截断写入内容含 final 字面量时被误解析为 final，写入丢弃却报完成。
+- 文件：gantry/agent_parse.py、tests/test_agent_parse.py。
+- 实施：加 `not outer_broken_tool` 守护并移到写入恢复之后。
+- 验收：新增回归用例。
+
+### [x] AUD-P1-03 子代理非成功态被当成功（审核 ②-4）
+
+- 问题：waiting/suspended/running 出口一律 patch completed 且 error=None。
+- 文件：gantry/subagents.py、gantry/agent.py。
+- 实施：只认显式成功态；发送失败 3 次出口置 failed。
+- 验收：等待态子任务→error 透传用例。
+
+### [x] AUD-P1-04 H3 残留：验收命令 env 继承 + stdout 未脱敏（审核 ②-9）
+
+- 问题：子进程继承完整环境，stdout/stderr 原样回灌模型并落库。
+- 文件：gantry/task_verify.py、tests/test_task_verify.py。
+- 实施：env 最小白名单；stdout/stderr 同样 _redact_secrets。
+- 验收：脱敏用例 + env 白名单用例。
+
+### [x] AUD-P1-05 H4 残留：子代理验收门读默认 tasks.db（审核 ④-4）
+
+- 问题：subagents final_gate 未传 store，自定义 task_db_path 时验收门静默跳过。
+- 文件：gantry/subagents.py。
+- 实施：传 `b.TOOLS_EXTRA._task_store()`。
+- 验收：自定义 task_db_path + 子代理用例。
+
+### [x] AUD-P1-06 插件 name 路径越界（审核 ⑦-2）
+
+- 问题：install/uninstall 的 name 未校验，可对插件目录外 rmtree/copytree。
+- 文件：gantry/plugins.py、tests/。
+- 实施：`^[A-Za-z0-9_.-]+$` + resolve().relative_to 双路径校验。
+- 验收：绝对路径/`..` name 用例。
+
+### [x] AUD-P1-07 定时任务导入模式残留（审核 ⑧-2）
+
+- 问题：覆盖导入取消后 dataset.mode 残留，下次合并导入静默清空任务。
+- 文件：webui/js/panels.js。
+- 实施：每次打开选择器前显式设置本次模式。
+- 验收：node --check。
+
+### [x] AUD-P1-08 kb _root(ctx) TypeError（审核 ⑤-5）
+
+- 问题：`_root()` 定义无参却被 `_root(ctx)` 调用，相对路径导入必失败、OCR 磁盘配置失效。
+- 文件：plugins/kb/plugin.py。
+- 实施：修正调用；相对路径按会话工作区解析。
+- 验收：相对路径导入用例。
+
+### [x] AUD-P1-09 teams-bot api/reindex NameError（审核 ⑥-9）
+
+- 问题：调用不存在的 `_kb_reindex`，端点必然 500。
+- 文件：plugins/teams-bot/plugin.py。
+- 实施：改为 `_kb(ctx).reindex(force=False)`。
+- 验收：端点不抛 NameError 的用例。
+
+### [x] AUD-P1-10 导入 conversation_urls 绕过删除白名单（审核 ③-2）
+
+- 问题：被篡改导出的 URL 驱动 SSO 浏览器导航任意地址。
+- 文件：gantry/routes_sessions.py。
+- 实施：删除前统一过 `_copilot_delete_urls` 白名单。
+- 验收：非 Copilot host URL 被拒用例。
+
+### [x] AUD-P1-11 运行中会话本地删除无守卫（审核 ③-3）
+
+- 问题：不检查 running 就删，runner 继续写孤儿行、级联删子会话。
+- 文件：gantry/routes_sessions.py。
+- 实施：仅本地删除也 session_running（含后代）检查并 409。
+- 验收：运行中删除 409 用例。
+
+### [x] AUD-P1-12 CSRF 白名单顺序 + 非 ASCII token 500（审核 ③-9）
+
+- 问题：白名单 origin 带 cross-site 仍 403；compare_digest 遇非 ASCII 抛 TypeError。
+- 文件：gantry/api.py、tests/test_api_hardening.py。
+- 实施：先判 allow_extra 再判 Sec-Fetch-Site；digest 前 encode。
+- 验收：两组回归用例。
+
+### [x] AUD-P1-13 单实例锁（审核 ⑦-7）
+
+- 问题：不同端口第二实例把第一实例会话置 paused 并可能并发续跑。
+- 文件：start.py。
+- 实施：data/.instance.lock 独占创建，第二实例拒绝。
+- 验收：锁占用时启动失败用例。
+
+### [x] AUD-P1-14 更新锁进程级（审核 ⑦-6）
+
+- 问题：HTTP 每请求新建 Updater，实例级锁形同虚设。
+- 文件：gantry/routes_update.py、gantry/updater.py。
+- 实施：进程级锁包住 apply/rollback。
+- 验收：并发 apply/rollback 用例。
+
+### [x] AUD-P1-15 事件循环阻塞清单（审核 ③-5/③-6/⑤-8/①-10/②-8）
+
+- 问题：OAuth 刷新/30s 巡检/模型库列表/atrefs/验收门同步重活冻结事件循环。
+- 文件：gantry/oauth.py、gantry/api.py、gantry/routes_config.py、gantry/atrefs.py、gantry/task_verify.py。
+- 实施：逐一 to_thread / light 查询 / 剪枝。
+- 验收：静态确认无 async 路径同步 IO（清单复查）。
+
+### [x] AUD-P1-16 依赖清单漂移（审核 ⑨-4）
+
+- 问题：pyproject 缺 pyyaml 等运行依赖、pypdf 约束与 lock 冲突。
+- 文件：pyproject.toml、requirements.txt、.github/workflows/ci.yml。
+- 实施：pyproject 补运行依赖并统一 pypdf；CI 加一致性检查。
+- 验收：pip check + 一致性检查通过。
+
+### [x] AUD-P2-01 顺手低危项（审核 P2 清单）
+
+- 问题：token 弹窗循环、OWA 发送假成功、open_teams 劫页、owa pop 空值、队列无背压、b.log 丢失、lazy pending 归档、发布门 skip 白名单、超长段硬切、_load_lock。
+- 文件：见审核报告 P2 清单。
+- 实施：逐项最小修复，带用例。
+- 验收：相关回归用例通过。
+
+## P2
 ### [ ] P2-DOC-01 补齐 API、配置、安全和故障排查文档
 
 - 问题：现有文档未完整覆盖路由、配置边界、安全模型和常见故障。
