@@ -322,8 +322,9 @@ function renderStream(messages,steps,opts){
  const items=[];
  (messages||[]).forEach(m=>{
    const prev=items.length?items[items.length-1]:null;
-   if(prev&&prev.v.role===m.role
-      && String(prev.v.content||'').trim()===String(m.content||'').trim())return;
+   // AUD-P2（审核 ⑧-7）：按消息 id 判重——旧实现按"同角色+同内容"去重，
+   // 用户连续发两条相同内容时第二条被静默丢掉（库里却有）。
+   if(prev&&prev.v.id&&m.id&&String(prev.v.id)===String(m.id))return;
    items.push({t:Number(m.created)||0,v:m});
  });
  items.sort((x,y)=>x.t-y.t);
@@ -403,7 +404,8 @@ function scrollChatToEnd(){
    append（展开状态 / 代码块 / 滚动位置都保留），只需几十毫秒；随后 runtime 再
    按需增量刷新。只留最近 3 个会话，避免内存膨胀。 */
 const VIEW_CACHE_MAX=3;
-var skipDetailOnce=null;   // load() 刚渲染完详情：第一次 runtime 不要再拉一遍并重渲染
+// AUD-P2（审核 ⑧-10）：skipDetailOnce 已在 globals.js 声明——模块里这份重复
+// 声明是"两份状态"隐患（cross_module_refs 此前对 globals 同名声明有盲区），删除。
 
 function stashView(sid){
  if(!sid)return;

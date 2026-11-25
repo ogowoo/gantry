@@ -55,6 +55,10 @@ section.card:has(#stepCount){margin-top:14px}
   border:1px solid var(--accent,#2f6f4f);box-shadow:0 2px 10px rgba(0,0,0,.2)}
 .approvalbar span{flex:1 1 220px;min-width:0;line-height:1.35;text-align:left;overflow-wrap:anywhere}
 .approvalbar .btn{flex:none}
+/* AUD-P0-12：参数摘要用等宽字体展示，与工具名区分（不盲签的关键） */
+.approvalbar .approval-args{font-family:var(--mono,Consolas,monospace);font-size:12px;
+  background:rgba(127,127,127,.14);padding:1px 7px;border-radius:5px;margin:0 4px;
+  overflow-wrap:anywhere;word-break:break-all}
 
 /* ── 窄屏：工具栏换行 ────────────────────────────────────────────────
    实测 480x900 时 #sessModel(269..499) 与 #btnRefreshSess(511..537) 超出视口，

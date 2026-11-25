@@ -26,7 +26,16 @@ async function api(u,o={}){
       })();
     }
     const tk=await tokenPrompting;
-    if(tk)r=await call(tk);
+    if(tk){
+      r=await call(tk);
+      // AUD-P2（审核 ⑧-3）：重试仍 401 说明已保存的 token 是错的——停止自动弹窗，
+      // 否则每次轮询都会重开弹窗并重置输入框，用户无法改正；改由连接横幅手动重试。
+      if(r.status===401){
+        tokenPromptCancelled=true;
+        showConnBanner(tr('访问令牌无效：点此重新输入'),true);
+        throw new ApiError(401,'令牌无效','');
+      }
+    }
   }
   let t=await r.text();if(!r.ok)throw new ApiError(r.status,t.slice(0,300),u);
   // 非 JSON 响应（网关错误页/空 body）不能变成裸 SyntaxError：包成 ApiError，

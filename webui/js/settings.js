@@ -877,6 +877,8 @@ async function checkUpdate(){
   const r=await api('/v1/update/check');
   const hint=document.getElementById('updateHint');
   if(hint)hint.textContent=tr('当前版本 {a}，最新 {b}',{a:r.current||'?',b:r.latest||'?'});
+  // AUD-P2（审核 ⑦-10）：检查失败 ≠ 已是最新——分别提示，不误导用户
+  if(r.check_failed||r.ok===false){toast(tr('检查更新失败：')+String((r.errors&&r.errors[0])||'未知错误'),'err');return}
   if(!r.update_available){toast(tr('已是最新版本'),'ok');return}
   const ok=await window.dlgConfirm(
    tr('发现新版本 {a} → {b}（{m}）。更新前会备份代码，服务将重启。确定更新？',

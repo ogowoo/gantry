@@ -304,7 +304,13 @@ async function _injectScheduleManager(body, data, panel){
    await loadPanel(panel);
   }catch(err){ toast(tr('导入失败: ')+(err.text||err.detail||err),'err'); }
  };
- ioBtn('导入（合并）','ghost').onclick=()=>{ fileInput.click(); };
+ ioBtn('导入（合并）','ghost').onclick=()=>{
+  // AUD-P1-07：每次打开选择器前显式设定本次模式——旧实现只在覆盖按钮设置
+  // dataset.mode，覆盖弹窗取消后残留 'replace'，下次"合并导入"会静默清空全部任务
+  // （审核 ⑧-2）。
+  fileInput.dataset.mode='merge';
+  fileInput.click();
+ };
  ioBtn('导入（覆盖）','danger').onclick=async()=>{
   const ok=await window.dlgConfirm(
    tr('覆盖导入会先清空现有全部定时任务，确定继续？'), tr('导入（覆盖）'), true);

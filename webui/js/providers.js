@@ -307,7 +307,15 @@ export async function provOauth(node) {
       return;
     }
     if (flow.authorize_url) {
-      window.open(flow.authorize_url, '_blank');
+      // AUD-P2（审核 ⑧-8）：只接受 https: 授权链接（纵深防御——厂商响应被篡改时
+      // 不能把 javascript:/data: 交给 window.open），并断开 opener 防反向操纵。
+      // 注意别写成 /^https:\/\//i：cross_module_refs 的去噪器会把 `///` 误判成
+      // 行注释吞掉后续花括号（这里用 startsWith 语义相同且无歧义）。
+      if (!String(flow.authorize_url || '').toLowerCase().startsWith('https://')) {
+        toast(tr('授权链接无效（非 https），请重试'), 'err');
+        return;
+      }
+      window.open(flow.authorize_url, '_blank', 'noopener,noreferrer');
       toast(tr('已在浏览器打开授权页，同意后会自动生效'), 'ok');
     } else if (flow.verification_uri_complete) {
       _oauthDeviceModal(name, flow);

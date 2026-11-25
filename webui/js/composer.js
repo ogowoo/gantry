@@ -180,7 +180,7 @@ async function refreshQueue(){
   // 后端只允许改删"等待中"的条目（处理中的会 404）。这里只列等待项。
   let items=(d.pending||[]).filter(it=>!it.processing);
   if(!items.length){box.innerHTML='';return}
-  box.innerHTML=items.map(it=>`<div class="qitem"><span class="qpos">#${it.position}</span><span class="qtext" title="${esc(it.content)}">${esc(it.content)}</span><span class="qmode">${it.mode==='agent'?'Agent':'对话'}</span><button title="编辑" data-edit="${esc(it.id)}">✎</button><button class="qdel" title="删除" data-del="${esc(it.id)}">×</button></div>`).join('');
+  box.innerHTML=items.map(it=>`<div class="qitem"><span class="qpos">#${it.position}</span><span class="qtext" title="${esc(it.content)}">${esc(it.content)}</span><span class="qmode">${it.mode==='agent'?'Agent':tr('对话')}</span><button title="${tr('编辑')}" data-edit="${esc(it.id)}">✎</button><button class="qdel" title="${tr('删除')}" data-del="${esc(it.id)}">×</button></div>`).join('');
    // 不再把 id 拼进内联 onclick（id 含引号即可突破 JS 字符串 → XSS）；与 loadMemory 同一范式
    box.querySelectorAll('[data-edit]').forEach(b=>b.onclick=()=>editQueueItem(b.dataset.edit));
    box.querySelectorAll('[data-del]').forEach(b=>b.onclick=()=>removeQueueItem(b.dataset.del));
@@ -379,7 +379,7 @@ async function runGlobalSearch(){
    const e=document.createElement('div');e.className='gsrow';
    const when=fmtStamp(r.created);
    e.innerHTML=`<div class="gstop"><b>${esc(r.title||r.session_id)}</b>`+
-    `<span class="gsmeta">${r.role==='user'?'我':'模型'} · ${when}</span></div>`+
+    `<span class="gsmeta">${r.role==='user'?tr('我'):tr('模型')} · ${when}</span></div>`+
     `<div class="gssnip">${esc(r.snippet||'')}</div>`;
    e.onclick=()=>jumpToMessage(r.session_id,r.message_id);
    box.appendChild(e)});

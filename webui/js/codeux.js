@@ -158,11 +158,11 @@ function codeMenu(btn){
  const noWrap=wrap.classList.contains('no-wrap');
  const folded=wrap.classList.contains('collapsed');
  const items=[
-  ['📋 复制代码','data-act="mCopy"',false],
-  ['⬇ 下载为文件','data-act="mDownload"',false],
-  ['# '+(noLines?'显示行号':'隐藏行号'),'data-act="mLines"',noLines],
+  [tr('📋 复制代码'),'data-act="mCopy"',false],
+  [tr('⬇ 下载为文件'),'data-act="mDownload"',false],
+  [tr('# '+(noLines?'显示行号':'隐藏行号')),'data-act="mLines"',noLines],
   ['↩ '+tr(noWrap?'自动换行':'关闭换行'),'data-act="mWrap"',noWrap],
-  ['⌃ '+(folded?'展开全部':'折叠代码'),'data-act="mFold"',folded]];
+  [tr('⌃ '+(folded?'展开全部':'折叠代码')),'data-act="mFold"',folded]];
  const el=document.createElement('div');
  el.className='codemenu';
  el.innerHTML=items.map(it=>`<button type="button" class="cmitem${it[2]?' off':''}" ${it[1]}>${esc(it[0])}</button>`).join('');

@@ -199,6 +199,25 @@ const I18N_EN = {
   "本服务启用了 api_token，请输入访问令牌（只保存在本机浏览器）":
     "This service requires api_token — enter it (stored only in this browser)",
   "需要授权": "Authorization required",
+  "整会话放行": "Allow for whole session",
+  "拒绝": "Deny",
+  "检查更新失败：": "Update check failed: ",
+  "授权链接无效（非 https），请重试": "Invalid authorization link (not https). Please retry.",
+  "原图": "Original",
+  "# 显示行号": "# Show line numbers",
+  "# 隐藏行号": "# Hide line numbers",
+  "⌃ 展开全部": "⌃ Expand all",
+  "⌃ 折叠代码": "⌃ Fold code",
+  "对话": "Chat",
+  "删除这条消息？\n\n只影响本地历史，不会撤回已发给网页 Copilot 的内容。":
+      "Delete this message?\n\nOnly affects local history; it will not retract content already sent to Copilot on the web.",
+
+
+  "确认整会话放行？": "Confirm session-wide allow?",
+  "请核对参数后授权。「仅本次」只放行这一次；「整会话放行」会让该工具本会话内不再询问。": "Check the arguments before approving. “Once” allows this one call only; “session-wide” stops asking for this tool for the rest of the session.",
+  "已拒绝；任务已暂停，可发送新消息继续": "Denied. Task paused — send a new message to continue.",
+  "访问令牌无效：点此重新输入": "Invalid access token: click to re-enter",
+
   "授权执行": "Authorize once",
   "暂不授权": "Not now",
   "立即遵守": "Obey immediately",

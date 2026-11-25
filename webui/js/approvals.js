@@ -80,37 +80,55 @@ function showApprovalBar(p,scope){
  if(approvalDismissed===key){if(el)el.style.display='none';return}
  if(approvalSeen!==key){approvalSeen=key;
   el.innerHTML='';
+  // AUD-P0-12：审批横幅必须展示脱敏后的参数摘要（不再盲签）；
+  // 主按钮 = 「仅本次」（逐参数、用后即焚），整会话放行需要二次确认。
   const span=document.createElement('span');
-  span.textContent=tr('需要授权：')+p.tool+' '+tr('属于不可回滚操作；授权仅对本会话有效（会话结束即失效），或选择「仅本次」只放行这一次');
-  const btn=document.createElement('button');
-  btn.className='btn accent';btn.type='button';btn.textContent=tr('授权执行');
-  btn.onclick=async()=>{
+  const toolName=document.createElement('b');toolName.textContent=p.tool;
+  span.appendChild(document.createTextNode(tr('需要授权：')));
+  span.appendChild(toolName);
+  if(p.args_summary){
+   const s=document.createElement('code');s.className='approval-args';
+   s.textContent=p.args_summary;
+   span.appendChild(s)}
+  span.appendChild(document.createTextNode(' '+tr('请核对参数后授权。「仅本次」只放行这一次；「整会话放行」会让该工具本会话内不再询问。')));
+  const primarySession=(String(scope||'once')==='session');
+  const grant=async(btn,grantScope,textOk)=>{
    btn.disabled=true;btn.textContent=tr('授权中…');
    try{
     await api(`/v1/agent/sessions/${encodeURIComponent(current)}/approvals`,
               {method:'POST',headers:{'Content-Type':'application/json'},
-               body:JSON.stringify({tool:p.tool,args_hash:p.args_hash||'',scope:'session'})});
+               body:JSON.stringify({tool:p.tool,args_hash:p.args_hash||'',scope:grantScope})});
     await api(`/v1/agent/sessions/${encodeURIComponent(current)}/actions/resume`,{method:'POST'});
-    toast(tr('已授权并继续执行（本会话内不再逐次询问）'),'ok');
+    toast(textOk,'ok');
     el.style.display='none';approvalSeen=null;clearInterruptPing();await runtime();
    }catch(e){btn.disabled=false;btn.textContent=tr('授权执行');toast(tr('授权失败: ')+(e.text||e),'err')}};
   const btnOnce=document.createElement('button');
-  btnOnce.className='btn ghost';btnOnce.type='button';btnOnce.textContent=tr('仅本次');
-  btnOnce.onclick=async()=>{
-   btnOnce.disabled=true;btnOnce.textContent=tr('授权中…');
+  btnOnce.type='button';btnOnce.textContent=tr('仅本次');
+  btnOnce.className='btn '+(primarySession?'ghost':'accent');
+  btnOnce.onclick=()=>grant(btnOnce,'once',tr('已授权并继续执行（该授权仅对这一次操作有效）'));
+  const btnSession=document.createElement('button');
+  btnSession.type='button';btnSession.textContent=tr('整会话放行');
+  btnSession.className='btn '+(primarySession?'accent':'ghost');
+  let confirmStep=false;
+  btnSession.onclick=()=>{
+   if(!confirmStep){confirmStep=true;btnSession.textContent=tr('确认整会话放行？');return}
+   grant(btnSession,'session',tr('已授权并继续执行（本会话内不再逐次询问）'))};
+  const deny=document.createElement('button');
+  deny.type='button';deny.className='btn ghost';deny.textContent=tr('拒绝');
+  deny.onclick=async()=>{
+   deny.disabled=true;
    try{
-    await api(`/v1/agent/sessions/${encodeURIComponent(current)}/approvals`,
-              {method:'POST',headers:{'Content-Type':'application/json'},
-               body:JSON.stringify({tool:p.tool,args_hash:p.args_hash||'',scope:'once'})});
-    await api(`/v1/agent/sessions/${encodeURIComponent(current)}/actions/resume`,{method:'POST'});
-    toast(tr('已授权并继续执行（该授权仅对这一次操作有效）'),'ok');
-    el.style.display='none';approvalSeen=null;clearInterruptPing();await runtime();
-   }catch(e){btnOnce.disabled=false;btnOnce.textContent=tr('仅本次');toast(tr('授权失败: ')+(e.text||e),'err')}};
+    await api(`/v1/agent/sessions/${encodeURIComponent(current)}/approvals/deny`,
+              {method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});
+    toast(tr('已拒绝；任务已暂停，可发送新消息继续'),'ok');
+    el.style.display='none';approvalDismissed=key;approvalSeen=null;clearInterruptPing();await runtime();
+   }catch(e){deny.disabled=false;toast(tr('操作失败: ')+(e.text||e),'err')}};
   const no=document.createElement('button');
   no.className='btn ghost';no.type='button';no.textContent=tr('暂不授权');
   no.onclick=()=>{el.style.display='none';approvalDismissed=key;
     clearInterruptPing()};   // 记住这次拒绝；用户已确认看到，停止闪烁
-  el.appendChild(span);el.appendChild(btn);el.appendChild(btnOnce);el.appendChild(no)}
+  el.appendChild(span);el.appendChild(btnOnce);el.appendChild(btnSession);
+  el.appendChild(deny);el.appendChild(no)}
  el.style.display='flex';
  // 抢注意力：中断类提醒（需要授权）错过就会卡住整个任务，必须显眼
  try{el.setAttribute('role','alert');el.classList.add('needs-attn');

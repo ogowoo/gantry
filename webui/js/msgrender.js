@@ -140,23 +140,23 @@ function fileCardHtml(kind,path,content){
  if(kind==='image'){
   return '<figure class="filecard img"><figcaption><span class="fc-name fc-previewable" title="'+esc(path)+'" data-act="openPreview" data-arg="'+esc(path)+'">'
    +'📄 '+esc(base)+'</span><span class="fc-meta">'+kb+' KB</span>'
-   +'<button type="button" class="fc-btn" data-act="openPreview" data-arg="'+esc(path)+'">预览</button>'
-   +'<a class="fc-btn" href="'+url+q+'" target="_blank" rel="noopener">原图</a></figcaption>'
+   +'<button type="button" class="fc-btn" data-act="openPreview" data-arg="'+esc(path)+'">'+tr('预览')+'</button>'
+   +'<a class="fc-btn" href="'+url+q+'" target="_blank" rel="noopener">'+tr('原图')+'</a></figcaption>'
    +'<img class="fc-img" src="'+url+q+'" alt="'+esc(base)+'" loading="lazy" data-act="imgZoom" data-arg="'+esc(path)+'">'
    +'</figure>'}
  if(kind==='binary'){
   return '<div class="filecard"><div class="fc-head"><span class="fc-name fc-previewable" title="'+esc(path)+'" data-act="openPreview" data-arg="'+esc(path)+'">'
-   +'📦 '+esc(base)+'</span><span class="fc-meta">'+kb+' KB · 二进制</span>'
-   +'<button type="button" class="fc-btn" data-act="openPreview" data-arg="'+esc(path)+'">预览</button>'
-   +'<a class="fc-btn" href="'+url+'&download=1'+q.replace('&','&')+'" target="_blank" rel="noopener">下载</a>'
+   +'📦 '+esc(base)+'</span><span class="fc-meta">'+kb+' KB · '+tr('二进制')+'</span>'
+   +'<button type="button" class="fc-btn" data-act="openPreview" data-arg="'+esc(path)+'">'+tr('预览')+'</button>'
+   +'<a class="fc-btn" href="'+url+'&download=1'+q.replace('&','&')+'" target="_blank" rel="noopener">'+tr('下载')+'</a>'
    +'</div></div>'}
  const lines=(content||'').split('\n');
  const numbered=lines.map((l,i)=>'<span class="fc-ln">'+(i+1)+'</span>'+esc(l)).join('\n');
  return '<div class="filecard"><div class="fc-head"><span class="fc-name fc-previewable" title="'+esc(path)+'" data-act="openPreview" data-arg="'+esc(path)+'">'
   +'📄 '+esc(base)+'</span><span class="fc-meta">'+lines.length+' 行 · '+kb+' KB</span>'
-  +'<button type="button" class="fc-btn" data-act="openPreview" data-arg="'+esc(path)+'">预览</button>'
-  +'<button type="button" class="fc-btn" data-act="copyFile" data-arg="'+esc(path)+'">复制</button>'
-  +'<a class="fc-btn" href="'+url+'&download=1'+(tk?'&token='+encodeURIComponent(tk):'')+'" target="_blank" rel="noopener">下载</a>'
+  +'<button type="button" class="fc-btn" data-act="openPreview" data-arg="'+esc(path)+'">'+tr('预览')+'</button>'
+  +'<button type="button" class="fc-btn" data-act="copyFile" data-arg="'+esc(path)+'">'+tr('复制')+'</button>'
+  +'<a class="fc-btn" href="'+url+'&download=1'+(tk?'&token='+encodeURIComponent(tk):'')+'" target="_blank" rel="noopener">'+tr('下载')+'</a>'
   +'</div><pre class="fc-body md-code" data-path="'+esc(path)+'">'+numbered+'</pre></div>'}
 
 function mdToHtml(src){

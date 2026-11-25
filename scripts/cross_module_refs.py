@@ -230,6 +230,17 @@ def analyze(webui: Path | None = None) -> dict[str, list[str]]:
                   and f not in ("globals.js", "main.js")]
         if len({o.split(":")[0] for o in owners}) > 1:
             dupe_list.append(f"同名重复声明：{name} 在 {', '.join(owners)}")
+    # AUD-P2（审核 ⑧-10）：模块里重新声明 globals.js 已有的名字 = 两份状态，
+    # 正是 AGENT.md 第 3 条要防的"ReferenceError 被 try/catch 吞成界面空白"。
+    # 旧检查直接 `continue` 跳过这类名字（现网 steps.js 就有一份被漏掉）。
+    for owner, names in sorted(declared.items()):
+        if owner in ("globals.js", "main.js"):
+            continue
+        for name, (kind, _line) in sorted(names.items()):
+            if name in gnames:
+                dupe_list.append(
+                    f"模块重复声明 globals 同名状态：{name} 在 {owner}（globals.js 已声明）——"
+                    "共享状态只放 globals.js，请删除模块里的这份")
 
     # D. `window.<名>` 指向的是**模块私有**变量（另一个模块写 window.x，本模块读 x → 两份状态）
     windowref: list[str] = []
