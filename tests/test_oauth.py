@@ -4,6 +4,7 @@
 网络全部 mock，绝不真打厂商端点；存储用临时目录。
 """
 import json
+import shutil
 import tempfile
 import time
 import unittest
@@ -137,7 +138,15 @@ class ApiTests(unittest.TestCase):
         cls.c = TestClient(A.app, base_url="http://127.0.0.1:8765")
 
     def test_providers_endpoint_lists_supported(self):
-        r = self.c.get("/v1/oauth/providers")
+        # 用临时 token 仓库：开发机上可能真的授权过 kimi-coding，
+        # 拿真实 data/oauth_tokens.json 断言 authorized=False 会假红。
+        import gantry.routes_oauth as routes_oauth
+        tmp = Path(tempfile.mkdtemp(prefix="cbp_oauth_api_"))
+        try:
+            with mock.patch.object(routes_oauth, "_ROOT", tmp):
+                r = self.c.get("/v1/oauth/providers")
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
         self.assertEqual(r.status_code, 200)
         provs = r.json()["providers"]
         self.assertIn("kimi-coding", provs)

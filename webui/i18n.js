@@ -39,6 +39,8 @@ const I18N_EN = {
   "受管浏览器没有打开的页面": "No pages open in the managed browser",
   "已关闭实时视图（新页面打开时会重新展开）": "Live view closed (it will reopen when a new page is opened)",
   "点击/滚动/打字，操作会同步到受管浏览器": "Click / scroll / type — actions sync to the managed browser",
+  "正在发起授权…": "Starting authorization…",
+  "正在启动受管浏览器，登录页马上弹出…": "Starting the managed browser — the login page will pop up shortly…",
   "主题：深色（点击切换）": "Theme: dark (click to cycle)",
   "跨会话搜索对话内容": "Search across sessions",
   "终止服务 / 退出（优雅停机；正在跑的任务会中断，状态已落库，重启后可恢复）":
@@ -1049,6 +1051,13 @@ Object.assign(I18N_EN, {
   "本地模型请在「模型」页管理": "Manage in-process models on the Models tab",
   "进程内 GGUF 的模型、上下文与线程数在「模型」页的本地模型子页配置；这里只能改描述。": "Model, context and thread count for in-process GGUF are configured on the local-models sub-tab of the Models tab; only the description can be edited here.",
   "测试连接": "Test connection",
+  "检测可用模型": "Detect available models",
+  "用上面填的地址/Key 向提供商查询真实可用的模型，结果覆盖模型列表": "Query the provider for the models actually available with the base URL/key above; the result replaces the model list",
+  "正在向 {n} 探测可用模型…": "Detecting available models from {n}…",
+  "请先填写接口地址": "Fill in the base URL first",
+  "探测失败: ": "Detection failed: ",
+  "接口没有返回任何模型": "The endpoint returned no models",
+  "检测到 {n} 个模型，已填入模型列表（点保存生效）": "Found {n} models — filled into the model list (save to apply)",
   // ── 提供商授权（OAuth / webchat）──
   "一键授权": "Authorize",
   "断开授权": "Disconnect",

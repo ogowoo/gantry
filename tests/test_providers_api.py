@@ -8,6 +8,7 @@ import shutil
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from gantry import bridge as b
 from gantry import api as _api  # noqa: F401  （先初始化 api：routes_* 有反向导入）
@@ -222,6 +223,125 @@ class TestConnectionTests(Base):
     def test_unknown_provider_404(self):
         r = self.c.post("/v1/providers/nosuch/test")
         self.assertEqual(r.status_code, 404, r.text)
+
+    def test_oauth_key_resolved_when_token_appears_after_startup(self):
+        # 真实时序：服务先启动构建 provider（此时无 token），用户再一键授权。
+        # 构建时缓存的 api_key 是空的，测试连接必须现取，否则一直报「未配置 API Key」。
+        from gantry import oauth as o
+        from gantry import routes_oauth
+        with mock.patch.object(providers_mod, "ROOT", self.tmp), \
+             mock.patch.object(providers_mod, "_read_env", return_value=""), \
+             mock.patch.object(routes_oauth, "_ROOT", self.tmp):
+            self.write_providers({"kimi-coding": {
+                "base_url": "http://127.0.0.1:9/v1",   # 不真打厂商端点
+                "api_key_env": "CBP_DEFINITELY_UNSET_KEY"}})
+            p = b.PROVIDERS["kimi-coding"]
+            self.assertFalse(p.configured)
+            o._save_tokens(self.tmp, "kimi-coding",
+                           {"access_token": "tok", "refresh_token": "r", "expires_in": 900})
+            self.assertTrue(p.configured)            # /v1/models 可用性同步翻真
+            self.assertEqual(p.current_api_key(), "tok")
+            r = self.c.post("/v1/providers/kimi-coding/test")
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertNotIn("API Key", r.json()["error"])  # 有 key 了：去连网，不再报未配置
+
+    def test_static_key_wins_over_oauth(self):
+        with mock.patch.object(providers_mod, "_read_env", return_value=""):
+            self.write_providers({"kimi-coding": {
+                "base_url": "http://127.0.0.1:9/v1", "api_key": "static-key"}})
+        from gantry import oauth as o
+        with mock.patch.object(providers_mod, "ROOT", self.tmp):
+            o._save_tokens(self.tmp, "kimi-coding",
+                           {"access_token": "oauth-tok", "refresh_token": "r", "expires_in": 900})
+            self.assertEqual(b.PROVIDERS["kimi-coding"].current_api_key(), "static-key")
+
+
+class DetectModelsTests(Base):
+    """检测可用模型：不写 config.json，凭据按 表单key > 环境变量 > 已保存配置 解析。"""
+
+    class _Resp:
+        def __init__(self, status_code=200, body=None):
+            self.status_code = status_code
+            self._body = body if body is not None else {}
+
+        def json(self):
+            return self._body
+
+    def _client(self, resp, calls):
+        class _FakeClient:
+            def __init__(self, *a, **kw):
+                self.kw = kw
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *a):
+                return False
+
+            async def get(self, path):
+                calls.append((path, self.kw.get("headers") or {}))
+                return resp
+
+        return _FakeClient
+
+    def test_requires_http_base_url(self):
+        self.assertEqual(self.c.post("/v1/providers/detect-models",
+                                     json={"base_url": ""}).status_code, 400)
+        self.assertEqual(self.c.post("/v1/providers/detect-models",
+                                     json={"base_url": "file:///etc/passwd"}).status_code, 400)
+
+    def test_no_credential_reports_plainly(self):
+        with mock.patch.object(providers_mod, "_read_env", return_value=""):
+            r = self.c.post("/v1/providers/detect-models",
+                            json={"base_url": "http://127.0.0.1:9/v1",
+                                  "api_key_env": "CBP_DEFINITELY_UNSET_KEY"})
+        d = r.json()
+        self.assertFalse(d["ok"])
+        self.assertIn("凭据", d["error"])
+
+    def test_openai_shape_lists_and_dedupes(self):
+        calls = []
+        resp = self._Resp(200, {"data": [{"id": "m1"}, {"id": "m2"}, {"id": "m1"}]})
+        with mock.patch("httpx.AsyncClient", self._client(resp, calls)):
+            r = self.c.post("/v1/providers/detect-models",
+                            json={"base_url": "http://gw.example/v1", "api_key": "sk-x"})
+        d = r.json()
+        self.assertTrue(d["ok"], d)
+        self.assertEqual(d["models"], ["m1", "m2"])
+        self.assertEqual(calls[0][0], "/models")
+        self.assertEqual(calls[0][1].get("Authorization"), "Bearer sk-x")
+
+    def test_anthropic_uses_v1_models_and_x_api_key(self):
+        calls = []
+        resp = self._Resp(200, {"data": [{"id": "k3"}]})
+        with mock.patch("httpx.AsyncClient", self._client(resp, calls)):
+            r = self.c.post("/v1/providers/detect-models",
+                            json={"base_url": "http://gw.example/coding", "api": "anthropic",
+                                  "api_key": "sk-a"})
+        self.assertTrue(r.json()["ok"], r.text)
+        self.assertEqual(calls[0][0], "/v1/models")
+        self.assertEqual(calls[0][1].get("x-api-key"), "sk-a")
+
+    def test_auth_error_is_reported(self):
+        calls = []
+        resp = self._Resp(401, {"error": "bad key"})
+        with mock.patch("httpx.AsyncClient", self._client(resp, calls)):
+            r = self.c.post("/v1/providers/detect-models",
+                            json={"base_url": "http://gw.example/v1", "api_key": "sk-bad"})
+        d = r.json()
+        self.assertFalse(d["ok"])
+        self.assertIn("认证失败", d["error"])
+
+    def test_falls_back_to_saved_provider_key(self):
+        self.write_providers({"gw": {"base_url": "http://gw.example/v1",
+                                     "api_key": "saved-key", "models": "m1"}})
+        calls = []
+        resp = self._Resp(200, {"data": [{"id": "m1"}]})
+        with mock.patch("httpx.AsyncClient", self._client(resp, calls)):
+            r = self.c.post("/v1/providers/detect-models",
+                            json={"name": "gw", "base_url": "http://gw.example/v1"})
+        self.assertTrue(r.json()["ok"], r.text)
+        self.assertEqual(calls[0][1].get("Authorization"), "Bearer saved-key")
 
 
 class DefaultModelTests(Base):

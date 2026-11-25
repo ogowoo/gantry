@@ -344,6 +344,89 @@ async def delete_provider(name: str):
             "deleted": not is_preset}
 
 
+@router.post("/v1/providers/detect-models")
+async def detect_models(payload: dict | None = None):
+    """用表单里当前填写（可能还没保存）的值，探测该提供商真正可用的模型。
+
+    不读写 config.json：用户可以在保存前先探测，把结果填进「模型列表」。
+    key 解析顺序 = 表单 api_key > 表单环境变量 > 已保存配置的 key/OAuth token。
+    """
+    from . import providers as _prov
+
+    data = payload or {}
+    base_url = str(data.get("base_url") or "").strip().rstrip("/")
+    if not base_url:
+        raise HTTPException(400, "缺少 base_url")
+    if not re.match(r"^https?://", base_url, re.I):
+        raise HTTPException(400, "base_url 只支持 http/https")
+    api = str(data.get("api") or "openai").strip().lower()
+    name = str(data.get("name") or "").strip().lower()
+
+    key = str(data.get("api_key") or "").strip()
+    env_spec = data.get("api_key_env") or ""
+    env_names = ([str(x).strip() for x in env_spec if str(x).strip()]
+                 if isinstance(env_spec, (list, tuple)) else
+                 [x.strip() for x in str(env_spec).split(",") if x.strip()])
+    for env_name in env_names:
+        if key:
+            break
+        key = _prov._read_env(env_name) or ""
+    if not key and name:
+        saved = (b.PROVIDERS or {}).get(name)
+        cur = getattr(saved, "current_api_key", None) if saved is not None else None
+        if callable(cur):
+            try:
+                key = cur() or ""
+            except Exception:                    # noqa: BLE001
+                key = ""
+    if not key:
+        return {"ok": False, "models": [], "count": 0, "latency_ms": 0,
+                "error": "没有可用的凭据：先填 API Key 或设置环境变量"}
+
+    # anthropic 协议走 /v1/models（Kimi coding 这类端点也实现了）；openai 走 /models
+    path = "/v1/models" if api == "anthropic" else "/models"
+    headers = ({"x-api-key": key, "anthropic-version": "2023-06-01"} if api == "anthropic"
+               else {"Authorization": f"Bearer {key}"})
+    kwargs: dict[str, Any] = {"headers": headers, "timeout": 15.0, "trust_env": True}
+    proxy = _prov.system_proxy()
+    if proxy:
+        kwargs["proxy"] = proxy
+    t0 = time.time()
+    try:
+        import httpx
+
+        async with httpx.AsyncClient(base_url=base_url, **kwargs) as client:
+            resp = await client.get(path)
+        ms = int((time.time() - t0) * 1000)
+        if resp.status_code in (401, 403):
+            return {"ok": False, "models": [], "count": 0, "latency_ms": ms,
+                    "status": resp.status_code, "error": "认证失败：API Key 无效或无权限"}
+        if resp.status_code >= 400:
+            return {"ok": False, "models": [], "count": 0, "latency_ms": ms,
+                    "status": resp.status_code,
+                    "error": f"服务返回 {resp.status_code}（可能不支持模型列表接口，"
+                             "可手工填模型名）"}
+        try:
+            body = resp.json()
+        except Exception:                        # noqa: BLE001
+            body = {}
+        items = body.get("data") if isinstance(body, dict) else None
+        if not isinstance(items, list):
+            items = body.get("models") if isinstance(body, dict) else None
+        models: list[str] = []
+        for it in items or []:
+            mid = it.get("id") if isinstance(it, dict) else it
+            mid = str(mid or "").strip()
+            if mid and mid not in models:
+                models.append(mid)
+        return {"ok": True, "models": models, "count": len(models),
+                "latency_ms": ms, "status": resp.status_code}
+    except Exception as exc:                     # noqa: BLE001
+        return {"ok": False, "models": [], "count": 0,
+                "latency_ms": int((time.time() - t0) * 1000),
+                "error": f"探测失败：{str(exc)[:200]}"}
+
+
 @router.post("/v1/providers/{name}/test")
 async def test_provider(name: str):
     """轻量连通性检查：GET {base_url}/models（本地则检查 GGUF 文件）。
@@ -373,17 +456,21 @@ async def test_provider(name: str):
     base_url = str(getattr(provider, "base_url", "") or "")
     if not base_url:
         return {"ok": False, "kind": "http", "latency_ms": 0, "error": "未配置 base_url"}
-    if not getattr(provider, "api_key", ""):
+    # 现取 key：OAuth 授权的 token 在 provider 构建之后才写入，且 15 分钟过期，
+    # 读构建时缓存的 provider.api_key 会一直是空（授权后测试仍报未配置 key 的事故）
+    cur_key = provider.current_api_key() if callable(getattr(provider, "current_api_key", None)) \
+        else str(getattr(provider, "api_key", "") or "")
+    if not cur_key:
         return {"ok": False, "kind": "http", "latency_ms": 0,
                 "error": "未配置 API Key（填写 key 或设置环境变量 "
                          f"{', '.join(_env_names({'api_key_env': getattr(provider, 'api_key_envs', [])})) or '(未指定)'}）"}
     try:
         import httpx
 
-        headers = {"Authorization": f"Bearer {provider.api_key}"}
+        headers = {"Authorization": f"Bearer {cur_key}"}
         path = "/models"
         if str(getattr(provider, "api", "openai")).lower() == "anthropic":
-            headers = {"x-api-key": provider.api_key, "anthropic-version": "2023-06-01"}
+            headers = {"x-api-key": cur_key, "anthropic-version": "2023-06-01"}
             path = "/v1/models"
         proxy = getattr(provider, "proxy_url", None)
         kwargs: dict[str, Any] = {"timeout": 12.0, "headers": headers}
@@ -439,7 +526,9 @@ async def webchat_open(name: str):
         raise HTTPException(400, f"{key} 不是 webchat 提供商")
     site = str(getattr(provider, "site", ""))
     try:
-        await webchat.ensure_site_page(site)
+        # 导航放后台：登录页加载可能很慢（公司网络），接口先返回让前端有反馈，
+        # 受管浏览器窗口弹出本身就是「正在进行」的可见信号
+        await webchat.ensure_site_page(site, wait_load=False)
     except Exception as exc:                             # noqa: BLE001
         raise HTTPException(502, f"打开站点失败：{str(exc)[:200]}") from exc
     url = str(webchat.WEBCHAT_SITES[site]["url"])

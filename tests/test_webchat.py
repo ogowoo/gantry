@@ -129,7 +129,7 @@ class ApiTests(unittest.TestCase):
             r = self.c.post("/v1/providers/chatgpt-web/webchat-open")
         self.assertEqual(r.status_code, 200)
         self.assertTrue(r.json()["ok"])
-        ep.assert_awaited_once_with("chatgpt-web")
+        ep.assert_awaited_once_with("chatgpt-web", wait_load=False)
 
 
 if __name__ == "__main__":

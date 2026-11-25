@@ -77,9 +77,10 @@ PRESETS: dict[str, dict[str, Any]] = {
     "kimi-coding": {
         "base_url": "https://api.kimi.com/coding",
         "api": "anthropic",
-        "api_key_env": ["KIMI_API_KEY", "MONSHOT_API_KEY", "MOONSHOT_API_KEY"],
+        "api_key_env": ["KIMI_API_KEY", "MOONSHOT_API_KEY"],
         "oauth": True,
-        "models": ["k3", "k3-256k", "kimi-for-coding", "kimi-for-coding-highspeed"],
+        "models": ["k3", "k3-256k", "k3.1-pro", "k3.1-pro-highspeed",
+                   "kimi-for-coding", "kimi-for-coding-highspeed"],
         "max_tokens": 8192,
         "json_mode": "off",          # Anthropic 无 response_format，靠提示词约束
         "vision": True,              # /v1/messages 接受 base64 image block
@@ -93,7 +94,7 @@ PRESETS: dict[str, dict[str, Any]] = {
                                    "（受消费条款约束，见 docs）"},
     "kimi": {
         "base_url": "https://api.moonshot.cn/v1",
-        "api_key_env": ["MOONSHOT_API_KEY", "KIMI_API_KEY", "MONSHOT_API_KEY"],
+        "api_key_env": ["MOONSHOT_API_KEY", "KIMI_API_KEY"],
         "models": ["kimi-k2-0905-preview", "moonshot-v1-128k"],
         "description": "Kimi（Moonshot）API",
     },
@@ -196,8 +197,13 @@ class ApiProvider:
             if key:
                 break
             key = _read_env(_en) or ""
-        # OAuth 授权（设置页「一键授权」写入 data/oauth_tokens.json）作为兜底 key 来源
-        if not key and cfg.get("oauth"):
+        # 静态 key（config/环境变量）记下来：有它就不必走 OAuth 现取
+        self._static_key = key
+        self._oauth = bool(cfg.get("oauth"))
+        # OAuth 授权（设置页「一键授权」写入 data/oauth_tokens.json）作为兜底 key 来源。
+        # 注意：授权动作发生在 provider 构建之后（服务先启动、用户后授权），
+        # 这里缓存的值可能为空或已过期——真正用 key 的地方必须走 current_api_key()。
+        if not key and self._oauth:
             try:
                 from . import oauth as _oauth
                 key = _oauth.get_access_token(ROOT, name)
@@ -227,14 +233,49 @@ class ApiProvider:
         self.proxy = str(cfg.get("proxy") or "").strip() or None
         self.use_system_proxy = bool(cfg.get("use_system_proxy", True))
 
+    def current_api_key(self) -> str:
+        """取当前可用 key：静态 key 优先；OAuth 的现取现用。
+
+        授权动作发生在 provider 构建之后、token 只有 15 分钟寿命，
+        构建时缓存的 self.api_key 可能为空或已过期，不能拿它当唯一来源。
+        """
+        if self._static_key:
+            return self._static_key
+        if self._oauth:
+            try:
+                from . import oauth as _oauth
+                key = _oauth.get_access_token(ROOT, self.name) or ""
+            except Exception:                # noqa: BLE001
+                key = ""
+            if key:
+                self.api_key = key         # 同步缓存：net_error_text 等只读属性的地方不落后
+            return key or self.api_key
+        return self.api_key
+
     @property
     def configured(self) -> bool:
-        return bool(self.base_url and self.api_key)
+        """可用 = 有 base_url 且能拿到凭据。
+
+        OAuth 类要看 token 仓库：授权发生在 provider 构建之后，
+        构建时缓存的 api_key 为空，不能只拿它判断（否则授权后
+        /v1/models 里该提供商仍显示「未配置 API Key」不可用）。
+        """
+        if not self.base_url:
+            return False
+        if self.api_key:
+            return True
+        if self._oauth:
+            try:
+                from . import oauth as _oauth
+                return _oauth.authorized(ROOT, self.name)
+            except Exception:                # noqa: BLE001
+                return False
+        return False
 
     def require_ready(self) -> None:
         if not self.base_url:
             raise ProviderError(f"提供商 {self.name} 缺少 base_url")
-        if not self.api_key:
+        if not self.current_api_key():
             raise ProviderError(
                 f"提供商 {self.name} 未配置 API Key：请设置环境变量 {self.api_key_env or '(未指定)'} "
                 f"或在 config.json providers.{self.name}.api_key 中填写"
@@ -253,10 +294,11 @@ class ApiProvider:
             proxy = self.proxy_url()
             if proxy:
                 kwargs["proxy"] = proxy
-        headers: dict[str, str] = {"Authorization": f"Bearer {self.api_key}"}
+        api_key = self.current_api_key()
+        headers: dict[str, str] = {"Authorization": f"Bearer {api_key}"}
         if self.api == "anthropic":
             # Kimi Coding 实测 Bearer 与 x-api-key 都接受；带上协议版本头更稳
-            headers["x-api-key"] = self.api_key
+            headers["x-api-key"] = api_key
             headers["anthropic-version"] = "2023-06-01"
         return httpx.AsyncClient(
             base_url=self.base_url,

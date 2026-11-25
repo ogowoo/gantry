@@ -69,8 +69,12 @@ def site_spec(site: str) -> dict[str, Any]:
     return spec
 
 
-async def ensure_site_page(site: str):
-    """在共享持久化上下文里打开/复用站点页面。"""
+async def ensure_site_page(site: str, wait_load: bool = True):
+    """在共享持久化上下文里打开/复用站点页面。
+
+    wait_load=False 时导航放后台跑（webchat-open 登录入口用）：接口秒回，
+    窗口弹出就是可见进度，避免前端对着 120s 的 goto 干等看不到在干什么。
+    """
     from . import bridge as b      # 浏览器状态都在 bridge（ctx/pw）
     from . import browser          # 启动逻辑在 browser
 
@@ -87,9 +91,20 @@ async def ensure_site_page(site: str):
     if ctx is None:
         raise RuntimeError("受管浏览器上下文未建立")
     page = await ctx.new_page()
-    await page.goto(spec["url"], wait_until="domcontentloaded", timeout=120000)
+    if wait_load:
+        await page.goto(spec["url"], wait_until="domcontentloaded", timeout=120000)
+    else:
+        asyncio.get_running_loop().create_task(_goto_bg(page, spec["url"]))
     _PAGES[site] = page
     return page
+
+
+async def _goto_bg(page: Any, url: str) -> None:
+    try:
+        await page.goto(url, wait_until="domcontentloaded", timeout=120000)
+    except Exception:                                    # noqa: BLE001
+        # 后台导航失败不算致命：页面已在，用户可刷新或重开
+        log.info("webchat 后台导航失败: %s", url)
 
 
 async def check_login(site: str, timeout: float = 60.0) -> tuple[bool, str]:

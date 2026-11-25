@@ -13,6 +13,13 @@ let _presets = [];
 
 const _provEl = (id) => document.getElementById(id);
 
+// 提供商可用性变化后同步对话页的模型下拉：loadProviders 只刷设置页徽标，
+// 不刷模型选择器——授权/保存后当前会话里看不到新模型，用户以为没生效
+// （kimi-coding 授权成功、测试通过，但下拉里没有就是这个原因）。
+async function _refreshModels() {
+  try { await window.loadModels?.(); } catch (e) { /* 刷新失败不影响设置页 */ }
+}
+
 function _provBadge(p) {
   const kind = `<span class="prov-kind prov-kind-${esc(p.kind)}">${esc(tr(KIND_LABEL[p.kind] || p.kind))}</span>`;
   const key = p.kind === 'local'
@@ -152,6 +159,8 @@ function _provFormHtml(p) {
     ${isEdit && p.api_key_in_config ? `<div class="setbtns"><button type="button" class="btn ghost danger" data-act="provClearKey">${esc(tr('清除已保存的 Key'))}</button></div>` : ''}
     <label class="setrow"><span>${esc(tr('模型列表（每行一个或逗号分隔）'))}</span>
       <textarea class="kbinput" id="provModels" rows="3" placeholder="gpt-4o-mini">${esc(models)}</textarea></label>
+    <div class="setbtns"><button type="button" class="btn ghost" data-act="provDetectModels"
+      title="${esc(tr('用上面填的地址/Key 向提供商查询真实可用的模型，结果覆盖模型列表'))}">${esc(tr('检测可用模型'))}</button></div>
     <div class="setgrid2">
       <label class="setrow"><span>${esc(tr('max_tokens（0=不发送）'))}</span>
         <input class="kbinput" id="provMax" type="number" min="0" value="${esc(String(maxTokens))}"></label>
@@ -258,6 +267,7 @@ export async function provSave() {
                    : tr('已保存提供商 {n}').replace('{n}', body.name), 'ok');
     provCancel();
     await loadProviders();
+    await _refreshModels();
   } catch (e) {
     toast(tr('保存失败: ') + ((e && (e.detail || e.text || e.message)) || String(e)), 'err');
   }
@@ -277,6 +287,7 @@ export async function provDelete(node) {
                             : tr('已删除 {n}').replace('{n}', name), 'ok');
     if (_editing === name) provCancel();
     await loadProviders();
+    await _refreshModels();
   } catch (e) {
     toast(tr('删除失败: ') + ((e && (e.detail || e.text || e.message)) || String(e)), 'err');
   }
@@ -284,8 +295,10 @@ export async function provDelete(node) {
 
 export async function provOauth(node) {
   // 「一键授权」：device 流程弹窗显示验证码；callback 流程直接打开浏览器回跳。
+  // 发起要同步访问厂商授权端点（公司网络下可能数十秒），先提示让用户知道没卡死。
   const name = node && node.dataset ? (node.dataset.arg || '') : '';
   if (!name) return;
+  toast(tr('正在发起授权…'), 'ok');
   try {
     const flow = await api('/v1/oauth/' + encodeURIComponent(name) + '/start',
       { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
@@ -318,6 +331,7 @@ function _pollOauthFlow(name, flowId) {
         _closeOauthModal();
         toast(tr('{n} 授权成功').replace('{n}', name), 'ok');
         await loadProviders();
+        await _refreshModels();
       } else if (st.status === 'failed' || st.status === 'cancelled') {
         clearInterval(_oauthTimer); _oauthTimer = null;
         _closeOauthModal();
@@ -369,6 +383,7 @@ export async function provOauthDisconnect(node) {
       { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
     toast(tr('{n} 已断开授权').replace('{n}', name), 'ok');
     await loadProviders();
+    await _refreshModels();
   } catch (e) {
     toast(tr('断开失败: ') + ((e && (e.detail || e.message)) || String(e)), 'err');
   }
@@ -382,6 +397,8 @@ export function provGetKey(node) {
 export async function provWebchatOpen(node) {
   const name = node && node.dataset ? (node.dataset.arg || '') : '';
   if (!name) return;
+  // 起受管浏览器要好几秒，先提示；后端现在后台导航，接口会很快返回
+  toast(tr('正在启动受管浏览器，登录页马上弹出…'), 'ok', 8000);
   try {
     const r = await api('/v1/providers/' + encodeURIComponent(name) + '/webchat-open',
       { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
@@ -404,6 +421,7 @@ export async function provTest(node) {
           body: JSON.stringify(body) });
         name = body.name;
         await loadProviders();
+        await _refreshModels();
       } catch (e) {
         toast(tr('保存失败: ') + ((e && (e.detail || e.text || e.message)) || String(e)), 'err');
         return;
@@ -426,6 +444,30 @@ export async function provTest(node) {
   }
 }
 
+export async function provDetectModels() {
+  // 用表单当前值（可能还没保存）探测：探测本身不写 config.json，
+  // 结果只填进「模型列表」，用户确认后再点保存。
+  const body = _provCollect();
+  if (!body) return;
+  if (!body.base_url) { toast(tr('请先填写接口地址'), 'err'); return; }
+  toast(tr('正在向 {n} 探测可用模型…').replace('{n}', body.name), 'ok', 8000);
+  try {
+    const r = await api('/v1/providers/detect-models', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: body.name, base_url: body.base_url, api: body.api,
+                             api_key: body.api_key || '', api_key_env: body.api_key_env || '' }),
+    });
+    if (!r.ok) { toast(tr('探测失败: ') + (r.error || ''), 'err'); return; }
+    const list = r.models || [];
+    if (!list.length) { toast(tr('接口没有返回任何模型'), 'err'); return; }
+    const ta = _provEl('provModels');
+    if (ta) ta.value = list.join('\n');
+    toast(tr('检测到 {n} 个模型，已填入模型列表（点保存生效）').replace('{n}', list.length), 'ok', 6000);
+  } catch (e) {
+    toast(tr('探测失败: ') + ((e && (e.detail || e.text || e.message)) || String(e)), 'err');
+  }
+}
+
 export async function provClearKey(node) {
   const name = (node && node.dataset && node.dataset.arg) || _editing || '';
   if (!name) return;
@@ -435,6 +477,7 @@ export async function provClearKey(node) {
       body: JSON.stringify({ name, api_key: '' }) });
     toast(tr('已清除保存的 Key'), 'ok');
     await loadProviders();
+    await _refreshModels();
     const p = _providers.find((x) => x.name === name);
     if (p) _provShowForm(p);
   } catch (e) {
