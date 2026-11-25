@@ -31,10 +31,15 @@ CSS = re.sub(r"/\*[\s\S]*?\*/", " ", _RAW)
 
 APPROVAL_KEYS = [
     "授权执行",
-    "属于不可回滚操作；授权仅对本会话有效（会话结束即失效），或选择「仅本次」只放行这一次",
+    "请核对参数后授权。「仅本次」只放行这一次；「整会话放行」会让该工具本会话内不再询问。",
     "已授权并继续执行（本会话内不再逐次询问）",
     "已授权并继续执行（该授权仅对这一次操作有效）",
     "仅本次",
+    "整会话放行",
+    "确认整会话放行？",
+    "拒绝",
+    "已拒绝；任务已暂停，可发送新消息继续",
+    "暂不授权",
 ]
 SHUTDOWN_KEYS = [
     "即将终止本服务（进程退出）：",
@@ -51,8 +56,10 @@ class InterruptI18nTests(unittest.TestCase):
             self.assertIn(f"tr('{k}')", APP, f"「{k}」必须走 tr()，否则英文界面露中文")
 
     def test_no_bare_approval_button_label(self):
-        self.assertNotIn("textContent='授权执行'", APP,
-                         "按钮文案不能用裸中文（英文模式下会露出来）")
+        for bare in ("textContent='授权执行'", "textContent='仅本次'",
+                     "textContent='整会话放行'", "textContent='拒绝'"):
+            self.assertNotIn(bare, APP,
+                             "按钮文案不能用裸中文（英文模式下会露出来）")
 
     def test_shutdown_dialog_translated(self):
         for k in SHUTDOWN_KEYS:
@@ -66,9 +73,10 @@ class InterruptI18nTests(unittest.TestCase):
         """会话授权与仅本次授权必须是两个独立动作，不能混成一个按钮。"""
         i = APP.index("function showApprovalBar")
         seg = APP[i:i + 5000]
-        self.assertIn("scope:'session'", seg)
-        self.assertIn("scope:'once'", seg)
+        self.assertIn("grant(btnOnce,'once',", seg, "「仅本次」必须是独立的 once 动作")
+        self.assertIn("grant(btnSession,'session',", seg, "「整会话放行」必须是独立的 session 动作")
         self.assertIn("仅本次", seg)
+        self.assertIn("确认整会话放行", seg, "会话级放行需要二次确认")
 
 
 class InterruptProminenceTests(unittest.TestCase):
