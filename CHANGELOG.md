@@ -14,6 +14,30 @@
 ### Fixed
 - 
 
+## [0.12.0-beta.37] - 2026-11-25
+
+### Added
+- KB 向量行增加文本 hash（老库懒迁移）：原地改文自动重算、stats 真实覆盖、
+  reindex 清理孤儿向量（⑤-3）
+- 浏览器启动/重建全局互斥锁；窗口独立占用标记（空 sid 独占操作也会拦住重启）
+- webchat 每站点串行锁：同站并发请求不再互相覆盖提示词/回答（①-7）
+- CI 增加 node --check 前端语法门（⑨-10）
+
+### Changed
+- embedding 配置链路修复：plugin.json 不再内置 embedding/ocr 配置，config.json
+  的 kb.embedding 重新生效；_sem 按配置签名缓存自动重建；local 后端接受
+  model 裸文件名（按仓库根/data/models 查找兜底，ff0d5ea）
+- 流式等待改 idle-deadline：持续出字等到 reply_hard_timeout_seconds，无文本按
+  180s、稳定无信号按空窗周期收尾——不再误杀长回答（①-9）
+- hybrid 检索失败退回 FTS，不再把向量层运行期错误抛给模型
+- 复用浏览器前探测页面/上下文存活并自动重建（①-5 重试自愈）
+- sessions/queue 轮询加 in-flight 防护；i18n 翻译缓存随内容变化刷新快照
+- 删除未接线的 config 树编辑器等死代码
+
+### Fixed
+- 标签页被关/Edge 被杀后"重试浏览器"不再白等 120s 落 needs_login（①-5）
+- CHANGELOG 去除重复的 0.11.0-beta.47..33 版本块（234 行，⑨-7）
+
 ## [0.12.0-beta.36] - 2026-11-25
 
 ### Added
