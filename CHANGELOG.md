@@ -14,6 +14,46 @@
 ### Fixed
 - 
 
+## [0.12.0-beta.36] - 2026-11-25
+
+### Added
+- 审批横幅展示脱敏参数摘要、主按钮改为「仅本次」、整会话放行需二次确认；
+  新增 `POST /v1/agent/sessions/{sid}/approvals/deny` 拒绝端点（审批不再"盲签"）
+- 单实例锁（data/.instance.lock）：不同端口的第二实例不再把运行中会话置 paused
+- 发布包补齐 AGENT.md/skills/personas/tests 等顶层运行资产；CI 增加依赖元数据
+  一致性检查与 `node --check` 前端语法门
+- `run_tests_chunked.py` 的 `--skip` 必须匹配真实测试模块名，拼错/改名即失败
+
+### Changed
+- 沙箱门按 MUTATING_TOOLS 能力清单统一：write_csv/skill_create/memory_forget/
+  self_*/copilot_file/run_code/teams_reply/pa_import/power_apps_* 在只读/计划
+  模式下不再可绕过
+- 验收命令改最小 env 白名单；stdout/stderr 落库前脱敏（H3 残留）
+- zip 自更新不再删除新包未包含的顶层条目；plugins/skills/personas 按子项合并
+  替换，用户自装插件保留
+- 事件循环阻塞收口：OAuth 刷新/验收门/模型库列表/@ 检索/快照 diff 进线程池，
+  30s 巡检改 light 查询
+- 每会话消息队列上限 20（超限 429）；b.log 同时写日志文件（后台模式不再丢失）
+- 更新检查失败返回 check_failed，前端区分"已是最新"与"无法检查"
+- CI 改用分块测试并与发布门同策略；pyproject 依赖与 requirements/lock 对齐
+
+### Fixed
+- fileview 绝对路径/越界任意文件读（曾可直读 C:/Windows/win.ini，实测复现）
+- write_excel 跨 await 持 threading.Lock 可死锁整个服务
+- 全新安装 api_token 占位符使鉴权失效或退化为公开常量
+- detect-models 把环境变量/已保存凭据外送到调用方指定 URL
+- xlsx_patch 自闭合 `<row/>` 吞行/写坏文件（M22）
+- 插件名未校验可对插件目录外 rmtree；MCP 命令白名单 args 绕过（持久化 RCE）
+- task_run 网页并行子代理共用父页面串台；子代理只认显式 completed 为成功
+- 验证门对 apply_patch/replace_lines 等推荐编辑工具失效（AGENT.md 硬约定可绕过）
+- 截断 final 兜底抢在写入恢复之前（写入被丢弃却报完成）
+- 连续解析失败无终止条件；goal 续轮提前落 completed；批量动作只回灌最后一条结果
+- teams-bot API 端点绕过 dry_run 门控真实发消息；OWA 发送不验证结果即报成功
+- CSRF 白名单先于 Sec-Fetch-Site 判定；非 ASCII token 返回 500；运行中会话
+  本地删除无守卫；导入 conversation_urls 绕过删除白名单
+- 定时任务「覆盖导入」取消后模式残留致静默清空任务；token 输错后弹窗循环
+- 更新锁实例级致并发保护无效；依赖清单漂移（pyproject 缺 pyyaml 等）
+
 ## [0.12.0-beta.35] - 2026-11-25
 
 ### Added
