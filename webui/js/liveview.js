@@ -2,8 +2,8 @@
    Agent 调 open_site 打开网站时自动展开；也可点顶栏按钮手动开关。 */
 import { api } from './apistate.js';
 import { apiToken } from './cards.js';
-import { tr } from '../i18n.js';
 import { toast } from './toast.js';
+/* tr 是 i18n.js（传统脚本，非模块）挂的全局函数，直接调用，不要 import */
 
 let _es = null;          // EventSource
 let _idx = -1;           // 当前观看的页面序号（ctx.pages 下标）
