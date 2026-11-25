@@ -637,7 +637,7 @@ from .routes_update import (  # noqa: F401
     update_apply,
     update_rollback,
 )
-from . import routes_core, routes_config, routes_agents, routes_sessions, routes_update, routes_soul, routes_providers  # noqa: E402
+from . import routes_core, routes_config, routes_agents, routes_sessions, routes_update, routes_soul, routes_providers, routes_oauth  # noqa: E402
 for _routes_mod in (routes_core, routes_config, routes_agents, routes_sessions, routes_update,
-                    routes_soul, routes_providers):
+                    routes_soul, routes_providers, routes_oauth):
     app.include_router(_routes_mod.router)

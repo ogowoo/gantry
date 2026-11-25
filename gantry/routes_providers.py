@@ -24,6 +24,8 @@ from fastapi import APIRouter, HTTPException
 from . import bridge as b
 from . import providers as providers_mod
 
+ROOT = Path(__file__).resolve().parent.parent
+
 router = APIRouter()
 
 _NAME_RE = re.compile(r"^[a-z0-9][a-z0-9._-]{0,40}$")
@@ -82,6 +84,10 @@ def _entry_view(name: str, entry: dict[str, Any], *, custom: bool,
     envs = _env_names(entry)
     active_env = next((e for e in envs if _env_value(e)), "")
     in_config = bool(str(entry.get("api_key") or "").strip())
+    # OAuth 授权状态：支持一键授权的厂商把状态透出给设置页渲染按钮
+    from . import oauth as _oauth
+    oauth_st = (_oauth.provider_status(ROOT, name)
+                if entry.get("oauth") else {"supported": False})
     backend = str(entry.get("backend") or "").lower()
     is_local = backend == "local" or bool(entry.get("model_path"))
     models = [str(m) for m in (entry.get("models") or [])]
@@ -96,8 +102,9 @@ def _entry_view(name: str, entry: dict[str, Any], *, custom: bool,
         "api": str(entry.get("api") or "openai").lower(),
         "api_key_env": envs,
         "api_key_env_active": active_env,
-        "api_key_set": in_config or bool(active_env),
+        "api_key_set": in_config or bool(active_env) or bool(oauth_st.get("authorized")),
         "api_key_in_config": in_config,
+        "oauth": oauth_st,
         "backend": backend or "http",
         "model_path": str(entry.get("model_path") or ""),
         "models": models,

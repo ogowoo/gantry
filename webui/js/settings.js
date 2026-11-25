@@ -9,7 +9,7 @@ import { openKb, closeKb, kbPick, kbRefresh, kbReindex, kbImportUrl, kbImportTex
 import { openModels, closeModels, renderModels, modelDelete, modelCopyPath, modelDownload, modelPreset, modelStart, modelStop, modelUse, modelOrganize, modelStopAll } from './models.js';
 import { kbSaveMsg as kbSaveMsgImpl, THEMES } from './composer.js';
 import { openPreview, closePreview, reloadPreview, openPreviewExternal, downloadPreview, copyPreviewPath } from './preview.js';
-import { providersPaneHtml, loadProviders, provNew, provEdit, provCancel, provSave, provDelete, provTest, provClearKey, provSetDefault } from './providers.js';
+import { providersPaneHtml, loadProviders, provNew, provEdit, provCancel, provSave, provDelete, provTest, provClearKey, provSetDefault, provOauth, provOauthCancel, provOauthDisconnect, provGetKey } from './providers.js';
 
 /* 设置左侧的“工具页”：不弹窗，直接把对应面板的 .dlg 移进设置右侧渲染。 */
 const TOOL_TABS = [
@@ -1091,6 +1091,10 @@ const ACTIONS={
  provSave:()=>provSave(),
  provDelete:(el)=>provDelete(el),
  provTest:(el)=>provTest(el),
+ provOauth:(el)=>provOauth(el),
+ provOauthCancel:()=>provOauthCancel(),
+ provOauthDisconnect:(el)=>provOauthDisconnect(el),
+ provGetKey:(el)=>provGetKey(el),
  provClearKey:(el)=>provClearKey(el),
  provSetDefault:()=>provSetDefault(),
  provRefresh:()=>loadProviders(),

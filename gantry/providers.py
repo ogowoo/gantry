@@ -27,6 +27,8 @@ from urllib.parse import urlsplit
 
 import httpx
 
+ROOT = Path(__file__).resolve().parent.parent
+
 
 def system_proxy() -> str | None:
     """读取本机系统代理（Windows 注册表 / 环境变量）。
@@ -76,6 +78,7 @@ PRESETS: dict[str, dict[str, Any]] = {
         "base_url": "https://api.kimi.com/coding",
         "api": "anthropic",
         "api_key_env": ["KIMI_API_KEY", "MONSHOT_API_KEY", "MOONSHOT_API_KEY"],
+        "oauth": True,
         "models": ["k3", "k3-256k", "kimi-for-coding", "kimi-for-coding-highspeed"],
         "max_tokens": 8192,
         "json_mode": "off",          # Anthropic 无 response_format，靠提示词约束
@@ -93,6 +96,22 @@ PRESETS: dict[str, dict[str, Any]] = {
         "api_key_env": "XAI_API_KEY",
         "models": ["grok-4", "grok-3"],
         "description": "Grok（xAI）API",
+    },
+    # OAuth 一键授权类：key 来源优先级 = 显式 api_key > 环境变量 > OAuth token 仓库
+    # （data/oauth_tokens.json，由设置页「一键授权」写入）。端点/client_id 见 gantry/oauth.py。
+    "openai-codex": {
+        "base_url": "https://api.openai.com/v1",
+        "api_key_env": "OPENAI_API_KEY",
+        "oauth": True,
+        "models": ["gpt-5-codex", "gpt-5"],
+        "description": "OpenAI Codex（ChatGPT 账号 OAuth 授权）",
+    },
+    "qwen": {
+        "base_url": "https://portal.qwen.ai/v1",
+        "api_key_env": "QWEN_API_KEY",
+        "oauth": True,
+        "models": ["qwen3-coder-plus", "qwen3-max"],
+        "description": "Qwen（通义订阅 OAuth 授权）",
     },
 }
 
@@ -171,6 +190,13 @@ class ApiProvider:
             if key:
                 break
             key = _read_env(_en) or ""
+        # OAuth 授权（设置页「一键授权」写入 data/oauth_tokens.json）作为兜底 key 来源
+        if not key and cfg.get("oauth"):
+            try:
+                from . import oauth as _oauth
+                key = _oauth.get_access_token(ROOT, name)
+            except Exception:                # noqa: BLE001
+                key = ""
         self.api_key = key
         self.api_key_env = env_names[0] if env_names else ""
         self.api_key_envs = env_names

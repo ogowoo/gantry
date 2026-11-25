@@ -17,11 +17,13 @@ function _provBadge(p) {
   const kind = `<span class="prov-kind prov-kind-${esc(p.kind)}">${esc(tr(KIND_LABEL[p.kind] || p.kind))}</span>`;
   const key = p.kind === 'local'
     ? `<span class="prov-key ${p.configured ? 'ok' : 'warn'}">${esc(tr(p.configured ? '模型就绪' : '模型缺失'))}</span>`
-    : p.api_key_env_active
-      ? `<span class="prov-key ok" title="${esc(tr('环境变量 {n} 已设置').replace('{n}', p.api_key_env_active))}">🔑 ${esc(p.api_key_env_active)}</span>`
-      : p.api_key_in_config
-        ? `<span class="prov-key ok">🔑 ${esc(tr('配置文件'))}</span>`
-        : `<span class="prov-key warn">${esc(tr('未配置 Key'))}</span>`;
+    : p.oauth && p.oauth.supported && p.oauth.authorized
+      ? `<span class="prov-key ok" title="${esc(tr('OAuth 授权有效'))}">✅ OAuth</span>`
+      : p.api_key_env_active
+        ? `<span class="prov-key ok" title="${esc(tr('环境变量 {n} 已设置').replace('{n}', p.api_key_env_active))}">🔑 ${esc(p.api_key_env_active)}</span>`
+        : p.api_key_in_config
+          ? `<span class="prov-key ok">🔑 ${esc(tr('配置文件'))}</span>`
+          : `<span class="prov-key warn">${esc(tr('未配置 Key'))}</span>`;
   return kind + key;
 }
 
@@ -33,9 +35,16 @@ function _provCard(p) {
   const where = p.kind === 'local'
     ? esc(p.model_path || tr('（未指定模型）'))
     : esc(p.base_url || tr('（未配置地址）'));
+  const oauthBtn = (p.oauth && p.oauth.supported)
+    ? (p.oauth.authorized
+        ? `<button type="button" class="btn ghost danger" data-act="provOauthDisconnect" data-arg="${esc(p.name)}">${esc(tr('断开授权'))}</button>`
+        : `<button type="button" class="btn ghost" data-act="provOauth" data-arg="${esc(p.name)}">${esc(tr('一键授权'))}</button>`)
+    : (p.name === 'deepseek'
+        ? `<button type="button" class="btn ghost" data-act="provGetKey" data-arg="https://platform.deepseek.com/api_keys">${esc(tr('获取 Key（打开控制台）'))}</button>`
+        : '');
   const acts = p.kind === 'local'
     ? `<span class="sethint">${esc(tr('本地模型请在「本地模型」页管理'))}</span>`
-    : `<button type="button" class="btn ghost" data-act="provEdit" data-arg="${esc(p.name)}">${esc(tr('编辑'))}</button>
+    : `${oauthBtn}<button type="button" class="btn ghost" data-act="provEdit" data-arg="${esc(p.name)}">${esc(tr('编辑'))}</button>
        <button type="button" class="btn ghost" data-act="provTest" data-arg="${esc(p.name)}">${esc(tr('测试连接'))}</button>
        <button type="button" class="btn ghost${p.kind === 'custom' ? ' danger' : ''}" data-act="provDelete" data-arg="${esc(p.name)}">${esc(tr(p.kind === 'preset' ? '恢复默认' : '删除'))}</button>`;
   return `<div class="prov-card${p.configured ? '' : ' dim'}" data-prov="${esc(p.name)}">
@@ -265,6 +274,105 @@ export async function provDelete(node) {
   } catch (e) {
     toast(tr('删除失败: ') + ((e && (e.detail || e.text || e.message)) || String(e)), 'err');
   }
+}
+
+export async function provOauth(node) {
+  // 「一键授权」：device 流程弹窗显示验证码；callback 流程直接打开浏览器回跳。
+  const name = node && node.dataset ? (node.dataset.arg || '') : '';
+  if (!name) return;
+  try {
+    const flow = await api('/v1/oauth/' + encodeURIComponent(name) + '/start',
+      { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+    if (flow.status === 'failed') {
+      toast(tr('授权发起失败: ') + (flow.error || ''), 'err');
+      return;
+    }
+    if (flow.authorize_url) {
+      window.open(flow.authorize_url, '_blank');
+      toast(tr('已在浏览器打开授权页，同意后会自动生效'), 'ok');
+    } else if (flow.verification_uri_complete) {
+      _oauthDeviceModal(name, flow);
+    }
+    if (flow.id) _pollOauthFlow(name, flow.id);
+  } catch (e) {
+    toast(tr('授权发起失败: ') + ((e && (e.detail || e.message)) || String(e)), 'err');
+  }
+}
+
+let _oauthTimer = null;
+function _pollOauthFlow(name, flowId) {
+  if (_oauthTimer) clearInterval(_oauthTimer);
+  _oauthTimer = setInterval(async () => {
+    try {
+      const st = await api('/v1/oauth/flow/' + encodeURIComponent(flowId));
+      const el = document.getElementById('oauthFlowStatus');
+      if (el) el.textContent = st.status === 'pending' ? tr('等待授权中…') : '';
+      if (st.status === 'ok') {
+        clearInterval(_oauthTimer); _oauthTimer = null;
+        _closeOauthModal();
+        toast(tr('{n} 授权成功').replace('{n}', name), 'ok');
+        await loadProviders();
+      } else if (st.status === 'failed' || st.status === 'cancelled') {
+        clearInterval(_oauthTimer); _oauthTimer = null;
+        _closeOauthModal();
+        toast(tr('授权未成功: ') + (st.error || st.status), 'err');
+      }
+    } catch (e) { /* 轮询暂时失败，下一轮再试 */ }
+  }, 2000);
+}
+
+function _oauthDeviceModal(name, flow) {
+  _closeOauthModal();
+  const wrap = document.createElement('div');
+  wrap.id = 'oauthModal';
+  wrap.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:9999;display:flex;align-items:center;justify-content:center';
+  wrap.innerHTML = `<div style="background:var(--card-bg,#fff);color:var(--fg,#222);padding:24px 28px;border-radius:10px;max-width:420px;text-align:center">
+    <h3 style="margin:0 0 12px">${esc(tr('授权 {n}').replace('{n}', name))}</h3>
+    <div style="font-size:32px;letter-spacing:6px;font-weight:700;margin:8px 0;cursor:pointer" id="oauthCode"
+      title="${esc(tr('点击复制'))}">${esc(flow.user_code || '')}</div>
+    <p class="sethint">${esc(tr('1. 点击验证码复制 2. 点击下方链接打开授权页 3. 粘贴验证码并同意'))}</p>
+    <p><a href="${esc(flow.verification_uri_complete || flow.verification_uri || '#')}" target="_blank" rel="noopener"
+      style="word-break:break-all">${esc(flow.verification_uri_complete || flow.verification_uri || '')}</a></p>
+    <p id="oauthFlowStatus" class="sethint"></p>
+    <button type="button" class="btn ghost" id="oauthCancelBtn">${esc(tr('取消'))}</button>
+  </div>`;
+  document.body.appendChild(wrap);
+  wrap.addEventListener('click', (e) => { if (e.target === wrap) provOauthCancel(); });
+  const code = wrap.querySelector('#oauthCode');
+  if (code) code.addEventListener('click', () => {
+    try { navigator.clipboard.writeText(flow.user_code || ''); toast(tr('验证码已复制'), 'ok'); } catch (e) {}
+  });
+  const btn = wrap.querySelector('#oauthCancelBtn');
+  if (btn) btn.addEventListener('click', () => provOauthCancel());
+}
+
+function _closeOauthModal() {
+  const m = document.getElementById('oauthModal');
+  if (m) m.remove();
+}
+
+export function provOauthCancel() {
+  // 通过当前轮询的 flow id 取消：简单起见直接关弹窗+停止轮询，后端流程自然超时
+  if (_oauthTimer) { clearInterval(_oauthTimer); _oauthTimer = null; }
+  _closeOauthModal();
+}
+
+export async function provOauthDisconnect(node) {
+  const name = node && node.dataset ? (node.dataset.arg || '') : '';
+  if (!name) return;
+  try {
+    await api('/v1/oauth/' + encodeURIComponent(name) + '/disconnect',
+      { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+    toast(tr('{n} 已断开授权').replace('{n}', name), 'ok');
+    await loadProviders();
+  } catch (e) {
+    toast(tr('断开失败: ') + ((e && (e.detail || e.message)) || String(e)), 'err');
+  }
+}
+
+export function provGetKey(node) {
+  const url = node && node.dataset ? (node.dataset.arg || '') : '';
+  if (url) window.open(url, '_blank');
 }
 
 export async function provTest(node) {
