@@ -14,6 +14,17 @@
 ### Fixed
 - 
 
+## [0.12.0-beta.38] - 2026-11-25
+
+### Added
+- 
+
+### Changed
+- 
+
+### Fixed
+-
+
 ## [0.12.0-beta.37] - 2026-11-25
 
 ### Added
@@ -37,6 +48,8 @@
 ### Fixed
 - 标签页被关/Edge 被杀后"重试浏览器"不再白等 120s 落 needs_login（①-5）
 - CHANGELOG 去除重复的 0.11.0-beta.47..33 版本块（234 行，⑨-7）
+- test_interrupt_prominence 同步新审批横幅语义（P0-12 重做后的文案断言），
+  修复 Trusted Release 的单元测试失败（beta.36/37 发布即因此未生成制品）
 
 ## [0.12.0-beta.36] - 2026-11-25
 
