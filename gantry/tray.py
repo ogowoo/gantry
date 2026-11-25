@@ -118,6 +118,9 @@ def _user32():
     u.PostThreadMessageW.argtypes = [wt.DWORD, wt.UINT, wt.WPARAM, wt.LPARAM]
     u.PostMessageW.argtypes = [wt.HWND, wt.UINT, wt.WPARAM, wt.LPARAM]
     u.DestroyIcon.argtypes = [wt.HICON]
+    # 更新确认框：WebUI 进不去时，托盘是唯一的更新入口，必须给原生是/否对话框
+    u.MessageBoxW.argtypes = [wt.HWND, wt.LPCWSTR, wt.LPCWSTR, wt.UINT]
+    u.MessageBoxW.restype = ctypes.c_int
     return u
 
 
@@ -179,6 +182,11 @@ TEXT = {
         "update_available": "发现新版本 {ver}",
         "update_ok": "已是最新版本",
         "update_checking": "正在检查更新…",
+        "update_confirm_title": "安装更新",
+        "update_confirm": "发现新版本 {ver}（{m}）。\n更新前会自动备份，完成后服务将自动重启。\n现在更新吗？",
+        "update_downloading": "正在下载并安装更新 {ver}…",
+        "update_done": "已更新到 {ver}，服务正在重启…",
+        "update_failed": "更新失败：{err}",
     },
     "tw": {
         "open_webui": "開啟控制台",
@@ -212,6 +220,11 @@ TEXT = {
         "update_available": "發現新版本 {ver}",
         "update_ok": "已是最新版本",
         "update_checking": "正在檢查更新…",
+        "update_confirm_title": "安裝更新",
+        "update_confirm": "發現新版本 {ver}（{m}）。\n更新前會自動備份，完成後服務將自動重新啟動。\n現在更新嗎？",
+        "update_downloading": "正在下載並安裝更新 {ver}…",
+        "update_done": "已更新到 {ver}，服務正在重新啟動…",
+        "update_failed": "更新失敗：{err}",
     },
     "en": {
         "open_webui": "Open console",
@@ -245,6 +258,11 @@ TEXT = {
         "update_available": "New version {ver} available",
         "update_ok": "Already up to date",
         "update_checking": "Checking for updates…",
+        "update_confirm_title": "Install update",
+        "update_confirm": "New version {ver} ({m}) found.\nA backup is made first and the service restarts afterwards.\nUpdate now?",
+        "update_downloading": "Downloading and installing {ver}…",
+        "update_done": "Updated to {ver}; the service is restarting…",
+        "update_failed": "Update failed: {err}",
     },
 }
 
@@ -736,6 +754,17 @@ class Tray:
         self.balloon(self.text["failed"], self.text["restart_timeout"], error=True)
         log.warning("托盘：重启后 60s 内 /health 未恢复（看 data/logs/crash.log）")
 
+    def _confirm(self, caption: str, text: str) -> bool:
+        """原生是/否对话框。托盘更新流程用：WebUI 进不去时用户在这里拍板。"""
+        MB_YESNO, MB_ICONQUESTION, IDYES = 0x4, 0x20, 6
+        try:
+            u = getattr(self, "_user32", None) or _user32()
+            return u.MessageBoxW(
+                None, text, caption, MB_YESNO | MB_ICONQUESTION) == IDYES
+        except Exception:                               # noqa: BLE001
+            # 对话框都弹不出来时按「否」处理：更新会重启服务，不能在用户无感知下进行
+            return False
+
     def _a_check_update(self) -> None:
         log.info("托盘：检查更新")
         self.balloon(self.title, self.text["update_checking"])
@@ -744,11 +773,39 @@ class Tray:
         except Exception as exc:                        # noqa: BLE001
             self.balloon(self.text["failed"], self.text["no_service"].format(err=str(exc)[:160]), error=True)
             return
-        if d.get("update_available"):
-            ver = d.get("latest") or "?"
-            self.balloon(self.title, self.text["update_available"].format(ver=ver))
-        else:
+        if not d.get("update_available"):
             self.balloon(self.title, self.text["update_ok"])
+            return
+        ver = str(d.get("latest") or "?")
+        method = str(d.get("method") or "")
+        self.balloon(self.title, self.text["update_available"].format(ver=ver))
+        # 确认后走与 WebUI 相同的本地接口：备份/替换/依赖同步/自动重启都在服务端
+        if not self._confirm(self.text["update_confirm_title"],
+                             self.text["update_confirm"].format(ver=ver, m=method)):
+            return
+        self.balloon(self.title, self.text["update_downloading"].format(ver=ver))
+        try:
+            r = self._http("/v1/update/apply",
+                           {"version": ver, "method": method, "restart": True},
+                           timeout=900)                  # 含下载与依赖同步，给足时间
+        except urllib.error.HTTPError as exc:
+            detail = str(exc)
+            try:
+                detail = str(json.loads(exc.read().decode("utf-8") or "{}").get("detail") or detail)
+            except Exception:                           # noqa: BLE001
+                pass
+            log.warning("托盘：更新失败 HTTP %s：%s", exc.code, detail)
+            self.balloon(self.text["failed"],
+                         self.text["update_failed"].format(err=detail[:180]), error=True)
+            return
+        except Exception as exc:                        # noqa: BLE001
+            log.warning("托盘：更新失败：%s", exc)
+            self.balloon(self.text["failed"],
+                         self.text["update_failed"].format(err=str(exc)[:180]), error=True)
+            return
+        target = str((r or {}).get("target") or ver)
+        log.info("托盘：已更新到 %s，服务将自动重启", target)
+        self.balloon(self.title, self.text["update_done"].format(ver=target))
 
     def _a_lang_zh(self) -> None:
         self.set_language("zh")
