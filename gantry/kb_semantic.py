@@ -445,12 +445,21 @@ def build_embedder(cfg: dict[str, Any] | None = None) -> Embedder | None:
 
         # AUD-P3（审核 ⑤-4）：UI 把 GGUF 路径存进 kb.embedding.model，而这里只读
         # model_path——local 后端因路径为空静默退回 FTS。model 指向真实文件时
-        # 作为 model_path 兜底，两边配置都能用。
+        # 作为 model_path 兜底；裸文件名按仓库根/data/models(/embedding) 依次查找
+        # （现场实证：配置是 "bge-m3-FP16.gguf"，文件在 data/models/embedding/）。
         path = str(c.get("model_path") or "")
         if not path:
-            cand = str(c.get("model") or "")
-            if cand and Path(cand).is_file():
-                path = cand
+            cand = str(c.get("model") or "").strip()
+            if cand:
+                _root = Path(__file__).resolve().parent.parent
+                for _t in (Path(cand), _root / cand, _root / "data" / "models" / cand,
+                           _root / "data" / "models" / "embedding" / cand):
+                    try:
+                        if _t.is_file():
+                            path = str(_t.resolve())
+                            break
+                    except OSError:              # noqa: BLE001
+                        continue
         if not path:
             return None
         return LocalEmbedder(path, n_ctx=int(c.get("n_ctx") or 2048),
