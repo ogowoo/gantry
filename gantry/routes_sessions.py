@@ -1125,14 +1125,25 @@ async def cleanup_marked_copilot(payload: dict):
     for sid in sids:
         if not re.match(r"^[a-zA-Z0-9_-]{3,48}$", str(sid)):
             raise HTTPException(400, f"非法 sid: {sid}")
-    if b.current_page() is None:
+    if b.current_page() is None and not (scan_only and not payload.get("include_sidebar")):
         raise HTTPException(409, "自动化浏览器未启动，无法访问 Copilot 侧栏")
+    # 纯盘点（默认不扫侧栏）：只读本地库，不占窗口、不依赖浏览器
+    if scan_only and not payload.get("include_sidebar"):
+        local = []
+        for sess in b.AGENT_SESSIONS.list(include_archived=True, light=True):
+            urls = sess.get("conversation_urls") or []
+            if not urls:
+                continue
+            local.append({"sid": sess["id"], "title": sess.get("title") or "",
+                          "count": len(urls), "urls": urls})
+        return {"rows": [], "count": 0, "local": local,
+                "local_urls": sum(x["count"] for x in local)}
     stack = AsyncExitStack()
     try:
         await stack.enter_async_context(b._window("", wait_timeout=15))
         if scan_only:
-            # 标题会被 Copilot 改写，侧栏标记行通常为 0：盘点只做单屏快扫
-            # （不滚动，省 1 分多钟的 scroll-to-stable）；本地 URL 才是可靠索引。
+            # 标题会被 Copilot 改写，侧栏标记行通常为 0（实测 0/41）：单屏快扫
+            # 约 90s（逐元素 is_visible），只在 include_sidebar=true 时执行。
             sidebar_rows = await a.cd.scan_sidebar_markers(None, scroll=False)
             local = []
             for sess in b.AGENT_SESSIONS.list(include_archived=True, light=True):
