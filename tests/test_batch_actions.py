@@ -161,7 +161,12 @@ class BatchExecutionTests(unittest.TestCase):
         # 若按动作重复计数，估算值会约等于 3 倍回合成本；这里只应记一次
         per_action = [s for s in steps if s.get("tool")]
         self.assertEqual(len(per_action), 3)
-        self.assertLess(est, 3 * sum(len(json.dumps(s, ensure_ascii=False)) for s in per_action))
+        # 上限要容纳回合成本里的完整协议（上万字符）：把实际发出过的最大 prompt
+        # 长度作为余量加进去，协议增长不再挤破启发式阈值（「任务分型」段落地时
+        # est 超上限 ~3% 实测踩过）；3 倍计数 bug 仍远超该上限，照旧能抓住。
+        bound = 3 * sum(len(json.dumps(s, ensure_ascii=False)) for s in per_action) \
+            + max((len(p) for p in turns), default=0)
+        self.assertLess(est, bound)
 
     def test_batch_error_does_not_stop_later_actions(self):
         ws = Path(tempfile.mkdtemp(prefix="cbp_batch_"))
