@@ -279,69 +279,109 @@ async def _download_chosen(chosen: dict, dest: Path) -> int:
         raise b.ToolError(f"点击下载入口失败: {exc}") from exc
 
 
-def _extract_copilot_zip(zip_path: Path, target: Path, *, max_bytes: int) -> dict:
+def _sensitive_name(name: str) -> bool:
+    """zip 条目名是否属于凭据/密钥类，一律不落盘（宁可少给，不可漏密钥）。"""
+    from .sensitive_names import sensitive_name as _sn
+    return _sn(name)
+
+
+def _looks_like_zip(p: Path) -> bool:
+    """按魔数判断是否是 zip（PK\x03\x04 本地头 / PK\x05\x06 空包）。"""
+    try:
+        with open(p, "rb") as fh:
+            return fh.read(4) in (b"PK\x03\x04", b"PK\x05\x06")
+    except OSError:
+        return False
+
+
+def _extract_copilot_zip(zip_path: Path, target: Path, *, max_bytes: int,
+                         snap=None) -> dict:
     """把 Copilot 打包的 zip 安全解到目标路径（扁平解压 + zip-slip 防护）。
 
     - 条目按 basename 平铺进临时目录再搬移；绝对路径 / .. / 盘符一律拒绝；
+    - 同名条目（含 Windows 大小写不敏感）逐个重命名，互不覆盖、不丢失；
     - 目标文件名必须在包内；包内只有一个文件时直接采用它（Copilot 可能改名）；
-    - 多余文件放到目标旁；与工作区已有文件重名时移入 <stem>_extras/，绝不覆盖旧文件。
-    返回 {path, bytes, extracted, extras}。任何失败都不在工作区留下半成品。
+    - 多余文件统一放进 `<stem>_extras/` 子目录——绝不落工作区根（避免
+      sitecustomize.py 之类被本地验证子进程意外 import），也绝不覆盖旧文件；
+    - 凭据类文件名（secrets/.env/私钥等）一律跳过不落盘，在 skipped_extras 里报告；
+    - snap(rel, dest) 回调在每次写入前调用：extras 也进快照，任务回滚能一起恢复。
+    返回 {path, bytes, extracted, extras, skipped_extras}。任何失败都不在
+    工作区留下半成品。
     """
     try:
-        zf = zipfile.ZipFile(zip_path)
+        with zipfile.ZipFile(zip_path) as zf:      # 上下文管理：异常路径也要及时关句柄
+            entries = [i for i in zf.infolist() if not i.filename.endswith("/")]
+            if not entries:
+                raise b.ToolError("Copilot 返回的 zip 是空的；请让它重新打包")
+            total = sum(int(i.file_size) for i in entries)
+            if total > max_bytes:
+                raise b.ToolError(f"zip 解压后 {total / 1048576:.0f}MB 超过单次上限 "
+                                  f"{max_bytes // 1048576}MB（agent.copilot_file_max_mb 可调）")
+            tmp = Path(tempfile.mkdtemp(prefix="cbfile_"))
+            try:
+                names: list[str] = []
+                tmpfiles: dict[str, Path] = {}
+                seen: set[str] = set()             # casefold，Windows 大小写不敏感
+                skipped_extras: list[str] = []
+                for info in entries:
+                    n = info.filename.replace("\\", "/")
+                    segs = n.split("/")
+                    if n.startswith("/") or ".." in segs or any(":" in s for s in segs):
+                        raise b.ToolError(f"zip 内含可疑路径 {info.filename!r}，已拒绝（防路径穿越）")
+                    base = os.path.basename(n)
+                    if not base:
+                        continue
+                    if _sensitive_name(base):
+                        skipped_extras.append(base)
+                        continue
+                    if base.casefold() in seen:    # 同名条目：循环加序号直到唯一
+                        stem, ext = os.path.splitext(base)
+                        k = 2
+                        while f"{stem}_{k}{ext}".casefold() in seen:
+                            k += 1
+                        base = f"{stem}_{k}{ext}"
+                    seen.add(base.casefold())
+                    try:
+                        (tmp / base).write_bytes(zf.read(info))
+                    except (RuntimeError, OSError, zipfile.BadZipFile) as exc:
+                        raise b.ToolError(f"zip 条目 {info.filename!r} 读取失败（{exc}）；"
+                                          f"请让 Copilot 重新打包") from exc
+                    names.append(base)
+                    tmpfiles[base] = tmp / base
+                if not names:
+                    raise b.ToolError("zip 里的文件全部被安全规则跳过（凭据类文件不落盘）；"
+                                      "请让 Copilot 重新打包或改用分块写入")
+                if target.name in names:
+                    picked = target.name
+                elif len(names) == 1:
+                    picked = names[0]              # Copilot 改名：唯一文件直接采用
+                else:
+                    raise b.ToolError(f"zip 里没有 {target.name}（实际包含：{', '.join(names)}）；"
+                                      f"请让 Copilot 用准确的文件名重新打包")
+                target.parent.mkdir(parents=True, exist_ok=True)
+                shutil.move(str(tmpfiles[picked]), str(target))
+                extras: list[str] = []
+                extras_dir = target.parent / f"{target.stem}_extras"
+                for n in names:
+                    if n == picked:
+                        continue
+                    dest = extras_dir / n
+                    dest.parent.mkdir(parents=True, exist_ok=True)
+                    if snap:
+                        try:
+                            rel = str(dest.relative_to(b.AGENT_TOOLS.root))
+                        except Exception:          # noqa: BLE001
+                            rel = str(dest)
+                        snap(rel, dest)
+                    shutil.move(str(tmpfiles[n]), str(dest))
+                    extras.append(str(dest))
+                size = target.stat().st_size
+                return {"path": str(target), "bytes": size, "extracted": names,
+                        "extras": extras, "skipped_extras": skipped_extras}
+            finally:
+                shutil.rmtree(tmp, ignore_errors=True)
     except (zipfile.BadZipFile, OSError) as exc:
         raise b.ToolError(f"Copilot 返回的不是有效 zip 包（{exc}）；请重试或改用分块写入") from exc
-    entries = [i for i in zf.infolist() if not i.filename.endswith("/")]
-    if not entries:
-        raise b.ToolError("Copilot 返回的 zip 是空的；请让它重新打包")
-    total = sum(int(i.file_size) for i in entries)
-    if total > max_bytes:
-        raise b.ToolError(f"zip 解压后 {total / 1048576:.0f}MB 超过单次上限 "
-                          f"{max_bytes // 1048576}MB（agent.copilot_file_max_mb 可调）")
-    tmp = Path(tempfile.mkdtemp(prefix="cbfile_"))
-    try:
-        names: list[str] = []
-        seen: set[str] = set()
-        for info in entries:
-            n = info.filename.replace("\\", "/")
-            segs = n.split("/")
-            if n.startswith("/") or ".." in segs or any(":" in s for s in segs):
-                raise b.ToolError(f"zip 内含可疑路径 {info.filename!r}，已拒绝（防路径穿越）")
-            base = os.path.basename(n)
-            if not base:
-                continue
-            if base in seen:                     # 同名条目：加序号防互相覆盖
-                stem, ext = os.path.splitext(base)
-                base = f"{stem}_{len(seen)}{ext}"
-            seen.add(base)
-            try:
-                (tmp / base).write_bytes(zf.read(info))
-            except (RuntimeError, OSError, zipfile.BadZipFile) as exc:
-                raise b.ToolError(f"zip 条目 {info.filename!r} 读取失败（{exc}）；请让 Copilot 重新打包") from exc
-            names.append(base)
-        if target.name in names:
-            picked = target.name
-        elif len(names) == 1:
-            picked = names[0]                    # Copilot 改名：唯一文件直接采用
-        else:
-            raise b.ToolError(f"zip 里没有 {target.name}（实际包含：{', '.join(names)}）；"
-                              f"请让 Copilot 用准确的文件名重新打包")
-        target.parent.mkdir(parents=True, exist_ok=True)
-        shutil.move(str(tmp / picked), str(target))
-        extras: list[str] = []
-        for n in names:
-            if n == picked:
-                continue
-            dest = target.parent / n
-            if dest.exists():                    # 不覆盖工作区已有文件
-                dest = target.parent / f"{target.stem}_extras" / n
-            dest.parent.mkdir(parents=True, exist_ok=True)
-            shutil.move(str(tmp / n), str(dest))
-            extras.append(str(dest))
-        size = target.stat().st_size
-        return {"path": str(target), "bytes": size, "extracted": names, "extras": extras}
-    finally:
-        shutil.rmtree(tmp, ignore_errors=True)
 
 
 async def _copilot_file(path: str, instruction: str) -> dict:
@@ -422,22 +462,21 @@ async def _copilot_file(path: str, instruction: str) -> dict:
                         + _hint
                         + "可改用 write_text_b64/append_text_b64 分块写入")
 
-    chosen = None
+    # 候选排序（zip 优先）：预览卡片的真文件入口常与 zip 同时出现在页面里，
+    # 先试 zip 命中的入口（名字/href 含 .zip），避免把真文件内容当 zip 解压
+    # 误报失败；zip 候选用尽后再试其余，最后退化直存（见下）。
     stem = Path(zipname).stem.lower()
-    # 优先级：① href 是 blob:/data: 且文案含文件名 → ② blob:/data: →
-    #         ③ 文案含文件名 → ④ 第一个候选
+
+    def _zip_hit(c):
+        return ".zip" in ((c.get("text") or "") + " " + (c.get("href") or "")).lower()
+
+    def _stem_hit(c):
+        return bool(stem) and stem in ((c.get("text") or "") + " " + (c.get("href") or "")).lower()
+
     _dl = [c for c in candidates if (c.get("href") or "").startswith(("blob:", "data:"))]
-    for cand in _dl:
-        if stem and stem in (cand["text"] + " " + cand["href"]).lower():
-            chosen = cand
-            break
-    chosen = chosen or (_dl[0] if _dl else None)
-    if chosen is None:
-        for cand in candidates:
-            if stem and stem in (cand["text"] + " " + cand["href"]).lower():
-                chosen = cand
-                break
-    chosen = chosen or candidates[0]
+    ordered = ([c for c in _dl if _zip_hit(c)]
+               + [c for c in _dl if not _zip_hit(c)]
+               + [c for c in candidates if c not in _dl])
 
     # 诊断：把本次识别到的下载入口记下来（href 是否可用、文案是否匹配），
     # 排查"Invalid URL / 下载到 0 字节"时对照真实页面结构。
@@ -450,32 +489,93 @@ async def _copilot_file(path: str, instruction: str) -> dict:
         pass
     b.AGENT_TOOLS._snap("copilot_file", path, target)   # 覆盖前存原像，可回滚
     before = b.AGENT_TOOLS._hash(target)
+
+    def _target_event(result="ok"):
+        return {"tool": "copilot_file", "path": path, "before_hash": before,
+                "after_hash": b.AGENT_TOOLS._hash(target), "result": result}
+
     if is_zip_target:
         # 目标本身就是 zip：直接落盘，不做解压（zip 下载稳定，无需中转）。
-        size = await _download_chosen(chosen, target)
+        size = await _download_chosen(ordered[0], target)
         if size <= 0:
             raise b.ToolError("下载到 0 字节，可能不是有效文件；请让 Copilot 重新生成或改用分块写入")
         return {"path": path, "bytes": size, "filename": filename,
                 "source": "copilot-download",
-                "file_event": {"tool": "copilot_file", "path": path, "before_hash": before,
-                               "after_hash": b.AGENT_TOOLS._hash(target), "result": "ok"}}
-    # 非 zip 目标：先拿 zip 再解压。临时目录放系统临时区（不在工作区内），
-    # 失败/中断不留任何半成品。
+                "file_event": _target_event()}
+
+    # 非 zip 目标：逐个候选试到有效 zip；全部失败时若存在与目标文件名匹配的
+    # 直接入口，退化回旧行为直接保存（Copilot 可能无视打包要求直接给了文件，
+    # 此时直存好过硬失败）。临时目录放系统临时区，失败/中断不留半成品。
     tmpdir = Path(tempfile.mkdtemp(prefix="cbfile_"))
     tmpzip = tmpdir / zipname
+    last_err = None
+    tried = 0
+    out = None
     try:
-        zsize = await _download_chosen(chosen, tmpzip)
-        if zsize <= 0:
-            raise b.ToolError("下载到 0 字节，可能不是有效文件；请让 Copilot 重新生成或改用分块写入")
-        out = _extract_copilot_zip(tmpzip, target, max_bytes=await _copilot_file_max_bytes())
+        for cand in ordered:
+            tried += 1
+            try:
+                zsize = await _download_chosen(cand, tmpzip)
+            except b.ToolError as exc:
+                last_err = exc
+                continue
+            if zsize <= 0:
+                last_err = b.ToolError("下载到 0 字节")
+                continue
+            if not _looks_like_zip(tmpzip):
+                last_err = b.ToolError("下载内容不是 zip（魔数不符），可能是预览入口")
+                try:
+                    tmpzip.unlink(missing_ok=True)
+                except OSError:
+                    pass
+                continue
+            try:
+                out = _extract_copilot_zip(
+                    tmpzip, target, max_bytes=await _copilot_file_max_bytes(),
+                    snap=lambda rel, dest: b.AGENT_TOOLS._snap("copilot_file", rel, dest))
+                break
+            except b.ToolError as exc:
+                last_err = exc
+                try:
+                    tmpzip.unlink(missing_ok=True)
+                except OSError:
+                    pass
+                continue
     finally:
         shutil.rmtree(tmpdir, ignore_errors=True)
+    if out is None:
+        direct = next((c for c in ordered if _stem_hit(c) and not _zip_hit(c)), None)
+        if direct is not None:
+            try:
+                size = await _download_chosen(direct, target)
+                if size > 0:
+                    return {"path": path, "bytes": size, "filename": filename,
+                            "source": "copilot-download-direct",
+                            "extracted": [filename], "extras": [],
+                            "file_event": _target_event()}
+            except b.ToolError as exc:
+                last_err = exc
+        raise b.ToolError(
+            f"Copilot 没有提供可用的 zip 下载入口（{tried} 个候选均失败；"
+            f"最后错误：{last_err or '无有效候选'}）；可让 Copilot 重新打包生成，"
+            f"或改用 write_text_b64 分块写入")
+    # extras 也进变更视图（file_events），且已快照、任务回滚可一并恢复
+    extra_events = []
+    for ep in out.get("extras") or []:
+        try:
+            ah = b.AGENT_TOOLS._hash(Path(ep))
+            extra_events.append({"tool": "copilot_file",
+                                 "path": str(Path(ep).relative_to(b.AGENT_TOOLS.root)),
+                                 "before_hash": None, "after_hash": ah, "result": "ok"})
+        except Exception:                        # noqa: BLE001
+            pass
     return {"path": path, "bytes": out["bytes"], "filename": filename,
             "source": "copilot-download-zip",
             "extracted": out["extracted"],
             "extras": [str(x) for x in out["extras"]],
-            "file_event": {"tool": "copilot_file", "path": path, "before_hash": before,
-                           "after_hash": b.AGENT_TOOLS._hash(target), "result": "ok"}}
+            "skipped_extras": out.get("skipped_extras") or [],
+            "file_event": _target_event(),
+            "file_events": extra_events}
 
 
 from . import bridge as b  # noqa: E402,F401  （晚导入：见文件头注释）

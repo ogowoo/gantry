@@ -116,6 +116,77 @@ class CopilotCleanupTests(unittest.TestCase):
         self.assertTrue(any("【任务总结】" in m["content"] for m in msgs),
                         "总结必须作为助手消息落库（本地记录保留）")
 
+    def test_partial_failure_keeps_failed_url_index(self):
+        """部分删除失败：失败条目的 URL 索引必须保留，绝不整体清空（审核 2026-11-26）。"""
+        def delete(url, marker):
+            return {"url": url, "deleted": url.endswith("conv00000001")}
+
+        def finalize(sid, results):
+            return results
+
+        with self._patch_runtime(chat_fn=lambda *a, **k: "总结文本",
+                                 delete_fn=delete, finalize_fn=finalize):
+            out = asyncio.run(agentrun.cleanup_copilot_conversation(self.sid))
+        self.assertFalse(out["ok"])
+        self.assertTrue(out.get("error"), "部分失败必须带 error 文案（UI toast 不再空白）")
+        self.assertEqual(out["deleted"], 1)
+        st = self.store.get(self.sid)
+        self.assertEqual(st["conversation_urls"], [_copilot_url(2)],
+                         "失败条目的索引必须保留，可重试")
+        self.assertIsNone(st["current_url"], "current_url 指向已删会话时必须置空")
+        self.assertEqual(st["cleanup_suggested"], 1, "部分失败保留 🧹 建议，可重试")
+
+    def test_running_recheck_after_summary_aborts(self):
+        """总结期间会话重新跑起来 → 中止删除，映射原样保留（审核 2026-11-26）。"""
+        running = {"v": False}
+
+        async def chat(prompt, model, make_new):
+            running["v"] = True      # 模拟总结期间会话被重新拉起
+            return "总结文本"
+
+        with self._patch_runtime(chat_fn=chat, delete_fn=lambda *a, **k: None,
+                                 finalize_fn=lambda *a, **k: []):
+            with mock.patch.object(b, "session_running",
+                                   side_effect=lambda s: running["v"]):
+                out = asyncio.run(agentrun.cleanup_copilot_conversation(self.sid))
+        self.assertFalse(out["ok"])
+        self.assertIn("重新开始运行", out["error"])
+        st = self.store.get(self.sid)
+        self.assertEqual(len(st["conversation_urls"]), 2, "中止时不得动远端映射")
+
+    def test_cleanup_keeps_existing_task_plan(self):
+        """已有任务图（dict）时清理总结不得覆盖它（_work_ledger 消费 dict）。"""
+        self.store.patch(self.sid, task_summary={"plan_id": "p1", "status": "ready"})
+        with self._patch_runtime(chat_fn=lambda *a, **k: "总结文本",
+                                 delete_fn=lambda *a, **k: {"url": a[0], "deleted": True},
+                                 finalize_fn=lambda *a, **k: []):
+            out = asyncio.run(agentrun.cleanup_copilot_conversation(self.sid))
+        self.assertTrue(out["ok"], out)
+        st = self.store.get(self.sid)
+        self.assertEqual(st["task_summary"], {"plan_id": "p1", "status": "ready"},
+                         "任务图不能被清理总结文本覆盖")
+
+
+class CleanupLedgerGuardTests(unittest.TestCase):
+    """_work_ledger 对文本型 task_summary 的类型守卫（审核 2026-11-26）。"""
+
+    def test_work_ledger_tolerates_text_summary(self):
+        from gantry.agent import AgentRunner
+        from gantry.tools import ToolRegistry
+
+        ws = Path(tempfile.mkdtemp(prefix="cbp_ledger_"))
+        try:
+            r = AgentRunner(ToolRegistry(ws, {}), lambda *a, **k: None, {},
+                            state_getter=lambda: {}, state_saver=lambda **k: None,
+                            step_saver=lambda s: None, file_event_saver=lambda e: None)
+            ledger = r._work_ledger({"task_summary": "纯文本清理总结"}, [])
+            self.assertNotIn("任务图", ledger, "文本总结不是任务图，不能当 dict 消费")
+            ledger2 = r._work_ledger(
+                {"task_summary": {"plan_id": "p1", "status": "ready"}}, [])
+            self.assertEqual(ledger2["任务图"], {"plan_id": "p1", "status": "ready"})
+        finally:
+            shutil.rmtree(ws, ignore_errors=True)
+
 
 if __name__ == "__main__":
     unittest.main()

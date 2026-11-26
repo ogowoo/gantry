@@ -102,6 +102,57 @@ class BundleBuildTests(unittest.TestCase):
         self.assertNotIn("big.txt", body)
         self.assertEqual(stats["files"], 1)
 
+    def test_large_file_preview_only(self):
+        """超过 inline 上限的文件只给头部预览，完整内容绝不进首轮消息（spill 同哲学）。"""
+        from gantry.workspace_bundle import build_workspace_bundle
+
+        ws = _mk_ws({"big.txt": "A" * 60000})
+        body, stats = build_workspace_bundle(ws, inline_max_chars=20000)
+        self.assertIn("big.txt", body)
+        self.assertIn("仅预览", body)
+        self.assertNotIn("A" * 50000, body, "完整大文件不得进打包正文")
+        self.assertEqual(stats["previewed"], 1)
+
+    def test_inline_max_zero_inlines_all(self):
+        """inline 上限配 0 = 关闭预览截断（仍受逐文件硬上限约束）。"""
+        from gantry.workspace_bundle import build_workspace_bundle
+
+        ws = _mk_ws({"big.txt": "B" * 30000})
+        body, stats = build_workspace_bundle(ws, inline_max_chars=0)
+        self.assertIn("B" * 30000, body)
+        self.assertEqual(stats["previewed"], 0)
+
+    def test_sensitive_names_skipped(self):
+        """凭据类文件（.env/secrets/私钥/config.json）一律不打包外送。"""
+        from gantry.workspace_bundle import build_workspace_bundle
+
+        ws = _mk_ws({
+            "ok.txt": "fine",
+            "config.json": '{"api_key": "sk-SECRET"}',
+            ".env": "TOKEN=secret",
+            "secrets.txt": "hunter2",
+            "private_key.txt": "PRIVATE KEY",
+            "notes.md": "# notes",
+        })
+        body, stats = build_workspace_bundle(ws)
+        self.assertIn("ok.txt", body)
+        self.assertIn("notes.md", body)
+        self.assertNotIn("config.json", body)
+        self.assertNotIn(".env", body)
+        self.assertNotIn("secrets.txt", body)
+        self.assertNotIn("private_key", body)
+        self.assertNotIn("sk-SECRET", body)
+        # .env 被隐藏文件规则先拦下，敏感名单计数的是 config.json/secrets/private_key
+        self.assertGreaterEqual(stats["skipped_sensitive"], 3)
+
+    def test_gate_text_reports_skipped_sensitive(self):
+        from gantry.workspace_bundle import workspace_bundle_text
+
+        ws = _mk_ws({"ok.txt": "fine", "secrets.json": '{"token":"x-secret"}'})
+        text = workspace_bundle_text(ws, {})
+        self.assertIn("凭据类文件", text)
+        self.assertNotIn("x-secret", text)
+
 
 class BundleTextGatingTests(unittest.TestCase):
     def test_enabled_web_includes_header(self):

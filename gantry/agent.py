@@ -434,7 +434,8 @@ class AgentRunner(PromptMixin, ParseMixin, TextMixin):
             "pending": list(state.get("pending") or []),
             "important_findings": findings[-30:],
             "errors": errors[-20:],
-            "task_plan": state.get("task_summary") or {},
+            "task_plan": state.get("task_summary")
+                         if isinstance(state.get("task_summary"), dict) else {},
             "last_successful_step": max([x.get("step", 0) for x in history if x.get("status") == "ok"] or [0]),
             "workspace": str(self.tools.root),
         }
@@ -481,7 +482,8 @@ class AgentRunner(PromptMixin, ParseMixin, TextMixin):
         done = sum(1 for t in todos if str((t or {}).get("status")) == "completed")
         left = [str((t or {}).get("content") or "")[:60] for t in todos
                 if str((t or {}).get("status")) != "completed"][:5]
-        plan = state.get("task_summary") or {}
+        plan = state.get("task_summary")
+        plan = plan if isinstance(plan, dict) else {}   # 清理总结写的是文本，不是任务图
         ledger = {
             "已读过的文件": read[-12:],
             "已列过的目录": listed[-8:],
@@ -501,7 +503,8 @@ class AgentRunner(PromptMixin, ParseMixin, TextMixin):
             "original_goal": task,
             "long_term_summary": summary,
             "already_looked_at": self._work_ledger(state, recent),
-            "task_plan": state.get("task_summary") or {},
+            "task_plan": state.get("task_summary")
+                         if isinstance(state.get("task_summary"), dict) else {},
             "recent_steps": [self.compact_value(x, 2500) for x in recent[-self.keep_recent:]],
             "current_workspace": str(self.tools.root),
             "total_steps": state.get("total_steps", 0),
@@ -802,7 +805,7 @@ class AgentRunner(PromptMixin, ParseMixin, TextMixin):
                         getattr(self.tools, "root", None), self.config,
                         web_allowed=bool(self.tools.web_copilot_allowed()),
                         self_task=bool(getattr(self.tools, "allow_self_upgrade", False))
-                        and ("自升级" in (task or "")))
+                        and ("[自升级任务]" in (task or "") or "自升级" in (task or "")))
                 except Exception:               # noqa: BLE001
                     _bundle = ""
                 if _bundle:
@@ -1358,6 +1361,7 @@ class AgentRunner(PromptMixin, ParseMixin, TextMixin):
                                      last_error=guard["error"])
                     continue
                 event = None
+                events = None
                 # 幂等保护：换会话接力时摘要若没让模型明确感知"上一动作已完成"，
                 # 或回合重发，同一动作可能连续到达。对非幂等工具（append 会重复
                 # 追加、move/copy 会重复搬运），与上一成功动作完全相同时跳过执行。
@@ -1574,6 +1578,7 @@ class AgentRunner(PromptMixin, ParseMixin, TextMixin):
                         if tool in _action_tools:
                             self._action_done = True
                         event = result.get("file_event") if isinstance(result, dict) else None
+                        events = result.get("file_events") if isinstance(result, dict) else None
                     except Exception as exc:
                         # 报错要说"下一步怎么办"：审计发现 116 条工具报错里 102 条
                         # 只描述了"不合法/不允许"，模型只能靠猜重试（常见于换会话后）。
@@ -1643,6 +1648,10 @@ class AgentRunner(PromptMixin, ParseMixin, TextMixin):
                                            "error": batch_errors}
                 history.append(step); all_steps.append(step); self.step_saver(step)
                 if event: self.file_event_saver(event)
+                if events:
+                    for _ev in events:
+                        if isinstance(_ev, dict):
+                            self.file_event_saver(_ev)
                 # 回合成本（prompt+回答）只记一次：同一回合内的多个动作不重复计入，
                 # 否则批量执行会把 token 计数放大 N 倍、提前触发压缩/换会话。
                 add_t = 0 if usage_counted else used_tokens

@@ -697,15 +697,21 @@ async def run_agent(req: b.AgentRequest, attach_paths: list | None = None):
             b.ACTIVE_SESSION_ID = prev_active
 
 
-async def cleanup_copilot_conversation(sid: str, summarize: bool = True) -> dict[str, Any]:
+async def cleanup_copilot_conversation(sid: str, summarize: bool = True,
+                                       wait_timeout: float = 15.0) -> dict[str, Any]:
     """任务完成后清理该会话在 Copilot 侧栏里的对话（**保留本地记录**）。
 
     AUD-P4（用户需求）：Copilot 会话太多难以管理。流程：
-    1) 可选：在同一对话里追加一条"总结请求"（≤5 句），把结果存进会话的
-       task_summary 并作为一条助手消息落库——后续新会话接续时能理解来龙去脉；
+    1) 可选：**导航到本会话的对话**后追加一条"总结请求"（≤5 句），把结果存进
+       会话的 task_summary 并作为一条助手消息落库——后续新会话接续时能理解
+       来龙去脉（窗口是池化的，不导航会把总结发进别的会话；新开的总结对话
+       带归属标记并纳入删除清单，不留无名聊天）；
     2) 按会话记录的 conversation_urls 做对账式远端删除（与手动删除同一套
        标记/复核逻辑），失败条目如实返回；
-    3) 清掉会话的远端 URL 映射与清理建议标记——本地消息/步骤/快照原样保留。
+    3) 清掉**已确认删除**的远端 URL 映射——部分失败时失败条目的索引保留
+       （Copilot 会改写标题，本地 URL 是唯一可靠索引），绝不整体清空；
+    4) 运行中守卫在删除前、写回前各查一次：清理期间会话重新跑起来就中止，
+       不删活会话、不抹活会话刚写回的 URL。
     """
     from . import copilot_delete as cd
     from urllib.parse import urlparse
@@ -727,12 +733,36 @@ async def cleanup_copilot_conversation(sid: str, summarize: bool = True) -> dict
     summary_text = ""
     if summarize:
         try:
-            async with b._window(sid, wait_timeout=15) as (_win, _T):
+            async with b._window(sid, wait_timeout=wait_timeout) as (_win, _T):
+                # 必须导航到**本会话**的对话再总结：窗口是池化的，可能停在别的
+                # 会话/空白页（审核 2026-11-26：不导航会把总结发进别人的对话，
+                # 或在空白页开一个无名新聊，永远删不掉）。
+                url = st.get("current_url") or ""
+                make_new = not bool(url)
+                if url:
+                    try:
+                        if b.page and b.page.url != url:
+                            await b.page.goto(url, wait_until="domcontentloaded", timeout=120000)
+                            await asyncio.sleep(1)
+                            b._forget_selected_model()
+                    except Exception:
+                        make_new = True
                 prompt = ("【任务收尾总结】请用不超过 5 句话总结这次任务：目标是什么、"
                           "关键决策、最终产物、以及还遗留什么问题。只输出总结本身，"
                           "不要代码、不要列表。")
+                if make_new:
+                    # 新开对话首条带归属标记，并纳入删除清单（不留无名聊天）
+                    prompt = (_agent_chat_marker(sid, int(st.get("conversation_index", 0)))
+                              + "\n" + prompt)
                 summary_text = await agent_chat_once(
-                    prompt, str(st.get("model") or "copilot-auto"), False)
+                    prompt, str(st.get("model") or "copilot-auto"), make_new)
+                if make_new:
+                    try:
+                        chat_url = await stable_conversation_url(timeout=10)
+                        if chat_url and chat_url not in urls:
+                            urls.append(chat_url)
+                    except Exception:            # noqa: BLE001（页面不可用时只损失新聊的删除入口）
+                        pass
         except Exception as exc:                 # noqa: BLE001
             return {"ok": False, "deleted": False,
                     "error": f"总结失败，未删除 Copilot 会话（可稍后重试或关闭总结）: {exc}"}
@@ -741,15 +771,24 @@ async def cleanup_copilot_conversation(sid: str, summarize: bool = True) -> dict
             return {"ok": False, "deleted": False,
                     "error": "总结为空，未删除 Copilot 会话（可稍后重试或关闭总结）"}
         try:
-            b.AGENT_SESSIONS.patch(sid, task_summary=summary_text[:4000])
+            # task_summary 列的任务图（dict）与清理总结（文本）不能互相覆盖：
+            # 已有任务图时保留它（总结文本已作为助手消息落库）；_work_ledger
+            # 等消费方对文本有类型守卫（审核 2026-11-26）。
+            _cur_plan = st.get("task_summary")
+            if not isinstance(_cur_plan, dict) or not _cur_plan:
+                b.AGENT_SESSIONS.patch(sid, task_summary=summary_text[:4000])
             b.AGENT_SESSIONS.add_message(
                 sid, "assistant", "【任务总结】\n" + summary_text,
                 int(st.get("conversation_index", 0)))
         except Exception:                        # noqa: BLE001
             pass
 
+    # 运行中守卫**删除前再查一次**：总结 + 长删除期间可能有跟进任务接进窗口
+    if b.session_running(sid):
+        return {"ok": False, "deleted": False,
+                "error": "会话在清理期间重新开始运行，已中止删除（本地记录未动）"}
     try:
-        async with b._window(sid, wait_timeout=15):
+        async with b._window(sid, wait_timeout=wait_timeout):
             remote = []
             for index, url in enumerate(urls):
                 remote.append(await cd.delete_copilot_conversation(
@@ -761,28 +800,88 @@ async def cleanup_copilot_conversation(sid: str, summarize: bool = True) -> dict
     except Exception as exc:                     # noqa: BLE001
         return {"ok": False, "deleted": False, "error": f"远端删除失败: {exc}"}
 
+    failed = [x for x in remote if not x.get("deleted")]
+    # 写回前最后一道守卫：跟进任务可能刚把新 URL 写进记录，无条件清空会
+    # 抹掉活会话的映射（审核 2026-11-26）
+    fresh = b.AGENT_SESSIONS.get(sid) or st
+    if b.session_running(sid) or str(fresh.get("state")) in ("running",):
+        return {"ok": False, "deleted": len(remote) - len(failed),
+                "failed": len(failed), "remote_results": remote,
+                "summarized": bool(summary_text),
+                "error": "会话已重新开始运行，跳过本地映射更新（远端删除结果见 remote_results）"}
+    deleted_urls = [str(x.get("url")) for x in remote if x.get("deleted") and x.get("url")]
+    if failed:
+        # 部分失败：只移除已确认删除的 URL，失败条目索引必须保留——
+        # Copilot 会改写标题，本地 URL 是唯一可靠索引（实测侧栏标题命中 0/41）
+        remain = [u for u in urls if u not in deleted_urls]
+        cur = fresh.get("current_url")
+        if cur in deleted_urls:
+            cur = None
+        try:
+            b.AGENT_SESSIONS.patch(sid, conversation_urls=remain,
+                                   current_url=cur,
+                                   cleanup_suggested=1 if remain else 0)
+        except Exception:                        # noqa: BLE001
+            pass
+        return {"ok": False, "deleted": len(remote) - len(failed),
+                "failed": len(failed), "remote_results": remote,
+                "summarized": bool(summary_text),
+                "error": "部分 Copilot 会话删除失败（失败条目的索引已保留，可稍后重试）",
+                "note": "本地记录与步骤已保留"}
     try:
         b.AGENT_SESSIONS.patch(sid, conversation_urls=[], current_url=None,
                                cleanup_suggested=0)
     except Exception:                            # noqa: BLE001
         pass
-    failed = [x for x in remote if not x.get("deleted")]
-    return {"ok": not failed, "deleted": len(remote) - len(failed),
-            "failed": len(failed), "remote_results": remote,
-            "summarized": bool(summary_text),
-            "note": "本地记录与步骤已保留" if not failed else
-                    "部分 Copilot 会话删除失败，本地记录已保留"}
+    # 收尾恢复运行态：总结轮会把 phase 顶成 waiting、清空 answer_preview
+    b.runtime_update(sid, phase="completed",
+                     detail="Copilot 会话已清理（本地记录已保留）",
+                     answer_preview=summary_text or None)
+    return {"ok": True, "deleted": len(remote), "failed": 0,
+            "remote_results": remote, "summarized": bool(summary_text),
+            "note": "本地记录与步骤已保留"}
 
 
 async def _auto_copilot_cleanup(sid: str) -> None:
-    """copilot_cleanup=auto：任务完成后后台自动总结并删除（失败只记日志）。"""
+    """copilot_cleanup=auto：任务完成后**空闲宽限期后**再后台清理（失败只记日志）。
+
+    为什么不立刻清理：总结 + 逐条删除要独占唯一的 Copilot 窗口数十秒，
+    用户马上跟进新任务会撞 30s 窗口超时（审核 2026-11-26 实测）。宽限期
+    （agent.copilot_cleanup_grace_seconds，默认 60s）内有新任务/用户操作就
+    放弃；宽限后窗口仍被占用则不等待、直接转为 🧹 建议，绝不与任务抢窗口。
+    """
     try:
-        out = await cleanup_copilot_conversation(sid, summarize=True)
+        delay = 0.0
+        try:
+            delay = max(0.0, float(b.AGENT_CFG.get("copilot_cleanup_grace_seconds", 60) or 0))
+        except (TypeError, ValueError):
+            pass
+        if delay > 0:
+            await asyncio.sleep(delay)
+        if b.session_running(sid):
+            return
+        st = b.AGENT_SESSIONS.get(sid) or {}
+        if str(st.get("state")) not in ("completed",):
+            return
+        # 懒启动浏览器：没浏览器就转为 🧹 建议，绝不为了清理拉起浏览器
+        if b.current_page() is None:
+            try:
+                b.AGENT_SESSIONS.patch(sid, cleanup_suggested=1)
+            except Exception:
+                pass
+            return
+        out = await cleanup_copilot_conversation(sid, summarize=True, wait_timeout=0)
         if out.get("ok"):
             b.log(f"任务完成后已自动清理 Copilot 会话 {sid}：删除 {out.get('deleted')} 个")
             b.runtime_update(sid, detail="已完成并自动清理 Copilot 会话（本地记录已保留）")
         else:
-            b.log(f"自动清理 Copilot 会话 {sid} 失败：{out.get('error')}")
+            err = str(out.get("error") or "")
+            b.log(f"自动清理 Copilot 会话 {sid} 未完成：{err}")
+            if "浏览器窗口" in err:
+                try:
+                    b.AGENT_SESSIONS.patch(sid, cleanup_suggested=1)
+                except Exception:
+                    pass
     except Exception as exc:                     # noqa: BLE001
         b.log(f"自动清理 Copilot 会话 {sid} 异常：{exc}")
 

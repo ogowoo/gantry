@@ -76,7 +76,7 @@ function drawSessions(){
  all.forEach(s=>{const p=String(s.parent_id||'');if(p&&byId.has(p)){if(!kidsOf.has(p))kidsOf.set(p,[]);kidsOf.get(p).push(s)}});
  const isKid=s=>{const p=String(s.parent_id||'');return !!p&&byId.has(p)};
  let list=all.filter(s=>!isKid(s));
- let sig=q+'|'+all.map(s=>s.id+s.state+s.total_steps+s.estimated_tokens+(s.subagent_steps||0)+(s.subagent_tokens||0)+(s.subagent_count||0)+(s.subagent_running||0)+(s.conversation_index??'')+(s.title||'')+(s.attachment_count??'')+(s.tag||'')+(s.workspace||'')+(s.parent_id||'')).join('|')+'|'+window.current+'|'+[...expandedSess].join(',');
+ let sig=q+'|'+all.map(s=>s.id+s.state+s.total_steps+s.estimated_tokens+(s.subagent_steps||0)+(s.subagent_tokens||0)+(s.subagent_count||0)+(s.subagent_running||0)+(s.conversation_index??'')+(s.title||'')+(s.attachment_count??'')+(s.tag||'')+(s.workspace||'')+(s.parent_id||'')+(s.cleanup_suggested??'')+((s.conversation_urls||[]).length)+((s.current_url)||'')+(s.updated||0)).join('|')+'|'+window.current+'|'+[...expandedSess].join(',');
  if(sig===sessSig)return;
  sessSig=sig;
  box.innerHTML='';
@@ -147,11 +147,15 @@ function drawSessions(){
       {method:'POST',headers:{'Content-Type':'application/json'},
        body:JSON.stringify({summarize:true})});
     if(r.ok){toast(tr('已清理 Copilot 会话：{n} 个（本地记录已保留）',{n:r.deleted}),'ok')}
-    else{toast(tr('清理失败: ')+(r.error||''),'err')}
+    else{toast(tr('清理失败: ')+((r.error||r.detail)||''),'err')}
     await refreshSessions();
    }catch(err){clean.disabled=false;clean.textContent='🧹';
     toast(tr('清理失败: ')+((err&&(err.detail||err.message))||String(err)),'err')}
-  };
+   finally{
+    // HTTP 200 但 ok:false（总结失败/部分删除失败）时上面不会走 catch：
+    // 必须无条件恢复按钮，否则 🧹 一直停在 … 无法重试（审核 2026-11-26）
+    clean.disabled=false;clean.textContent='🧹';
+   }
   e.onclick=()=>load(s.id);
   // 键盘可达：会话切换是主入口，纯 div+onclick 对键盘用户等于不可用
   e.tabIndex=0;

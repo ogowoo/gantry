@@ -182,10 +182,12 @@ class CopilotFileTests(unittest.TestCase):
             asyncio.run(b._copilot_file("../outside.txt", "生成"))
 
 
-def _mk_zip(entries: dict[str, bytes]) -> Path:
+def _mk_zip(entries) -> Path:
+    """entries 可以是 {name: bytes} 或 [(name, bytes), ...]（列表允许同名条目）。"""
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
-        for name, data in entries.items():
+        items = entries.items() if isinstance(entries, dict) else entries
+        for name, data in items:
             zf.writestr(name, data)
     d = Path(tempfile.mkdtemp(prefix="cbp_zip_"))
     z = d / "pack.zip"
@@ -220,18 +222,20 @@ class CopilotZipTests(unittest.TestCase):
         _extract_copilot_zip(z, target, max_bytes=10_000_000)
         self.assertEqual(target.read_bytes(), b"DOCX")
 
-    def test_extras_placed_flat_without_collision(self):
+    def test_extras_go_to_dedicated_dir(self):
+        """多余文件统一进 <stem>_extras/，绝不落工作区根（防 sitecustomize 类导入）。"""
         from gantry.downloads import _extract_copilot_zip
 
         z = _mk_zip({"gen.docx": b"D", "data.csv": b"C"})
         ws = _mk_ws()
         target = ws / "gen.docx"
         out = _extract_copilot_zip(z, target, max_bytes=10_000_000)
-        self.assertEqual((ws / "data.csv").read_bytes(), b"C")
-        self.assertEqual(out["extras"], [str(ws / "data.csv")])
+        self.assertEqual((ws / "gen_extras" / "data.csv").read_bytes(), b"C")
+        self.assertFalse((ws / "data.csv").exists(), "extras 不得落工作区根")
+        self.assertEqual(out["extras"], [str(ws / "gen_extras" / "data.csv")])
 
     def test_extras_collision_preserves_existing(self):
-        """多余文件与工作区已有文件重名 → 移入 <stem>_extras/，旧文件不动。"""
+        """工作区根已有同名文件时也不受影响（extras 本来就在子目录里）。"""
         from gantry.downloads import _extract_copilot_zip
 
         ws = _mk_ws()
@@ -241,6 +245,42 @@ class CopilotZipTests(unittest.TestCase):
         _extract_copilot_zip(z, target, max_bytes=10_000_000)
         self.assertEqual((ws / "data.csv").read_bytes(), b"OLD", "不得覆盖工作区旧文件")
         self.assertEqual((ws / "gen_extras" / "data.csv").read_bytes(), b"C")
+
+    def test_duplicate_entries_renamed_uniquely(self):
+        """同名条目（含大小写不敏感）逐个重命名，互不覆盖、不丢失。"""
+        from gantry.downloads import _extract_copilot_zip
+
+        z = _mk_zip([("gen.docx", b"FIRST"), ("gen_2.docx", b"SECOND"),
+                     ("gen.docx", b"THIRD"), ("GEN.DOCX", b"FOURTH")])
+        ws = _mk_ws()
+        out = _extract_copilot_zip(z, ws / "gen.docx", max_bytes=10_000_000)
+        self.assertEqual((ws / "gen.docx").read_bytes(), b"FIRST")
+        self.assertEqual((ws / "gen_extras" / "gen_2.docx").read_bytes(), b"SECOND")
+        self.assertEqual((ws / "gen_extras" / "gen_3.docx").read_bytes(), b"THIRD")
+        self.assertEqual((ws / "gen_extras" / "gen_4.docx").read_bytes(), b"FOURTH")
+        self.assertEqual(len(out["extracted"]), 4)
+
+    def test_sensitive_names_skipped(self):
+        """凭据类条目一律不落盘，在 skipped_extras 里如实报告。"""
+        from gantry.downloads import _extract_copilot_zip
+
+        z = _mk_zip({"gen.docx": b"D", "config.json": b'{"api_key":"sk-x"}',
+                     ".env": b"TOKEN=1", "id_rsa": b"PRIV"})
+        ws = _mk_ws()
+        out = _extract_copilot_zip(z, ws / "gen.docx", max_bytes=10_000_000)
+        self.assertEqual((ws / "gen.docx").read_bytes(), b"D")
+        self.assertFalse((ws / "gen_extras").exists(), "凭据类条目不得落盘")
+        self.assertEqual(sorted(out["skipped_extras"]), [".env", "config.json", "id_rsa"])
+
+    def test_all_sensitive_zip_rejected(self):
+        from gantry.downloads import _extract_copilot_zip
+        from gantry.tools import ToolError
+
+        z = _mk_zip({"config.json": b"{}", ".env": b"A=1"})
+        ws = _mk_ws()
+        with self.assertRaises(ToolError) as cm:
+            _extract_copilot_zip(z, ws / "gen.docx", max_bytes=10_000_000)
+        self.assertIn("全部被安全规则跳过", str(cm.exception))
 
     def test_missing_target_multiple_files_errors(self):
         from gantry.downloads import _extract_copilot_zip
@@ -361,6 +401,93 @@ class CopilotFileZipTransportTests(unittest.TestCase):
         self.assertEqual(out["bytes"], 16)
         self.assertEqual(out["source"], "copilot-download-zip")
         self.assertEqual(out["extracted"], ["gen.py"])
+
+    def _zip_payload(self, content: bytes) -> str:
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+            zf.writestr("gen.py", content)
+        return base64.b64encode(buf.getvalue()).decode()
+
+    async def _scenario(self, browser, html, fname="gen.py"):
+        from gantry import bridge as b
+
+        page = await browser.new_page()
+        tmp = Path(tempfile.mkdtemp(prefix="cbp_cfile_"))
+        f = tmp / "answer.html"
+        f.write_text(html, encoding="utf-8")
+        await page.goto(f.as_uri())
+        ws = _mk_ws()
+        saved = (b.page, b.ctx, b.AGENT_TOOLS.root, b.agent_chat_once,
+                 b.AGENT_CFG.get("allow_copilot_file"))
+        b.page = page
+        b.ctx = None
+        b.AGENT_TOOLS.root = ws
+        b.AGENT_CFG["allow_copilot_file"] = True
+
+        async def fake_chat(prompt, model, new, timeout=None):
+            return "ok"
+
+        b.agent_chat_once = fake_chat
+        try:
+            out = await b._copilot_file(fname, "生成 hello 脚本")
+            return out, ws
+        finally:
+            b.page, b.ctx, b.AGENT_TOOLS.root, b.agent_chat_once = saved[:4]
+            if saved[4] is None:
+                b.AGENT_CFG.pop("allow_copilot_file", None)
+            else:
+                b.AGENT_CFG["allow_copilot_file"] = saved[4]
+
+    def test_zip_candidate_preferred_over_direct(self):
+        """页面同时有真文件直链与 zip 时，必须选 zip 解压，而不是直存真文件。"""
+        html = ("""<!doctype html><html><body><div data-content="ai-message">
+<a id="direct" download="gen.py"
+   href="data:text/plain;base64,{direct}">gen.py</a>
+<a id="zip" download="gen.zip"
+   href="data:application/zip;base64,{zip64}">gen.zip</a>
+</div></body></html>""".format(
+            direct=base64.b64encode(b"print('direct')\n").decode(),
+            zip64=self._zip_payload(b"print('from zip')\n")))
+
+        async def coro(browser):
+            return await self._scenario(browser, html)
+
+        out, ws = self._run(coro)
+        self.assertEqual(out["source"], "copilot-download-zip")
+        self.assertEqual((ws / "gen.py").read_bytes(), b"print('from zip')\n")
+
+    def test_bad_zip_candidate_falls_to_next(self):
+        """第一个 zip 名候选内容不是 zip（预览劫持形态）→ 换下一个候选成功。"""
+        html = ("""<!doctype html><html><body><div data-content="ai-message">
+<a id="junk" download="gen.zip"
+   href="data:text/plain;base64,{junk}">gen.zip</a>
+<a id="real" download="gen_real.zip"
+   href="data:application/zip;base64,{zip64}">gen_real.zip</a>
+</div></body></html>""".format(
+            junk=base64.b64encode(b"not a zip").decode(),
+            zip64=self._zip_payload(b"print('real zip')\n")))
+
+        async def coro(browser):
+            return await self._scenario(browser, html)
+
+        out, ws = self._run(coro)
+        self.assertEqual(out["source"], "copilot-download-zip")
+        self.assertEqual((ws / "gen.py").read_bytes(), b"print('real zip')\n")
+
+    def test_direct_fallback_when_no_zip(self):
+        """Copilot 无视打包要求、只给了目标直链 → 退化直存成功（旧行为不丢）。"""
+        html = ("""<!doctype html><html><body><div data-content="ai-message">
+<a id="direct" download="gen.py"
+   href="data:text/plain;base64,{direct}">gen.py</a>
+</div></body></html>""".format(
+            direct=base64.b64encode(b"print('direct')\n").decode()))
+
+        async def coro(browser):
+            return await self._scenario(browser, html)
+
+        out, ws = self._run(coro)
+        self.assertEqual(out["source"], "copilot-download-direct")
+        self.assertEqual((ws / "gen.py").read_bytes(), b"print('direct')\n")
 
 
 if __name__ == "__main__":

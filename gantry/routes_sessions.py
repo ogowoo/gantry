@@ -1043,6 +1043,9 @@ async def copilot_cleanup(sid: str, payload: dict | None = None):
     """
     from . import agentrun
     summarize = bool((payload or {}).get("summarize", True))
+    # 懒启动浏览器：没有浏览器就拒绝，绝不为了清理把浏览器拉起来
+    if b.current_page() is None:
+        raise HTTPException(409, "自动化浏览器未启动，无法清理 Copilot 会话")
     return await agentrun.cleanup_copilot_conversation(sid, summarize=summarize)
 
 
@@ -1160,18 +1163,49 @@ async def cleanup_marked_copilot(payload: dict):
             # URL 导航删除（标记复核在正文验证兜底），不限标题是否被改写。
             t0 = time.time()
             out = []
+            skipped = []
             for sess in b.AGENT_SESSIONS.list(include_archived=True, light=True):
-                urls = list(dict.fromkeys(sess.get("conversation_urls") or []))
+                sid = sess["id"]
+                # 运行中守卫（审核 2026-11-26）：批量删除会删掉活任务的对话，
+                # 窗口 >1 时与任务并行执行——运行中的会话一律跳过。
+                if b.session_running(sid):
+                    skipped.append({"sid": sid, "error": "会话正在运行，跳过"})
+                    continue
+                # 白名单过滤（审核 2026-11-26）：URL 经导入接口可伪造，删除会
+                # 带 SSO 登录态 goto——非 Copilot 域名一律不导航。
+                raw = list(dict.fromkeys(sess.get("conversation_urls") or []))
                 cur = sess.get("current_url")
-                if cur and cur not in urls:
-                    urls.append(cur)
+                if cur and cur not in raw:
+                    raw.append(cur)
+                urls = _copilot_delete_urls(raw)
+                if len(urls) != len(raw):
+                    skipped.append({"sid": sid,
+                                    "error": "部分 URL 不在 Copilot 白名单内，已跳过",
+                                    "urls": [u for u in raw if u not in urls]})
+                ok_urls = []
                 for index, u in enumerate(urls):
-                    marker = b._agent_chat_marker(sess["id"], index)
+                    marker = b._agent_chat_marker(sid, index)
                     rec = await a.cd.delete_copilot_conversation(u, marker)
-                    rec["sid"] = sess["id"]
+                    rec["sid"] = sid
                     out.append(rec)
+                    if rec.get("deleted"):
+                        ok_urls.append(u)
+                # 本地索引同步（审核 2026-11-26）：已确认删除的 URL 移出记录，
+                # 否则盘点永远报同一批死链接、跟进任务还会导航到已删会话；
+                # 全部删光才清 current_url 与建议标记，部分失败保留索引可重试。
+                if ok_urls:
+                    remain = [u for u in (sess.get("conversation_urls") or [])
+                              if u not in ok_urls]
+                    new_cur = None if (cur and cur in ok_urls) else cur
+                    try:
+                        b.AGENT_SESSIONS.patch(
+                            sid, conversation_urls=remain, current_url=new_cur,
+                            cleanup_suggested=0 if (not remain and not new_cur) else 1)
+                    except Exception:            # noqa: BLE001
+                        pass
             ok = sum(1 for r in out if r.get("deleted"))
             return {"deleted_rows": out, "deleted": ok, "failed": len(out) - ok,
+                    "skipped": skipped,
                     "total_seconds": round(time.time() - t0, 1)}
         delete_matching = bool(payload.get("delete_matching"))
         if delete_matching:

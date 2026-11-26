@@ -4,7 +4,7 @@ import { SETTINGS_GROUPS, SANDBOX_UI, ENUM_LABEL, openMemory } from './themeboot
 import { toggleLiveView } from './liveview.js';
 import { CODE_EXT } from './codeux.js';
 import { stepFilterInput } from './steps.js';
-import { exportSessions, importSessions, deleteSessionsBulk } from './sessions.js';
+import { exportSessions, importSessions, deleteSessionsBulk, copilotScan } from './sessions.js';
 import { readAnimPrefs, applyAnimPrefs, setAnimPref, animPrefLabel, ANIM_RANGES } from './animprefs.js';
 import { openKb, closeKb, kbPick, kbRefresh, kbReindex, kbImportUrl, kbImportText, kbInbox, kbSearch, kbDelete, fmtErr, wireKbSettings, kbLoadSettings, kbSaveSettings } from './kb.js';
 import { openModels, closeModels, renderModels, modelDelete, modelCopyPath, modelDownload, modelPreset, modelStart, modelStop, modelUse, modelOrganize, modelStopAll } from './models.js';
@@ -887,6 +887,7 @@ const ACTIONS={
  activate:()=>activate(),
  openCopilot:()=>openCopilot(),
  toggleMore:(el,e)=>toggleMore(el, e),
+ copilotScan:()=>copilotScan(),
  toggleToolLog:()=>toggleToolLog(),
  openSettings:()=>openSettings(),
  swapModelResume:(el)=>swapModelResume(el&&el.dataset&&el.dataset.arg),

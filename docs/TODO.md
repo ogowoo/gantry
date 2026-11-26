@@ -191,6 +191,20 @@
   workspace_bundle_max_per_file。
 - 验收：test_workspace_bundle 16 用例全绿（打包/截断/门控/首轮接入点）。
 
+### [x] AUD-P6-01 发布前审核整改（2026-11-26，code-review 15 项全修）
+
+- 问题：3f792e1..HEAD（cleanup 三连 + zip + bundle）发布前审核发现 15 项
+  （12 important / 3 nit），其中 2 项在 HEAD 直接红（invariants 的 copilotScan
+  无实现；spill 测试被打包注入的大文件破坏）。
+- 修复：zip 候选排序/魔数校验/逐候选回退/直链退化、同名条目重命名、凭据类
+  文件名拒单（新模块 gantry/sensitive_names.py 共享）、extras 专用子目录 +
+  快照 + file_events；bundle 大文件预览截断 + 凭据拒单；清理会话的串台导航、
+  运行中守卫、部分失败索引保留、批量删除本地同步与运行中跳过、URL 白名单
+  双层防御、auto 清理宽限期；task_summary 类型守卫；🧹 按钮恢复；copilotScan
+  接入 ACTIONS。
+- 验收：新增/更新测试全绿——copilot_file 20、workspace_bundle 19、spill 5、
+  copilot_cleanup 7、cleanup_marked 5、invariants 4，另加 107+52 回归。
+
 ## P1
 
 ### [x] P1-RES-01 修复 SQLite ResourceWarning

@@ -453,6 +453,18 @@ async def delete_copilot_conversation(url: str, expected_title: str) -> dict:
     result = {"url": url, "expected_title": expected_title, "deleted": False,
               "error": None, "method": "url-plus-session-marker"}
     try:
+        # 导航前白名单校验（纵深防御，审核 2026-11-26）：删除流程会带企业
+        # SSO 登录态的浏览器 goto 这个 URL，非 Copilot 域名一律拒绝导航。
+        # 调用方（routes/agentrun）已各自过滤，这里兜底拦截伪造/漏网的 URL。
+        from urllib.parse import urlparse as _up
+        _host = (_up(url or "").hostname or "").lower()
+        _known = getattr(_b, "COPILOT_KNOWN_HOSTS", None)
+        if _known and _host not in _known:
+            result["error"] = "跳过：URL 不在 Copilot 域名白名单内（拒绝导航）"
+            return result
+    except Exception:
+        pass
+    try:
         await _ensure_page_for_delete()
         page = _b.page
         marker_match = re.match(r"^(\[(?:GANTRY|CBP)-AGENT\])\[([^\]]+)\]\[C\d+\]$", expected_title)
