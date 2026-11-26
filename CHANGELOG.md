@@ -16,6 +16,11 @@
   再对账式删除侧栏会话并清掉 URL 映射——本地记录与步骤全部保留；
   ask 模式在会话行放 🧹 按钮，另有
   `POST /v1/agent/sessions/{sid}/copilot-cleanup` 手动触发
+- 工作区打包注入（`workspace_bundle`）：新任务首轮把工作区文本文件打包成一个 txt
+  注入用户消息（仅 Copilot 网页通道、自升级任务跳过；不进系统提示词保
+  prompt cache），省掉模型逐个 read_text 的回合；文本白名单复用 fileview.TEXT_EXT，
+  噪声目录/隐藏文件/二进制跳过，文件数/总字符/逐文件上限可配
+  （workspace_bundle_max_chars / max_files / max_per_file），截断显式告知模型
 
 
 ### Changed

@@ -178,6 +178,19 @@
   近底部自动上翻。
 - 验收：test_copilot_cleanup 3 用例 + session 系列 + i18n/ESM 全绿。
 
+### [x] AUD-P5-01 工作区打包注入——新任务首轮打包 txt 给 Copilot（用户需求）
+
+- 问题：新会话时 Copilot 看不到工作区文件，逐个 read_text 消耗大量回合（会话）。
+- 文件：gantry/workspace_bundle.py、gantry/agent.py、config.example.json、
+  tests/test_workspace_bundle.py。
+- 实施：新任务首轮把工作区文本文件打包成一个 txt 注入用户消息（仅 Copilot 网页
+  通道、自升级任务跳过；不进系统提示词保 prompt cache）；文本类白名单复用
+  fileview.TEXT_EXT，噪声目录/隐藏文件/二进制跳过；文件数/总字符/逐文件上限
+  可配且默认保守，截断显式告知模型。配置：workspace_bundle /
+  workspace_bundle_max_chars / workspace_bundle_max_files /
+  workspace_bundle_max_per_file。
+- 验收：test_workspace_bundle 16 用例全绿（打包/截断/门控/首轮接入点）。
+
 ## P1
 
 ### [x] P1-RES-01 修复 SQLite ResourceWarning

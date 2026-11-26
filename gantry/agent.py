@@ -16,6 +16,7 @@ from .error_taxonomy import classify_exception
 from .security import classify_tool_risk
 from .spans import set_recorder, span
 from .tools import MUTATING_TOOLS, ToolError, ToolRegistry
+from .workspace_bundle import workspace_bundle_text
 
 ChatFunction = Callable[[str, str, bool], Awaitable[str]]
 
@@ -793,6 +794,19 @@ class AgentRunner(PromptMixin, ParseMixin, TextMixin):
                                "才带着具体报错定向问 Copilot（只改出错那一处，不要整篇重生成）。\n"
                                "目标：一次任务 1~3 个 Copilot 回合交付。只有需要精确修改**已有**文件、"
                                "或内容很短需要逐块校验时，才用 write_text_b64/append_text_b64/replace_text。")
+                # AUD-P5：新任务首轮把工作区文本文件打包注入（仅 Copilot 网页通道）——
+                # 一次给全工作区概览，省掉模型逐个 read_text 的回合（省会话）。
+                # 与首轮提示一样只进用户消息，不进系统提示词（prompt cache 依赖逐字稳定）。
+                try:
+                    _bundle = workspace_bundle_text(
+                        getattr(self.tools, "root", None), self.config,
+                        web_allowed=bool(self.tools.web_copilot_allowed()),
+                        self_task=bool(getattr(self.tools, "allow_self_upgrade", False))
+                        and ("自升级" in (task or "")))
+                except Exception:               # noqa: BLE001
+                    _bundle = ""
+                if _bundle:
+                    prompt += "\n\n" + _bundle
                 force_new = not chat_active
             else:
                 pending_now = [str(x) for x in (state.get("pending") or []) if str(x).strip()]
