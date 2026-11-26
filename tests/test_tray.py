@@ -680,5 +680,59 @@ class ShutdownActionTests(unittest.TestCase):
         self.assertIn("HTTPError", src, "重启动作要单独处理 HTTP 拒绝")
 
 
+class HttpDeniedReportingTests(unittest.TestCase):
+    """401/403 必须报"未授权/凭据"，不能伪装成"服务未响应"。
+
+    用户实测：更新按钮 401 后提示"服务未响应：HTTP Error 401"——服务明明活着，
+    问题在 api_token，文案却把人往"服务挂了"方向带。
+    """
+
+    def _tray(self):
+        from gantry import tray as tray_mod
+
+        return tray_mod.Tray(port=9, root=ROOT)
+
+    @staticmethod
+    def _err_401(url):
+        import urllib.error
+
+        return urllib.error.HTTPError(url, 401, "Unauthorized", {}, None)
+
+    def test_start_browser_401_reports_denied(self):
+        from unittest import mock
+
+        t = self._tray()
+        with mock.patch.object(t, "_http",
+                               side_effect=self._err_401("http://127.0.0.1:9/v1/agent/browser")), \
+                mock.patch.object(t, "balloon") as bal:
+            t._a_start_browser()
+        text = bal.call_args[0][1]
+        self.assertIn("401", text, "要报出状态码")
+        self.assertNotIn("未响应", text, "401 不是服务未响应")
+
+    def test_check_update_401_reports_denied(self):
+        from unittest import mock
+
+        t = self._tray()
+        with mock.patch.object(t, "_http",
+                               side_effect=self._err_401("http://127.0.0.1:9/v1/update/check")), \
+                mock.patch.object(t, "balloon") as bal:
+            t._a_check_update()
+        text = bal.call_args[0][1]
+        self.assertIn("401", text)
+        self.assertNotIn("未响应", text, "更新按钮的 401 必须说成凭据问题")
+
+    def test_connection_error_still_says_no_service(self):
+        """连接类错误（服务真没起）仍走"服务未响应"，别矫枉过正。"""
+        from unittest import mock
+
+        t = self._tray()
+        with mock.patch.object(t, "_http", side_effect=OSError("conn refused")), \
+                mock.patch.object(t, "balloon") as bal:
+            t._a_start_browser()
+        text = bal.call_args[0][1]
+        self.assertIn("未响应", text)
+
+
 if __name__ == "__main__":
     unittest.main()

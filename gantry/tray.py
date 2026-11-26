@@ -244,6 +244,7 @@ TEXT = {
         "shutdown_rejected": "停机请求被拒绝（HTTP {code}），服务仍在运行",
         "shutdown_failed": "停机请求失败：{err}（服务仍在运行）",
         "failed": "操作失败",
+        "http_denied": "未授权（HTTP {code}）：api_token 不对或缺失，检查 config.json / data/api_token",
         "no_service": "服务未响应：{err}",
         "language": "语言",
         "check_update": "检查更新",
@@ -285,6 +286,7 @@ TEXT = {
         "shutdown_rejected": "停止請求被拒絕（HTTP {code}），服務仍在執行",
         "shutdown_failed": "停止請求失敗：{err}（服務仍在執行）",
         "failed": "操作失敗",
+        "http_denied": "未授權（HTTP {code}）：api_token 不對或缺失，檢查 config.json / data/api_token",
         "no_service": "服務無回應：{err}",
         "language": "語言",
         "check_update": "檢查更新",
@@ -326,6 +328,7 @@ TEXT = {
         "shutdown_rejected": "Shutdown request rejected (HTTP {code}); service still running",
         "shutdown_failed": "Shutdown request failed: {err} (service still running)",
         "failed": "Action failed",
+        "http_denied": "Unauthorized (HTTP {code}): api_token missing or wrong — check config.json / data/api_token",
         "no_service": "Service not responding: {err}",
         "language": "Language",
         "check_update": "Check for updates",
@@ -799,6 +802,21 @@ class Tray:
             log.warning("托盘动作 %s 失败：%s", action, exc)
             self.balloon("操作失败", f"{action}: {exc}"[:200], error=True)
 
+    def _balloon_action_failed(self, exc: Exception) -> None:
+        """动作失败的统一气泡：HTTP 拒绝（401/403/5xx）与"服务未响应"必须分开。
+
+        401 时服务明明活着、问题在凭据——说成"服务未响应"会把用户带偏
+        （实测：更新按钮 401 后提示"服务未响应：HTTP Error 401"，无从下手）。
+        """
+        if isinstance(exc, urllib.error.HTTPError):
+            self.balloon(self.text["failed"],
+                         self.text["http_denied"].format(code=exc.code),
+                         error=True)
+        else:
+            self.balloon(self.text["failed"],
+                         self.text["no_service"].format(err=str(exc)[:160]),
+                         error=True)
+
     # 每个动作一个方法，便于 _a_<action> 反射
     def _a_open_webui(self) -> None:
         url = self.base_url() + "/ui/"
@@ -811,7 +829,7 @@ class Tray:
         try:
             r = self._http("/v1/agent/browser", {}, timeout=30)
         except Exception as exc:                        # noqa: BLE001
-            self.balloon(self.text["failed"], self.text["no_service"].format(err=str(exc)[:160]), error=True)
+            self._balloon_action_failed(exc)
             return
         if r.get("started"):
             self.balloon(self.title, self.text["starting_browser"])
@@ -823,7 +841,7 @@ class Tray:
         try:
             cur = self._http("/v1/agent/browser")
         except Exception as exc:                        # noqa: BLE001
-            self.balloon(self.text["failed"], self.text["no_service"].format(err=str(exc)[:160]), error=True)
+            self._balloon_action_failed(exc)
             return
         target = not bool(cur.get("headless"))
         try:
@@ -902,7 +920,7 @@ class Tray:
         try:
             d = self._http("/v1/update/check", timeout=15)
         except Exception as exc:                        # noqa: BLE001
-            self.balloon(self.text["failed"], self.text["no_service"].format(err=str(exc)[:160]), error=True)
+            self._balloon_action_failed(exc)
             return
         if not d.get("update_available"):
             self.balloon(self.title, self.text["update_ok"])
