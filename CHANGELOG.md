@@ -6,6 +6,17 @@
 ## [Unreleased]
 
 ### Added
+- 
+
+### Changed
+- 
+
+### Fixed
+- 
+
+## [0.12.0-beta.42] - 2026-11-26
+
+### Added
 - Copilot 会话统一盘点与批量删除（侧栏 🧹 按钮 → POST /v1/agent/copilot/cleanup-marked）：
   盘点以本地记录的 URL 为可靠索引（Copilot 会改写标题，侧栏标记不可靠，实测
   标题命中 0/41）；`all=true` 统一删除全部索引会话，逐条标记复核 + 对账，
@@ -21,7 +32,6 @@
   prompt cache），省掉模型逐个 read_text 的回合；文本白名单复用 fileview.TEXT_EXT，
   噪声目录/隐藏文件/二进制跳过，文件数/总字符/逐文件上限可配
   （workspace_bundle_max_chars / max_files / max_per_file），截断显式告知模型
-
 
 ### Changed
 - 
