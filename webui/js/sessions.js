@@ -156,6 +156,7 @@ function drawSessions(){
     // 必须无条件恢复按钮，否则 🧹 一直停在 … 无法重试（审核 2026-11-26）
     clean.disabled=false;clean.textContent='🧹';
    }
+  };
   e.onclick=()=>load(s.id);
   // 键盘可达：会话切换是主入口，纯 div+onclick 对键盘用户等于不可用
   e.tabIndex=0;

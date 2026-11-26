@@ -101,6 +101,37 @@ class RouteTests(unittest.TestCase):
         self.assertIn("raise HTTPException(404", ROUTES)
 
 
+class ESMStrictParseTests(unittest.TestCase):
+    """每个模块文件必须能按 ES 模块严格解析（node --check 的 .mjs 通道）。
+
+    背景（2026-11-27 实弹，beta.42 线上事故）：sessions.js 的 🧹 onclick 块
+    少了一个收尾 `};`，export 语句被嵌进函数体——`node --check x.js` 与静态
+    检查全部放行，浏览器按模块解析直接 SyntaxError（Unexpected token 'export'），
+    整个 main.js 模块图不执行：会话列表空白、设置打不开、版本号消失。
+    .mjs 后缀强制 ESM 解析，嵌套 export 立即报错——把这道门钉进回归。
+    """
+
+    def test_all_modules_parse_as_esm(self):
+        import shutil
+        import subprocess
+        import tempfile
+
+        node = shutil.which("node")
+        if not node:
+            self.skipTest("未安装 node")
+        tmp = Path(tempfile.mkdtemp(prefix="cbp_esm_"))
+        try:
+            for f in sorted((ROOT / "webui" / "js").glob("*.js")):
+                dest = tmp / (f.stem + ".mjs")
+                shutil.copyfile(f, dest)
+                r = subprocess.run([node, "--check", str(dest)],
+                                   capture_output=True, text=True, timeout=60)
+                self.assertEqual(r.returncode, 0,
+                                 f"{f.name} 无法按 ES 模块解析：\n{r.stderr[-500:]}")
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+
 class NoBareSharedStateTests(unittest.TestCase):
     def test_cross_module_sharing_is_clean(self):
         """跨模块裸名共享必须合规（状态在 globals.js，函数 export + window 绑定）。"""

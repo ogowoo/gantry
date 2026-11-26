@@ -66,7 +66,16 @@ jobs:
         shell: pwsh
         run: |
           node --version
-          Get-ChildItem webui\js\*.js | ForEach-Object { node --check $_.FullName }
+          # 每个模块文件再按 .mjs 严格解析一次：node --check x.js 对"export 被嵌进
+          # 函数体"这类模块级语法错误会放行（2026-11-27 beta.42 线上事故），
+          # .mjs 后缀强制 ES 模块解析，嵌套 export 立即报错。
+          Get-ChildItem webui\js\*.js | ForEach-Object {
+            node --check $_.FullName
+            $tmp = Join-Path $env:TEMP ("gantry-esm-" + $_.BaseName + ".mjs")
+            Copy-Item -LiteralPath $_.FullName -Destination $tmp -Force
+            node --check $tmp
+            Remove-Item -LiteralPath $tmp -Force
+          }
           node --check webui\boot.js
           node --check webui\i18n.js
           if ($LASTEXITCODE -ne 0) { throw "JS syntax check failed" }
