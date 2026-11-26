@@ -681,6 +681,25 @@ class ToolsCoreMixin:
         except Exception:
             return self.requires_approval(name)
 
+    def sandbox_denial(self, name: str) -> str:
+        """计划模式/只读档位对变更类工具的拒绝文案；不被拒时返回 ""。
+
+        审批门（agent.py）在执行前调用它：**沙箱先于审批**。没有权限的动作
+        应该直接把结构化拒绝反馈给模型，而不是先弹审批让用户授权、授权完再被
+        沙箱拒绝（"我点了允许，怎么还是失败"的体验矛盾）。
+        """
+        if name not in MUTATING_TOOLS:
+            return ""
+        if self.plan_mode:
+            return self._sandbox_denied(
+                "SANDBOX_PLAN_MODE", name,
+                "当前处于计划模式（只读）；先给出方案并调用 exit_plan_mode 结束计划阶段")
+        if self.sandbox_mode == "read-only":
+            return self._sandbox_denied(
+                "SANDBOX_READ_ONLY", name,
+                "当前沙箱档位是 read-only；改用只读工具，或让用户切换档位")
+        return ""
+
     def _sandbox_denied(self, code: str, target: str, reason: str) -> str:
         """结构化沙箱拒绝（借 DSH 的 FS_SANDBOX_DENIED 思路）。
 
@@ -871,15 +890,9 @@ class ToolsCoreMixin:
             raise ToolError(self._unknown_tool_hint(name))
         # 计划模式 / 只读档位：变更类动作在**执行前**就拒绝（结构化错误，模型可据此
         # 改走只读路径，而不是写完才发现不该写）
-        if name in MUTATING_TOOLS:
-            if self.plan_mode:
-                raise ToolError(self._sandbox_denied(
-                    "SANDBOX_PLAN_MODE", name,
-                    "当前处于计划模式（只读）；先给出方案并调用 exit_plan_mode 结束计划阶段"))
-            if self.sandbox_mode == "read-only":
-                raise ToolError(self._sandbox_denied(
-                    "SANDBOX_READ_ONLY", name,
-                    "当前沙箱档位是 read-only；改用只读工具，或让用户切换档位"))
+        denied = self.sandbox_denial(name)
+        if denied:
+            raise ToolError(denied)
         if self._com_unknown and name in NON_IDEMPOTENT_TOOLS:
             raise ToolError(self.unknown_outcome_error(name))
         try:

@@ -15,7 +15,7 @@ from .agent_text import TextMixin
 from .error_taxonomy import classify_exception
 from .security import classify_tool_risk
 from .spans import set_recorder, span
-from .tools import MUTATING_TOOLS, ToolRegistry
+from .tools import MUTATING_TOOLS, ToolError, ToolRegistry
 
 ChatFunction = Callable[[str, str, bool], Awaitable[str]]
 
@@ -1462,6 +1462,11 @@ class AgentRunner(PromptMixin, ParseMixin, TextMixin):
                                              recent_steps=history[-self.keep_recent:],
                                              last_error=_hint)
                             continue
+                        # ── 沙箱先于审批：没有权限的动作直接把结构化拒绝反馈给模型，
+                        # 别先弹审批让用户授权、授权完再被沙箱拒绝（体验矛盾）。
+                        _sandbox_msg = self.tools.sandbox_denial(str(tool))
+                        if _sandbox_msg:
+                            raise ToolError(_sandbox_msg)
                         # ── 一次性审批门（fail-closed）：破坏性工具必须有本步专属的授权，授权用后即焚；
                         # 没有回调就视为不放行（绝不自动批准）——对应 DSH 的 allowed-once 语义。
                         if self.tools.requires_approval_for(str(tool), arguments):

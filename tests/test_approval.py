@@ -131,5 +131,92 @@ class ApprovalGateTests(unittest.TestCase):
         self.assertFalse(t2.requires_approval("delete_path"), "policy=never 时明确不要求")
 
 
+class SandboxBeforeApprovalTests(unittest.TestCase):
+    """沙箱先于审批：没有权限的动作直接给模型结构化拒绝，不先弹审批。
+
+    用户实测的体验矛盾：read-only 下点 delete_path，先弹审批让用户授权，
+    授权通过后才被沙箱拒绝——"我点了允许，怎么还是失败"。
+    """
+
+    def setUp(self):
+        self.ws = Path(tempfile.mkdtemp(prefix="cbp_appr_sbx_"))
+        (self.ws / "victim.txt").write_text("x", encoding="utf-8")
+        self.state, self.steps = {}, []
+
+    def tearDown(self):
+        shutil.rmtree(self.ws, ignore_errors=True)
+
+    def test_read_only_denies_before_asking_approval(self):
+        tools = ToolRegistry(self.ws, {"allow_delete": True, "sandbox_mode": "read-only"})
+        calls, approval_seen = [], []
+
+        async def chat(prompt, model, make_new):
+            calls.append(prompt)
+            if len(calls) == 1:
+                return json.dumps({"type": "tool", "tool": "delete_path",
+                                   "arguments": {"path": "victim.txt"}, "reason": "删"})
+            return json.dumps({"type": "final", "content": "完"})
+
+        runner = AgentRunner(tools, chat, {"max_total_steps": 4},
+                             state_getter=lambda: dict(self.state),
+                             state_saver=lambda **kw: self.state.update(kw),
+                             step_saver=lambda s: self.steps.append(s),
+                             file_event_saver=lambda e: None,
+                             approval_check=lambda tool, h: approval_seen.append(tool) or True)
+        asyncio.run(runner.run("删掉 victim.txt", "m"))
+        self.assertTrue((self.ws / "victim.txt").exists(), "read-only 下绝不能执行删除")
+        statuses = [s.get("status") for s in self.steps]
+        self.assertNotIn("approval_required", statuses,
+                         "没权限的动作不该先弹审批")
+        self.assertEqual(approval_seen, [], "审批回调不应被调用")
+        errors = [s.get("error") or "" for s in self.steps if s.get("status") == "error"]
+        self.assertTrue(any("SANDBOX_READ_ONLY" in e for e in errors),
+                        f"要给出结构化沙箱拒绝，实际：{errors}")
+
+    def test_plan_mode_denies_before_asking_approval(self):
+        tools = ToolRegistry(self.ws, {"allow_delete": True, "plan_mode": True})
+        calls, approval_seen = [], []
+
+        async def chat(prompt, model, make_new):
+            calls.append(prompt)
+            if len(calls) == 1:
+                return json.dumps({"type": "tool", "tool": "delete_path",
+                                   "arguments": {"path": "victim.txt"}, "reason": "删"})
+            return json.dumps({"type": "final", "content": "完"})
+
+        runner = AgentRunner(tools, chat, {"max_total_steps": 4},
+                             state_getter=lambda: dict(self.state),
+                             state_saver=lambda **kw: self.state.update(kw),
+                             step_saver=lambda s: self.steps.append(s),
+                             file_event_saver=lambda e: None,
+                             approval_check=lambda tool, h: approval_seen.append(tool) or True)
+        asyncio.run(runner.run("删掉 victim.txt", "m"))
+        errors = [s.get("error") or "" for s in self.steps if s.get("status") == "error"]
+        self.assertTrue(any("SANDBOX_PLAN_MODE" in e for e in errors), errors)
+        self.assertEqual(approval_seen, [], "计划模式下不该先问审批")
+
+    def test_workspace_write_still_goes_through_approval(self):
+        """默认档位（workspace-write）下审批门照旧生效，别把顺序修复矫枉过正。"""
+        tools = ToolRegistry(self.ws, {"allow_delete": True})
+        calls, approval_seen = [], []
+
+        async def chat(prompt, model, make_new):
+            calls.append(prompt)
+            if len(calls) == 1:
+                return json.dumps({"type": "tool", "tool": "delete_path",
+                                   "arguments": {"path": "victim.txt"}, "reason": "删"})
+            return json.dumps({"type": "final", "content": "完"})
+
+        runner = AgentRunner(tools, chat, {"max_total_steps": 4},
+                             state_getter=lambda: dict(self.state),
+                             state_saver=lambda **kw: self.state.update(kw),
+                             step_saver=lambda s: self.steps.append(s),
+                             file_event_saver=lambda e: None,
+                             approval_check=lambda tool, h: approval_seen.append(tool) or True)
+        asyncio.run(runner.run("删掉 victim.txt", "m"))
+        self.assertTrue(approval_seen, "workspace-write 下 delete_path 仍要过审批")
+        self.assertFalse((self.ws / "victim.txt").exists(), "授权后应执行")
+
+
 if __name__ == "__main__":
     unittest.main()
