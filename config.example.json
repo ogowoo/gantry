@@ -45,6 +45,7 @@
     "min_steps_before_rollover": 20,
     "auto_compact": true,
     "auto_resume": true,
+    "copilot_cleanup": "off",
     "session_timeout_seconds": 86400,
     "completed_session_retention_days": 30,
     "max_sessions": 100,

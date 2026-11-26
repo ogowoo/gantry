@@ -1033,6 +1033,19 @@ async def grant_approval(sid: str, payload: dict):
     return {"ok": True, "tool": tool, "args_hash": args_hash,
             "scope": scope, "note": note, "note_code": note_code}
 
+@router.post("/v1/agent/sessions/{sid}/copilot-cleanup")
+async def copilot_cleanup(sid: str, payload: dict | None = None):
+    """任务完成后清理该会话在 Copilot 侧栏里的对话（**保留本地记录**）。
+
+    AUD-P4（用户需求）：Copilot 会话太多难以管理。默认先在同一对话里追加一条
+    总结请求（≤5 句，存入会话的 task_summary 与助手消息），再做对账式远端
+    删除并清掉 URL 映射。summarize=false 可跳过总结直接删除。
+    """
+    from . import agentrun
+    summarize = bool((payload or {}).get("summarize", True))
+    return await agentrun.cleanup_copilot_conversation(sid, summarize=summarize)
+
+
 @router.post("/v1/agent/sessions/{sid}/approvals/deny")
 async def deny_approval(sid: str, payload: dict | None = None):
     """拒绝当前待审批的操作（AUD-P0-12）。

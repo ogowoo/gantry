@@ -6,7 +6,12 @@
 ## [Unreleased]
 
 ### Added
-- 
+- 任务完成后清理 Copilot 会话（`agent.copilot_cleanup`：off/ask/auto）：
+  删除前先让 Copilot 写一份 ≤5 句任务总结（存入 task_summary 与助手消息），
+  再对账式删除侧栏会话并清掉 URL 映射——本地记录与步骤全部保留；
+  ask 模式在会话行放 🧹 按钮，另有
+  `POST /v1/agent/sessions/{sid}/copilot-cleanup` 手动触发
+
 
 ### Changed
 - 
@@ -90,6 +95,7 @@
 - 删除未接线的 config 树编辑器等死代码
 
 ### Fixed
+- 会话列表底部行的「⋯」弹出菜单被窗口下沿裁剪，自动翻转到按钮上方
 - 标签页被关/Edge 被杀后"重试浏览器"不再白等 120s 落 needs_login（①-5）
 - CHANGELOG 去除重复的 0.11.0-beta.47..33 版本块（234 行，⑨-7）
 - test_interrupt_prominence 同步新审批横幅语义（P0-12 重做后的文案断言），

@@ -202,6 +202,12 @@ const I18N_EN = {
   "整会话放行": "Allow for whole session",
   "拒绝": "Deny",
   "检查更新失败：": "Update check failed: ",
+  "清理 Copilot 会话（保留本地记录）": "Clean up Copilot chat (keep local records)",
+  "清理该会话在 Copilot 里的对话？本地记录与步骤都会保留；删除前会先让 Copilot 写一份任务总结。": "Clean up this chat in Copilot? Local records and steps are kept; Copilot will write a task summary before deletion.",
+  "清理 Copilot 会话": "Clean up Copilot chat",
+  "清理失败: ": "Cleanup failed: ",
+  "已清理 Copilot 会话：{n} 个（本地记录已保留）": "Cleaned up {n} Copilot chat(s) (local records kept)",
+
   "授权链接无效（非 https），请重试": "Invalid authorization link (not https). Please retry.",
   "原图": "Original",
   "# 显示行号": "# Show line numbers",

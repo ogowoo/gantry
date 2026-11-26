@@ -150,6 +150,11 @@ CREATE TABLE IF NOT EXISTS conv_stats (
                     con.execute(f"ALTER TABLE sessions ADD COLUMN {col} INTEGER NOT NULL DEFAULT 0")
                 except Exception:
                     pass  # 列已存在
+            # 迁移：任务完成后"建议清理 Copilot 会话"标记（copilot_cleanup=ask 用）
+            try:
+                con.execute("ALTER TABLE sessions ADD COLUMN cleanup_suggested INTEGER NOT NULL DEFAULT 0")
+            except Exception:
+                pass  # 列已存在
             # 迁移：验证闭环旗持久化——暂停/重启后必须记得"代码改了还没验证"，
             # 否则恢复出来的 Agent 直接返回 final 就能绕过验证门。
             try:
@@ -248,7 +253,14 @@ CREATE TABLE IF NOT EXISTS conv_stats (
                         "pending_steps", "approval_pending", "goal", "todos", "plan", "task_summary"):
                 try: item[key] = json.loads(item[key] or "null")
                 except Exception: item[key] = [] if key in {"conversation_urls", "recent_steps", "pending", "pending_steps", "todos"} else None
-        for key in ("cancel_requested", "archived", "compact_requested", "rollover_requested"):
+        else:
+            # light 列表也需要 conversation_urls（🧹 清理按钮据此显示）
+            try:
+                item["conversation_urls"] = json.loads(item.get("conversation_urls") or "[]")
+            except Exception:                    # noqa: BLE001
+                item["conversation_urls"] = []
+        for key in ("cancel_requested", "archived", "compact_requested", "rollover_requested",
+                    "cleanup_suggested"):
             item[key] = bool(item[key])
         return item
 
@@ -263,6 +275,7 @@ CREATE TABLE IF NOT EXISTS conv_stats (
         "s.retry_resume_at", "s.retry_attempt", "s.rate_limited_since", "s.tag",
         "s.parent_id", "s.description", "s.plan_mode", "s.suspend_reason",
         "s.last_view_file", "s.mode", "s.persona",
+        "s.cleanup_suggested", "s.conversation_urls",
     )
 
     def create(self, sid: str, task: str, workspace: str, model: str, title: str | None = None,
@@ -438,7 +451,8 @@ CREATE TABLE IF NOT EXISTS conv_stats (
                    "retry_resume_at","retry_attempt","rate_limited_since","initial_prompt",
             "pending_steps","approval_pending","tag","goal","todos","plan","plan_mode",
             "task_summary",
-            "parent_id","description","suspend_reason","last_view_file"}
+            "parent_id","description","suspend_reason","last_view_file",
+            "cleanup_suggested"}
         values = {k:v for k,v in values.items() if k in allowed}
         if "recent_steps" in values:
             values["recent_steps"] = _cap_value(values["recent_steps"])
@@ -448,7 +462,8 @@ CREATE TABLE IF NOT EXISTS conv_stats (
             if key in values: values[key] = json.dumps(values[key], ensure_ascii=False)
         if "plan_mode" in values:
             values["plan_mode"] = int(bool(values["plan_mode"]))
-        for key in ("cancel_requested","archived","compact_requested","rollover_requested"):
+        for key in ("cancel_requested","archived","compact_requested","rollover_requested",
+                    "cleanup_suggested"):
             if key in values: values[key] = int(bool(values[key]))
         values["updated"] = time.time()
         with self.lock, self._connect() as con:

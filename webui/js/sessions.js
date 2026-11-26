@@ -49,7 +49,11 @@ function openSessMenu(btn,sid){
   `<button type="button" class="cmitem danger" data-menu="del">${esc(tr('删除会话'))}</button>`;
  document.body.appendChild(el);
  const r=btn.getBoundingClientRect();
- el.style.top=Math.round(r.bottom+4)+'px';
+ // AUD-P4：菜单默认开在按钮下方；靠近视口底部（列表最下方的会话）时翻到
+ // 按钮上方，否则被窗口底边裁掉无法点到最后几项。
+ let top=Math.round(r.bottom+4);
+ if(top+el.offsetHeight>window.innerHeight-4){top=Math.max(8,Math.round(r.top-el.offsetHeight-4))}
+ el.style.top=top+'px';
  el.style.left=Math.round(Math.max(8,Math.min(r.right-el.offsetWidth,window.innerWidth-el.offsetWidth-8)))+'px';
  el.querySelector('[data-menu="tag"]').onclick=()=>{closeSessMenu();editTagById(sid)};
  el.querySelector('[data-menu="copy"]').onclick=()=>{closeSessMenu();
@@ -118,7 +122,10 @@ function drawSessions(){
   const _num=(v,extra)=>extra>0
     ?`<span class="ssub" title="${esc(_sumTip)}">${esc(v)}</span>`
     :esc(v);
-  e.innerHTML=`<span class="sstat ${stateClassOf(s)}" title="${esc(stateLabel(s))}" aria-label="${esc(stateLabel(s))}">${stateIcon(s.state)}</span><div class="smeta"><b>${_kind?`<span class="skind">${_kind}</span>`:''}${esc(s.title)}</b><small><code class="sid" title="点击复制会话 ID">${esc(s.id)}</code><br>${tr('步骤')} ${_num(_ownSteps+_subSteps,_subSteps)} · ${tr('会话')} ${esc((s.conversation_index??0)+1)} · Token ${_num(_ownTk+_subTk,_subTk)}</small></div>${(s.attachment_count||0)>0?`<span class="attchip" title="含 ${s.attachment_count} 条带图片附件的消息">📎${s.attachment_count}</span>`:''}<button type="button" class="sess-more" title="${esc(tr('更多操作'))}" aria-haspopup="menu">⋯</button>`;
+  // AUD-P4：任务完成后清理 Copilot 会话（保留本地记录）——有远端 URL 映射
+  // 或后端给了 cleanup_suggested 标记时，行内放一个 🧹 按钮。
+  const _cleanable=(Array.isArray(s.conversation_urls)&&s.conversation_urls.length>0)||Number(s.cleanup_suggested||0)>0;
+  e.innerHTML=`<span class="sstat ${stateClassOf(s)}" title="${esc(stateLabel(s))}" aria-label="${esc(stateLabel(s))}">${stateIcon(s.state)}</span><div class="smeta"><b>${_kind?`<span class="skind">${_kind}</span>`:''}${esc(s.title)}</b><small><code class="sid" title="点击复制会话 ID">${esc(s.id)}</code><br>${tr('步骤')} ${_num(_ownSteps+_subSteps,_subSteps)} · ${tr('会话')} ${esc((s.conversation_index??0)+1)} · Token ${_num(_ownTk+_subTk,_subTk)}</small></div>${(s.attachment_count||0)>0?`<span class="attchip" title="含 ${s.attachment_count} 条带图片附件的消息">📎${s.attachment_count}</span>`:''}${_cleanable?`<button type="button" class="sess-clean" title="${esc(tr('清理 Copilot 会话（保留本地记录）'))}" aria-label="${esc(tr('清理 Copilot 会话（保留本地记录）'))}">🧹</button>`:''}<button type="button" class="sess-more" title="${esc(tr('更多操作'))}" aria-haspopup="menu">⋯</button>`;
   // 子代理不再列进侧栏 → 前导位（▸ 的那个位置）也就没用了：
   // 空着那 12px + gap 会把整行往右推，看起来跟工作区分组头"跳格"（用户实测）。
   let chip=e.querySelector('.sid');
@@ -126,6 +133,25 @@ function drawSessions(){
   // 行内「⋯」菜单：必须 stopPropagation，否则先触发整行 onclick=load(s.id)
   const more=e.querySelector('.sess-more');
   if(more)more.onclick=ev=>{ev.stopPropagation();openSessMenu(more,s.id)};
+  // AUD-P4：🧹 清理 Copilot 会话（先总结、再远端删除，本地记录保留）
+  const clean=e.querySelector('.sess-clean');
+  if(clean)clean.onclick=async ev=>{
+   ev.stopPropagation();
+   const ok=await window.dlgConfirm(
+    tr('清理该会话在 Copilot 里的对话？本地记录与步骤都会保留；删除前会先让 Copilot 写一份任务总结。'),
+    tr('清理 Copilot 会话'),false);
+   if(!ok)return;
+   clean.disabled=true;clean.textContent='…';
+   try{
+    const r=await api(`/v1/agent/sessions/${encodeURIComponent(s.id)}/copilot-cleanup`,
+      {method:'POST',headers:{'Content-Type':'application/json'},
+       body:JSON.stringify({summarize:true})});
+    if(r.ok){toast(tr('已清理 Copilot 会话：{n} 个（本地记录已保留）',{n:r.deleted}),'ok')}
+    else{toast(tr('清理失败: ')+(r.error||''),'err')}
+    await refreshSessions();
+   }catch(err){clean.disabled=false;clean.textContent='🧹';
+    toast(tr('清理失败: ')+((err&&(err.detail||err.message))||String(err)),'err')}
+  };
   e.onclick=()=>load(s.id);
   // 键盘可达：会话切换是主入口，纯 div+onclick 对键盘用户等于不可用
   e.tabIndex=0;

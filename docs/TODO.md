@@ -167,6 +167,17 @@
   重启后登录态保持、liveview 正常。裸文件名 model 的路径回退已补（ff0d5ea）。
 - 待办：Copilot 超限窗口恢复后补测只读任务/fileview 绝对路径/@引用（挂起任务 bad38gviv 观察中）。
 
+### [x] AUD-P4-01 任务完成后清理 Copilot 会话 + 底部菜单裁剪修复（用户需求）
+
+- 问题：Copilot 侧栏会话积压难管理（手动/gantry 删除都慢）；会话列表底部行的
+  「⋯」菜单被窗口下沿裁剪无法点到最后几项。
+- 文件：gantry/agentrun.py、gantry/routes_sessions.py、gantry/session_store.py、
+  webui/js/sessions.js、webui/i18n.js、config.example.json、tests/test_copilot_cleanup.py。
+- 实施：copilot_cleanup=off/ask/auto；总结轮（≤5 句存 task_summary）→对账式
+  远端删除→清 URL 映射保留本地；会话行 🧹 按钮 + copilot-cleanup 端点；菜单
+  近底部自动上翻。
+- 验收：test_copilot_cleanup 3 用例 + session 系列 + i18n/ESM 全绿。
+
 ## P1
 
 ### [x] P1-RES-01 修复 SQLite ResourceWarning
