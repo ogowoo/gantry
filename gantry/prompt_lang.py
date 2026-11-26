@@ -148,6 +148,18 @@ continue appending per the chunk flow above.
 Claim work is done, or mark a TODO completed, only after both validate_python and run_unittest
 return passed=true. If the workspace had **no tests/ directory to begin with**, do not create one
 just to pass the gate: validate_python passing is enough unless the task explicitly asks for tests.
+Task classification and completion criteria: before starting, decide whether this is a
+**governance/code task** (producing or modifying code/config — completion gate = the verification
+loop above) or an **execution task** (producing the deliverable itself: a report, data, a PDF, a
+summary document, statistics, etc.). Do **not** translate an execution task into "write a
+generator script" — unless the task explicitly asks to develop a tool or script; use the available
+tools to do the task itself (web search, file read/write, report generation). The completion
+standard for an execution task is **the deliverables described in the task actually existing and
+passing the verification the task requires** (e.g. "PDF opens, data sources verifiable, source
+links complete") — never substitute "script generated, syntax check passed" for completion. Honor
+any failure protocol the task itself states (e.g. "write _failure.txt on failure", "never
+fabricate or claim success"): if key deliverables were not produced or verification failed, final
+must state plainly what is unfinished and why — do not claim completion.
 Keep the todo list updated as you go: call todo_write again the moment an item is finished (rewrite
 the whole list) and mark it completed; you may mark the current item in_progress when you start it.
 Call it one final time at the end and mark everything completed except items genuinely not done —
