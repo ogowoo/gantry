@@ -22,7 +22,7 @@ import { openPanels, refreshPanels, loadPanel, closePanels, openPlugins, closePl
 import { slashMatch, slashOpen, slashUpdate, loadMcpPrompts, slashPick, slashKey, mergePluginI18n, fanoutNow, auditNow, slashRun, deepResearchNow } from './slash.js';
 import { wsCollapsedList, wsIsCollapsed, wsToggleCollapse, newWorkspace, pickWorkspace, openWsBrowser, wsNavigate, wsUp, wsDefault, wsChoose, wsMkdir, newSessionInWorkspace, closeWs } from './workspace.js';
 import { api, esc, isProviderModel, assistantLabel, fmtStamp, jv, stateText, stateIcon, stateClass, subRunningOf, stateLabel, stateClassOf, setPill, setKpis, loadModels, fillModelSelect, refreshSessModelOptions, setSessionModel, modelDesc, refreshModels, drawBrowserBtn, browserState, toggleBrowser } from './apistate.js';
-import { toggleSessExpand, refreshSessions, toggleSubagents, drawSessions, editTag } from './sessions.js';
+import { toggleSessExpand, refreshSessions, toggleSubagents, drawSessions, editTag, copilotScan } from './sessions.js';
 import { guessResultLang, stepResultRender, applySessionChrome, langLabel, wrapCodeLines, codeLineSel, copySelLines, imgZoom, imgZoomClose, closeCodeMenu, codeMenu, codePref, setCodePref, applyCodePrefs, copyMsg, copyCode, copyText, toggleCodeFold, applyMsgFold } from './codeux.js';
 import { gmShow, openMask, closeMask, gmClose, dlgAlert, dlgConfirm, dlgInjectPrompt, dlgPrompt } from './dialogs.js';
 import { setFollowupMode, resetView, load, runtime, stopEvents, stopTask, applyRuntime } from './followload.js';
@@ -196,6 +196,7 @@ window.refreshSessions = refreshSessions;
 window.toggleSubagents = toggleSubagents;
 window.drawSessions = drawSessions;
 window.editTag = editTag;
+window.copilotScan = copilotScan;
 window.api = api;
 window.esc = esc;
 window.isProviderModel = isProviderModel;

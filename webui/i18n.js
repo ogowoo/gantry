@@ -206,6 +206,16 @@ const I18N_EN = {
   "清理该会话在 Copilot 里的对话？本地记录与步骤都会保留；删除前会先让 Copilot 写一份任务总结。": "Clean up this chat in Copilot? Local records and steps are kept; Copilot will write a task summary before deletion.",
   "清理 Copilot 会话": "Clean up Copilot chat",
   "清理失败: ": "Cleanup failed: ",
+  "盘点 Copilot 会话": "Inventory Copilot chats",
+  "盘点失败: ": "Inventory failed: ",
+  "本地记录索引到 {u} 个 Copilot 会话（{s} 个会话；侧栏标题带标记的另有 {r} 个）：\n{l}{m}\n\n统一删除？本地记录不受影响；逐条复核约需数秒到数十秒。": "Local records index {u} Copilot chat(s) across {s} session(s) (another {r} row(s) still carry markers in the sidebar):\n{l}{m}\n\nDelete them all? Local records are unaffected; each verified deletion takes seconds to tens of seconds.",
+
+  "没有发现 Gantry 标记的 Copilot 会话": "No Gantry-marked Copilot chats found",
+  "发现 {n} 个 Gantry 标记的 Copilot 会话：\n{l}{m}\n\n全部删除？本地记录不受影响；逐条删除约需数秒。": "Found {n} Gantry-marked Copilot chats:\n{l}{m}\n\nDelete them all? Local records are unaffected; each deletion takes a few seconds.",
+  "批量删除 Copilot 会话": "Bulk delete Copilot chats",
+  "开始删除 {n} 个会话，请稍候…": "Deleting {n} chat(s), please wait…",
+  "删除完成：成功 {a}，失败 {b}（{s} 秒）": "Done: {a} deleted, {b} failed ({s}s)",
+
   "已清理 Copilot 会话：{n} 个（本地记录已保留）": "Cleaned up {n} Copilot chat(s) (local records kept)",
 
   "授权链接无效（非 https），请重试": "Invalid authorization link (not https). Please retry.",

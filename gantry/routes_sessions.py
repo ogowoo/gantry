@@ -1108,14 +1108,18 @@ async def workspace_files(sid: str = "", q: str = "", limit: int = 50):
 async def cleanup_marked_copilot(payload: dict):
     """按会话标记清理远端 Copilot 会话（本地记录已删后也能用）。
 
-    - `scan_only=true`：只列侧栏里带标记的行（不删）；
+    - `scan_only=true`：只盘点——`rows` 是侧栏**标题里**还带标记的行（Copilot
+      会自动改写标题，实测通常为 0）；`local` 是**本地记录**里的远端 URL 清单
+      （按会话聚合），这才是批量删除的可靠索引；
+    - `all=true`（AUD-P4）：统一删除**本地记录索引到的全部** Copilot 会话——
+      每个 URL 走 delete_copilot_conversation（标记复核 + 逐条导航），单条失败
+      不中断，逐条返回耗时；
+    - `delete_matching=true` + sids：只删侧栏里这些 sid 的标记行；
     - 否则对每个 sid 跑对账式删除（补删所有 `[X-AGENT][sid]` 的会话）。
-
-    为什么需要：测试/诊断会话只删本地记录时，Copilot 侧栏还留着带标记的会话；
-    本地记录删了之后 URL 映射也丢了，普通删除接口走不通。
     """
     sids = payload.get("sids") or []
     scan_only = bool(payload.get("scan_only"))
+    delete_all = bool(payload.get("all"))
     if not isinstance(sids, list) or len(sids) > 50:
         raise HTTPException(400, "sids 必须是列表（最多 50 个）")
     for sid in sids:
@@ -1126,12 +1130,41 @@ async def cleanup_marked_copilot(payload: dict):
     stack = AsyncExitStack()
     try:
         await stack.enter_async_context(b._window("", wait_timeout=15))
+        if scan_only:
+            # 标题会被 Copilot 改写，侧栏标记行通常为 0：盘点只做单屏快扫
+            # （不滚动，省 1 分多钟的 scroll-to-stable）；本地 URL 才是可靠索引。
+            sidebar_rows = await a.cd.scan_sidebar_markers(None, scroll=False)
+            local = []
+            for sess in b.AGENT_SESSIONS.list(include_archived=True, light=True):
+                urls = sess.get("conversation_urls") or []
+                if not urls:
+                    continue
+                local.append({"sid": sess["id"], "title": sess.get("title") or "",
+                              "count": len(urls), "urls": urls})
+            total_urls = sum(x["count"] for x in local)
+            return {"rows": sidebar_rows, "count": len(sidebar_rows),
+                    "local": local, "local_urls": total_urls}
+        if delete_all:
+            # AUD-P4：统一删除本地记录索引到的全部 Copilot 会话。每条走成熟的
+            # URL 导航删除（标记复核在正文验证兜底），不限标题是否被改写。
+            t0 = time.time()
+            out = []
+            for sess in b.AGENT_SESSIONS.list(include_archived=True, light=True):
+                urls = list(dict.fromkeys(sess.get("conversation_urls") or []))
+                cur = sess.get("current_url")
+                if cur and cur not in urls:
+                    urls.append(cur)
+                for index, u in enumerate(urls):
+                    marker = b._agent_chat_marker(sess["id"], index)
+                    rec = await a.cd.delete_copilot_conversation(u, marker)
+                    rec["sid"] = sess["id"]
+                    out.append(rec)
+            ok = sum(1 for r in out if r.get("deleted"))
+            return {"deleted_rows": out, "deleted": ok, "failed": len(out) - ok,
+                    "total_seconds": round(time.time() - t0, 1)}
         delete_matching = bool(payload.get("delete_matching"))
-        if scan_only or delete_matching:
+        if delete_matching:
             rows = await a.cd.scan_sidebar_markers(sids or None, scroll=True)
-            if not delete_matching:
-                return {"rows": rows}
-            # 逐行删：href + 行文本里提取的完整标记（行文本没标记就不敢删）
             out = []
             for row in rows:
                 href = row.get("href") or ""

@@ -310,4 +310,34 @@ async function importSessions(){
 }
 
 export { toggleSessExpand, refreshSessions, toggleSubagents, drawSessions, editTag,
-         exportSessionById, exportSessions, importSessions, deleteSessionsBulk };
+         exportSessionById, exportSessions, importSessions, deleteSessionsBulk, copilotScan };
+
+/* ── AUD-P4：盘点并批量删除所有 Gantry 标记的 Copilot 会话 ─────────────
+   盘点只读；删除以本地记录的 URL 为索引逐条复核（Copilot 会自动改写标题，
+   侧栏标题里的标记通常已不可见，本地 URL 才是可靠索引）。 */
+async function copilotScan(){
+ let local, sidebarN, localUrlN;
+ try{
+  const r=await api('/v1/agent/copilot/cleanup-marked',
+   {method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({scan_only:true})});
+  local=r.local||[];sidebarN=r.count||0;localUrlN=r.local_urls||0;
+ }catch(e){toast(tr('盘点失败: ')+((e&&(e.detail||e.message))||String(e)),'err');return}
+ if(!localUrlN&&!sidebarN){toast(tr('没有发现 Gantry 标记的 Copilot 会话'),'ok');return}
+ const names=local.slice(0,8).map(x=>`· ${x.title||x.sid}（${x.count}）`).join('\n');
+ const more=local.length>8?('\n…'):'';
+ const ok=await window.dlgConfirm(
+  tr('本地记录索引到 {u} 个 Copilot 会话（{s} 个会话；侧栏标题带标记的另有 {r} 个）：\n{l}{m}\n\n统一删除？本地记录不受影响；逐条复核约需数秒到数十秒。',
+     {u:localUrlN,s:local.length,r:sidebarN,l:names,m:more}),
+  tr('批量删除 Copilot 会话'),true);
+ if(!ok)return;
+ toast(tr('开始删除 {n} 个会话，请稍候…',{n:localUrlN}),'ok',30000);
+ try{
+  const r=await api('/v1/agent/copilot/cleanup-marked',
+   {method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({all:true})});
+  toast(tr('删除完成：成功 {a}，失败 {b}（{s} 秒）',{a:r.deleted,b:r.failed,s:r.total_seconds}),
+        r.failed?'err':'ok');
+  await refreshSessions();
+ }catch(e){toast(tr('删除失败: ')+((e&&(e.detail||e.message))||String(e)),'err')}
+}

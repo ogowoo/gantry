@@ -192,6 +192,257 @@ async def _ensure_page_for_delete() -> None:
             "或改为仅清理本地记录。")
 
 
+
+_GONE_DIALOG_RE = re.compile(r"no longer available|recently deleted|不再可用|已被删除|已删除", re.I)
+# 整页兜底只认英文特征串：中文"已删除"会大量出现在对话正文/侧栏标题里
+# （例如本服务自己的删除类任务），整页匹配会把"还在的会话"误判成已删除。
+_GONE_PAGE_RE = re.compile(r"this chat is no longer available|recently deleted", re.I)
+
+
+async def _gone_dialog_present(page) -> bool:
+    # 先在对话框容器内找（中英文），容器选择器可穿透 shadow DOM。
+    for sel in ('[role="alertdialog"]', '[role="dialog"]', '.fui-DialogSurface'):
+        loc = page.locator(sel)
+        for i in range(min(await loc.count(), 5)):
+            try:
+                if await loc.nth(i).get_by_text(_GONE_DIALOG_RE).count():
+                    return True
+            except Exception:
+                pass
+    # 兜底一：整页 light DOM 文本，仅英文强特征串。
+    try:
+        if _GONE_PAGE_RE.search(await body_text()):
+            return True
+    except Exception:
+        pass
+    # 兜底二：整页 shadow DOM 探测，同样仅限英文特征串。
+    try:
+        if await page.get_by_text(_GONE_PAGE_RE).count():
+            return True
+    except Exception:
+        pass
+    return False
+
+
+async def _dismiss_gone_dialog(page) -> bool:
+    try:
+        if not await _gone_dialog_present(page):
+            return False
+    except Exception:
+        return False
+    btn = await visible([
+        'button:has-text("Close")',
+        'button:has-text("关闭")',
+        '[role="alertdialog"] button',
+        '[role="dialog"] button',
+    ])
+    if btn:
+        try:
+            await btn.click(timeout=2000)
+        except Exception:
+            pass
+    else:
+        # 找不到关闭按钮时 Escape 兜底，避免弹窗残留遮挡侧栏校验
+        try:
+            await page.keyboard.press("Escape")
+        except Exception:
+            pass
+    await asyncio.sleep(.5)
+    return True
+
+
+async def _delete_sidebar_row_once(page, url: str, expected_title: str) -> bool:
+    """对**已定位/已可见**的侧栏会话行执行 hover→More→Delete→确认→复核。
+
+    AUD-P4：从 delete_copilot_conversation 抽出（那函数负责标记校验、按 URL
+    导航与定位，这里只做"行已在眼前"的删除动作）。批量清理（scan_sidebar_markers
+    的盘点结果）直接调用本函数，省掉逐条 goto 的页面加载，速度提高数倍。
+    硬错误抛 RuntimeError；删除成功返回 True，复核仍见行返回 False。
+    """
+    has_conv_id = bool(CONVERSATION_URL_RE.search(url or ""))
+    link = await _conversation_sidebar_link(url) if has_conv_id else None
+    if not link:
+        link = await _conversation_link_by_title(expected_title)
+    if not link:
+        raise RuntimeError("侧栏中找不到该会话行")
+    row = await _chat_row_from_link(link)
+    await row.scroll_into_view_if_needed(timeout=5000)
+
+    await row.hover(timeout=5000)
+    await asyncio.sleep(.35)
+    more = await visible_locator([
+        row.get_by_role("button", name=re.compile(r"More|更多|Options|选项|Pin and More", re.I)),
+        row.locator('button[aria-label*="More" i]'),
+        row.locator('button[title*="More" i]'),
+        row.locator('button[aria-label*="更多"]'),
+        row.locator('button').last,
+    ])
+    if not more:
+        await link.focus()
+        for _ in range(4):
+            await page.keyboard.press("Tab")
+            await asyncio.sleep(.15)
+            focused = page.locator(":focus")
+            label = ((await focused.get_attribute("aria-label")) or "") if await focused.count() else ""
+            if re.search(r"More|更多|Options|选项", label, re.I):
+                more = focused
+                break
+    if not more:
+        raise RuntimeError("找到目标会话，但找不到 More 按钮")
+    try:
+        await more.click(timeout=8000)
+    except Exception:
+        await more.click(timeout=5000, force=True)
+    await asyncio.sleep(.5)
+
+    delete_item = None
+    delete_deadline = time.monotonic() + 8
+    while time.monotonic() < delete_deadline and delete_item is None:
+        delete_item = await visible_locator([
+            page.get_by_role("menuitem", name=re.compile(r"Delete|删除", re.I)),
+            page.get_by_role("menuitemradio", name=re.compile(r"Delete|删除", re.I)),
+            page.get_by_role("button", name=re.compile(r"^Delete$|^删除$", re.I)),
+            page.get_by_text(re.compile(r"^Delete$|^删除$", re.I), exact=True),
+        ])
+        if delete_item:
+            break
+        any_menu = await visible_locator([
+            page.get_by_role("menuitem"),
+            page.get_by_role("menuitemradio"),
+        ])
+        if not any_menu:
+            try:
+                await more.click(timeout=2000)
+            except Exception:
+                pass
+        await asyncio.sleep(0.4)
+    if not delete_item:
+        raise RuntimeError("会话菜单中找不到 Delete/删除")
+    try:
+        await delete_item.click(timeout=8000)
+    except Exception:
+        await delete_item.click(timeout=5000, force=True)
+    await asyncio.sleep(.6)
+
+    confirm = None
+    confirm_deadline = time.monotonic() + 10
+    while time.monotonic() < confirm_deadline and confirm is None:
+        dialog = await visible_locator([
+            page.get_by_role("alertdialog"),
+            page.get_by_role("dialog"),
+            page.locator('[role="alertdialog"]'),
+            page.locator('[role="dialog"][aria-modal="true"]'),
+            page.locator(".fui-DialogSurface"),
+        ])
+        if dialog:
+            confirm = await visible_locator([
+                dialog.get_by_role("button", name=re.compile(r"^Delete$|^删除$|Delete conversation|Delete chat|确认删除|删除对话", re.I)),
+                dialog.locator('button').filter(has_text=re.compile(r"^Delete$|^删除$", re.I)),
+                dialog.locator('button[type="submit"]'),
+            ])
+            if not confirm:
+                try:
+                    cancel_re = re.compile(r"Cancel|取消|No, thanks|否", re.I)
+                    buttons = dialog.locator("button")
+                    for bi in range(await buttons.count() - 1, -1, -1):
+                        btn = buttons.nth(bi)
+                        if not await btn.is_visible():
+                            continue
+                        label = ((await btn.inner_text()) or "") + " " + ((await btn.get_attribute("aria-label")) or "")
+                        if not cancel_re.search(label):
+                            confirm = btn
+                            break
+                except Exception:
+                    pass
+        if not confirm:
+            confirm = await visible_locator([
+                page.get_by_role("button", name=re.compile(r"^Delete$|^删除$", re.I)),
+            ])
+        if not confirm:
+            await asyncio.sleep(0.4)
+    if not confirm:
+        raise RuntimeError("确认窗口中找不到 Delete/删除按钮")
+    for _attempt in range(3):
+        try:
+            await confirm.click(timeout=8000)
+        except Exception:
+            try:
+                await confirm.click(timeout=5000, force=True)
+            except Exception:
+                pass
+        await asyncio.sleep(1.0)
+        still_open = await visible_locator([
+            page.get_by_role("alertdialog"),
+            page.get_by_role("dialog"),
+            page.locator('[role="alertdialog"]'),
+            page.locator('[role="dialog"][aria-modal="true"]'),
+            page.locator(".fui-DialogSurface"),
+        ])
+        if not still_open:
+            break
+    await asyncio.sleep(0.5)
+
+    async def _still_listed() -> bool:
+        probe = await _conversation_sidebar_link(url) if has_conv_id             else await _conversation_link_by_title(expected_title)
+        if not probe:
+            return False
+        try:
+            return bool(await probe.is_visible())
+        except Exception:
+            return False
+
+    # 删除后可能短暂残留：轮询等待，必要时刷新再判定。
+    gone_deadline = time.monotonic() + 8
+    while time.monotonic() < gone_deadline:
+        if await _dismiss_gone_dialog(page):
+            return True
+        if not await _still_listed():
+            break
+        await asyncio.sleep(0.8)
+    if await _still_listed():
+        try:
+            await page.reload(wait_until="domcontentloaded", timeout=60000)
+            await asyncio.sleep(2)
+            await _open_chat_sidebar()
+        except Exception:
+            pass
+    if await _dismiss_gone_dialog(page):
+        return True
+    return not await _still_listed()
+
+
+async def delete_sidebar_rows(rows: list) -> list:
+    """批量删除 scan_sidebar_markers 盘点出来的侧栏会话行（不做逐条 URL 导航）。
+
+    AUD-P4（用户需求：统一删除所有 Gantry 会话）。每行一个完整结果记录
+    （含耗时秒数），单行失败不中断后续行。
+    """
+    page = _b.page
+    if page is None:
+        raise RuntimeError("自动化浏览器未启动")
+    out = []
+    for item in rows:
+        href = str(item.get("href") or "")
+        text = str(item.get("text") or "")
+        m = re.search(r"\[(?:GANTRY|CBP)-AGENT\]\[[^\]]+\]\[C\d+\]", text)
+        t0 = time.time()
+        rec = {"url": href, "deleted": False, "error": None, "seconds": 0.0}
+        if not href or not m:
+            rec["error"] = "行文本里没有完整标记，跳过（不敢删）"
+            rec["seconds"] = round(time.time() - t0, 1)
+            out.append(rec)
+            continue
+        try:
+            rec["deleted"] = await _delete_sidebar_row_once(page, href, m.group(0))
+            if not rec["deleted"]:
+                rec["error"] = "点击删除后目标仍存在于 Chats 列表"
+        except Exception as exc:                     # noqa: BLE001
+            rec["error"] = str(exc)
+        rec["seconds"] = round(time.time() - t0, 1)
+        out.append(rec)
+    return out
+
+
 async def delete_copilot_conversation(url: str, expected_title: str) -> dict:
     page = _b.page  # 模块级缓存会拿到死引用（浏览器重启会换对象），每函数取值
     """Delete a saved Copilot conversation by URL, with a same-session marker guard.
@@ -220,62 +471,6 @@ async def delete_copilot_conversation(url: str, expected_title: str) -> dict:
         _target_id_m = CONVERSATION_URL_RE.search(url or "")
         _target_id = _target_id_m.group(0) if _target_id_m else ""
 
-        GONE_DIALOG_RE = re.compile(r"no longer available|recently deleted|不再可用|已被删除|已删除", re.I)
-        # 整页兜底只认英文特征串：中文"已删除"会大量出现在对话正文/侧栏标题里
-        # （例如本服务自己的删除类任务），整页匹配会把"还在的会话"误判成已删除，
-        # 造成假成功（本地记录删了、Copilot 侧栏还留着）。
-        GONE_PAGE_RE = re.compile(r"this chat is no longer available|recently deleted", re.I)
-
-        async def _gone_dialog_present() -> bool:
-            # 先在对话框容器内找（中英文），容器选择器可穿透 shadow DOM。
-            for sel in ('[role="alertdialog"]', '[role="dialog"]', '.fui-DialogSurface'):
-                loc = page.locator(sel)
-                for i in range(min(await loc.count(), 5)):
-                    try:
-                        if await loc.nth(i).get_by_text(GONE_DIALOG_RE).count():
-                            return True
-                    except Exception:
-                        pass
-            # 兜底一：整页 light DOM 文本，仅英文强特征串（见 GONE_PAGE_RE 注释）。
-            try:
-                if GONE_PAGE_RE.search(await body_text()):
-                    return True
-            except Exception:
-                pass
-            # 兜底二：整页 shadow DOM 探测，同样仅限英文特征串。
-            try:
-                if await page.get_by_text(GONE_PAGE_RE).count():
-                    return True
-            except Exception:
-                pass
-            return False
-
-        async def _dismiss_gone_dialog() -> bool:
-            try:
-                if not await _gone_dialog_present():
-                    return False
-            except Exception:
-                return False
-            btn = await visible([
-                'button:has-text("Close")',
-                'button:has-text("关闭")',
-                '[role="alertdialog"] button',
-                '[role="dialog"] button',
-            ])
-            if btn:
-                try:
-                    await btn.click(timeout=2000)
-                except Exception:
-                    pass
-            else:
-                # 找不到关闭按钮时 Escape 兜底，避免弹窗残留遮挡侧栏校验
-                try:
-                    await page.keyboard.press("Escape")
-                except Exception:
-                    pass
-            await asyncio.sleep(.5)
-            return True
-
         has_conv_id = bool(CONVERSATION_URL_RE.search(url or ""))
         if has_conv_id:
             await page.goto(url, wait_until="domcontentloaded", timeout=120000)
@@ -283,13 +478,13 @@ async def delete_copilot_conversation(url: str, expected_title: str) -> dict:
             # 重试删除已不存在的会话时，打开 URL 即弹"不再可用"：直接认定已删除。
             # 刚完成目标 URL 的导航，弹窗说的必然是该会话；删除后 Copilot 常会
             # 立即跳走（URL 不再含会话 ID），不能再用 _on_target_page() 附加条件。
-            if await _dismiss_gone_dialog():
+            if await _dismiss_gone_dialog(page):
                 result["deleted"] = True
                 result["method"] = "already-gone"
                 return result
         # 清理残留弹窗（无会话 ID 的兜底路径不会触发上面的导航清洗），
         # 保证后续"点击确认后出现的弹窗 = 本次删除的强证据"这一推理成立。
-        await _dismiss_gone_dialog()
+        await _dismiss_gone_dialog(page)
         await _open_chat_sidebar()
 
         # Locate the exact saved conversation URL. Do not infer Cnnn from list order.
@@ -322,170 +517,11 @@ async def delete_copilot_conversation(url: str, expected_title: str) -> dict:
             row = await _chat_row_from_link(link)
             await row.scroll_into_view_if_needed(timeout=5000)
 
-        await row.hover(timeout=5000)
-        await asyncio.sleep(.35)
-        more = await visible_locator([
-            row.get_by_role("button", name=re.compile(r"More|更多|Options|选项|Pin and More", re.I)),
-            row.locator('button[aria-label*="More" i]'),
-            row.locator('button[title*="More" i]'),
-            row.locator('button[aria-label*="更多"]'),
-            row.locator('button').last,
-        ])
-        if not more:
-            await link.focus()
-            for _ in range(4):
-                await page.keyboard.press("Tab")
-                await asyncio.sleep(.15)
-                focused = page.locator(":focus")
-                label = ((await focused.get_attribute("aria-label")) or "") if await focused.count() else ""
-                if re.search(r"More|更多|Options|选项", label, re.I):
-                    more = focused
-                    break
-        if not more:
-            raise RuntimeError("找到目标会话，但找不到 More 按钮")
-
-        try:
-            await more.click(timeout=8000)
-        except Exception:
-            await more.click(timeout=5000, force=True)
-        await asyncio.sleep(.5)
-
-        # 菜单有入场动画/渲染延迟，只查一次会误判"找不到 Delete"：
-        # 轮询等待 Delete 出现；若菜单根本没打开（点击落空），重试点 More。
-        delete_item = None
-        delete_deadline = time.monotonic() + 8
-        while time.monotonic() < delete_deadline and delete_item is None:
-            delete_item = await visible_locator([
-                page.get_by_role("menuitem", name=re.compile(r"Delete|删除", re.I)),
-                page.get_by_role("menuitemradio", name=re.compile(r"Delete|删除", re.I)),
-                page.get_by_role("button", name=re.compile(r"^Delete$|^删除$", re.I)),
-                page.get_by_text(re.compile(r"^Delete$|^删除$", re.I), exact=True),
-            ])
-            if delete_item:
-                break
-            any_menu = await visible_locator([
-                page.get_by_role("menuitem"),
-                page.get_by_role("menuitemradio"),
-            ])
-            if not any_menu:
-                try:
-                    await more.click(timeout=2000)
-                except Exception:
-                    pass
-            await asyncio.sleep(0.4)
-        if not delete_item:
-            raise RuntimeError("会话菜单中找不到 Delete/删除")
-        try:
-            await delete_item.click(timeout=8000)
-        except Exception:
-            await delete_item.click(timeout=5000, force=True)
-        await asyncio.sleep(.6)
-
-        # Copilot 确认弹窗在各租户实现不同（role=dialog / alertdialog /
-        # Fluent DialogSurface），且带入场动画。轮询等待弹窗出现后再定位
-        # Delete/删除 确认按钮，配两级兜底，防止漏点导致删除失败。
-        confirm = None
-        confirm_deadline = time.monotonic() + 10
-        while time.monotonic() < confirm_deadline and confirm is None:
-            dialog = await visible_locator([
-                page.get_by_role("alertdialog"),
-                page.get_by_role("dialog"),
-                page.locator('[role="alertdialog"]'),
-                page.locator('[role="dialog"][aria-modal="true"]'),
-                page.locator(".fui-DialogSurface"),
-            ])
-            if dialog:
-                confirm = await visible_locator([
-                    dialog.get_by_role("button", name=re.compile(r"^Delete$|^删除$|Delete conversation|Delete chat|确认删除|删除对话", re.I)),
-                    dialog.locator('button').filter(has_text=re.compile(r"^Delete$|^删除$", re.I)),
-                    dialog.locator('button[type="submit"]'),
-                ])
-                if not confirm:
-                    # 兜底一：对话框内排除 Cancel/取消 后剩下的可点击按钮即确认键。
-                    try:
-                        cancel_re = re.compile(r"Cancel|取消|No, thanks|否", re.I)
-                        buttons = dialog.locator("button")
-                        for bi in range(await buttons.count() - 1, -1, -1):
-                            btn = buttons.nth(bi)
-                            if not await btn.is_visible():
-                                continue
-                            label = ((await btn.inner_text()) or "") + " " + ((await btn.get_attribute("aria-label")) or "")
-                            if not cancel_re.search(label):
-                                confirm = btn
-                                break
-                    except Exception:
-                        pass
-            if not confirm:
-                # 兜底二：全局精确匹配 Delete/删除 按钮（删除菜单已关闭，页面唯一）。
-                confirm = await visible_locator([
-                    page.get_by_role("button", name=re.compile(r"^Delete$|^删除$", re.I)),
-                ])
-            if not confirm:
-                await asyncio.sleep(0.4)
-        if not confirm:
-            raise RuntimeError("确认窗口中找不到 Delete/删除按钮")
-        # 点击确认后校验弹窗确实关闭；未关闭说明点击落在遮罩/动画上，重试。
-        for _attempt in range(3):
-            try:
-                await confirm.click(timeout=8000)
-            except Exception:
-                try:
-                    await confirm.click(timeout=5000, force=True)
-                except Exception:
-                    pass
-            await asyncio.sleep(1.0)
-            still_open = await visible_locator([
-                page.get_by_role("alertdialog"),
-                page.get_by_role("dialog"),
-                page.locator('[role="alertdialog"]'),
-                page.locator('[role="dialog"][aria-modal="true"]'),
-                page.locator(".fui-DialogSurface"),
-            ])
-            if not still_open:
-                break
-        await asyncio.sleep(0.5)
-
-        # 点击确认后的校验：先识别"不再可用"弹窗（删除成功强证据），
-        # 再做侧栏列表轮询。入口阶段已清过残留弹窗，此刻出现的弹窗
-        # 必为本次删除所致，无需再校验当前 URL。
-        if await _dismiss_gone_dialog():
-            result["deleted"] = True
-            return result
-
-        async def _still_listed() -> bool:
-            if has_conv_id:
-                probe = await _conversation_sidebar_link(url)
-            else:
-                probe = await _conversation_link_by_title(expected_title)
-            if not probe:
-                return False
-            try:
-                return bool(await probe.is_visible())
-            except Exception:
-                return False
-
-        # 侧栏是虚拟滚动列表，删除后可能短暂残留：轮询等待，必要时刷新再判定。
-        gone_deadline = time.monotonic() + 8
-        while time.monotonic() < gone_deadline:
-            if await _dismiss_gone_dialog():
-                result["deleted"] = True
-                return result
-            if not await _still_listed():
-                break
-            await asyncio.sleep(0.8)
-        if await _still_listed():
-            try:
-                await page.reload(wait_until="domcontentloaded", timeout=60000)
-                await asyncio.sleep(2)
-                await _open_chat_sidebar()
-            except Exception:
-                pass
-        if await _dismiss_gone_dialog():
-            result["deleted"] = True
-            return result
-        if await _still_listed():
-            raise RuntimeError("点击删除后，目标 URL 仍存在于 Chats 列表")
-        result["deleted"] = True
+        # AUD-P4：行内删除动作已抽成模块级 _delete_sidebar_row_once（批量清理复用）
+        deleted = await _delete_sidebar_row_once(page, url, expected_title)
+        result["deleted"] = deleted
+        if not deleted:
+            result["error"] = "点击删除后，目标 URL 仍存在于 Chats 列表"
     except Exception as exc:
         result["error"] = str(exc)
         await diagnostics("delete_agent_url_marker_failed")

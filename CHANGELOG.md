@@ -6,6 +6,11 @@
 ## [Unreleased]
 
 ### Added
+- Copilot 会话统一盘点与批量删除（侧栏 🧹 按钮 → POST /v1/agent/copilot/cleanup-marked）：
+  盘点以本地记录的 URL 为可靠索引（Copilot 会改写标题，侧栏标记不可靠，实测
+  标题命中 0/41）；`all=true` 统一删除全部索引会话，逐条标记复核 + 对账，
+  单条失败不中断并逐条返回耗时；copilot_delete 的侧栏行内删除流程抽成
+  `_delete_sidebar_row_once` 供批量复用
 - 任务完成后清理 Copilot 会话（`agent.copilot_cleanup`：off/ask/auto）：
   删除前先让 Copilot 写一份 ≤5 句任务总结（存入 task_summary 与助手消息），
   再对账式删除侧栏会话并清掉 URL 映射——本地记录与步骤全部保留；
