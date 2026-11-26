@@ -10,6 +10,8 @@
 
 用 Playwright 驱动本机 Edge，把 M365 Copilot 网页版包装成本地 OpenAI 兼容 API（`/v1/chat/completions`），并内置长任务 Agent（JSON 动作协议 + 工具循环）。另支持任意 OpenAI 兼容 API 提供商旁路。
 
+面向 AI 开发的快速概览（架构/流转/模块速查/命令）：`docs/AI-OVERVIEW.md`。
+
 ## 目录结构
 
 ```
