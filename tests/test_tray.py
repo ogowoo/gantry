@@ -519,5 +519,166 @@ class ElevatedTrayTests(unittest.TestCase):
         self.assertNotIn("托盘已跳过", text)
 
 
+class TrayTokenTests(unittest.TestCase):
+    """托盘动作的 token 来源：环境变量 > data/api_token > config.json 兜底。
+
+    用户实测的 bug：config.json 配了 token 时 data/api_token 不生成，托盘拿不到
+    凭据，「停止服务并退出」被 401 拒绝后静默退出——图标没了、服务还活着。
+    """
+
+    def _tray_with_config(self, cfg_text: str) -> "object":
+        import json
+        import tempfile
+
+        from gantry import tray as tray_mod
+
+        tmp = Path(tempfile.mkdtemp(prefix="gantry_tray_tok_"))
+        (tmp / "config.json").write_text(cfg_text, encoding="utf-8")
+        return tray_mod.Tray(port=9, root=tmp)
+
+    def test_falls_back_to_config_literal(self):
+        import json
+        import os
+
+        t = self._tray_with_config(json.dumps({"api_token": "cfg-token"}))
+        old = os.environ.pop("GANTRY_API_TOKEN", None)
+        try:
+            self.assertEqual(t._api_token(), "cfg-token",
+                             "没有环境变量/文件时，托盘必须能从 config.json 读到 token")
+        finally:
+            if old is not None:
+                os.environ["GANTRY_API_TOKEN"] = old
+
+    def test_resolves_placeholder_from_env(self):
+        import json
+        import os
+
+        t = self._tray_with_config(json.dumps({"api_token": "${GANTRY_TOKEN}"}))
+        old_env, old_tok = os.environ.pop("GANTRY_API_TOKEN", None), \
+            os.environ.get("GANTRY_TOKEN")
+        os.environ["GANTRY_TOKEN"] = "env-token"
+        try:
+            self.assertEqual(t._api_token(), "env-token",
+                             "占位符必须按与 bridge 相同的语义解析")
+        finally:
+            if old_env is not None:
+                os.environ["GANTRY_API_TOKEN"] = old_env
+            if old_tok is None:
+                os.environ.pop("GANTRY_TOKEN", None)
+            else:
+                os.environ["GANTRY_TOKEN"] = old_tok
+
+    def test_env_var_wins_over_config(self):
+        import json
+        import os
+
+        t = self._tray_with_config(json.dumps({"api_token": "cfg-token"}))
+        old = os.environ.get("GANTRY_API_TOKEN")
+        os.environ["GANTRY_API_TOKEN"] = "env-token"
+        try:
+            self.assertEqual(t._api_token(), "env-token")
+        finally:
+            if old is None:
+                os.environ.pop("GANTRY_API_TOKEN", None)
+            else:
+                os.environ["GANTRY_API_TOKEN"] = old
+
+    def test_unresolved_placeholder_returns_empty(self):
+        import json
+        import os
+
+        t = self._tray_with_config(json.dumps({"api_token": "${GANTRY_TOKEN}"}))
+        old = os.environ.pop("GANTRY_TOKEN", None)
+        try:
+            self.assertEqual(t._api_token(), "",
+                             "未解析占位符是公开常量，不能当 token 用")
+        finally:
+            if old is not None:
+                os.environ["GANTRY_TOKEN"] = old
+
+
+class ShutdownActionTests(unittest.TestCase):
+    """「停止服务并退出」：只有停机请求真的被接受（或服务确实已停）才退托盘。"""
+
+    def _tray(self):
+        from gantry import tray as tray_mod
+
+        return tray_mod.Tray(port=9, root=ROOT)
+
+    def test_success_quits_tray(self):
+        from unittest import mock
+
+        t = self._tray()
+        with mock.patch.object(t, "_http", return_value={"stopping": True}), \
+                mock.patch.object(t, "balloon") as bal, \
+                mock.patch.object(t, "stop") as stop:
+            t._a_shutdown()
+        stop.assert_called_once()
+        bal.assert_not_called()
+
+    def test_rejected_request_keeps_tray(self):
+        """401/403/5xx：停机没发生，托盘不能退（用户实测 bug 的回归）。"""
+        import urllib.error
+        from unittest import mock
+
+        t = self._tray()
+        err = urllib.error.HTTPError("http://127.0.0.1:9/v1/shutdown", 401,
+                                     "Unauthorized", {}, None)
+        with mock.patch.object(t, "_http", side_effect=err), \
+                mock.patch.object(t, "balloon") as bal, \
+                mock.patch.object(t, "stop") as stop:
+            t._a_shutdown()
+        stop.assert_not_called()
+        bal.assert_called_once()
+        self.assertIn("401", bal.call_args[0][1], "气泡要说清是被拒绝（HTTP 401）")
+
+    def test_service_gone_quits_tray(self):
+        """连接错误 + /health 也打不通 → 服务确实停了，退托盘。"""
+        from unittest import mock
+
+        t = self._tray()
+        with mock.patch.object(t, "_http", side_effect=OSError("conn refused")), \
+                mock.patch.object(t, "balloon") as bal, \
+                mock.patch.object(t, "stop") as stop:
+            t._a_shutdown()
+        stop.assert_called_once()
+        bal.assert_not_called()
+
+    def test_service_up_but_request_failed_keeps_tray(self):
+        """停机请求连接失败但 /health 可达 → 服务还在，托盘别退。"""
+        from unittest import mock
+
+        t = self._tray()
+
+        def _http(path, *a, **k):
+            if path == "/health":
+                return {"status": "ok"}
+            raise OSError("conn reset")
+
+        with mock.patch.object(t, "_http", side_effect=_http), \
+                mock.patch.object(t, "balloon") as bal, \
+                mock.patch.object(t, "stop") as stop:
+            t._a_shutdown()
+        stop.assert_not_called()
+        bal.assert_called_once()
+
+    def test_restart_rejected_reports_immediately(self):
+        """重启请求被 401 拒绝时不许再等 60 秒 /health（那只会假装成功）。"""
+        import inspect
+        import urllib.error
+        from unittest import mock
+
+        t = self._tray()
+        err = urllib.error.HTTPError("http://127.0.0.1:9/v1/restart", 401,
+                                     "Unauthorized", {}, None)
+        with mock.patch.object(t, "_http", side_effect=err), \
+                mock.patch.object(t, "balloon") as bal:
+            t._a_restart()
+        self.assertEqual(bal.call_count, 2, "开始气泡 + 被拒绝气泡各一次")
+        self.assertIn("401", bal.call_args[0][1], "被拒绝必须报出 HTTP 状态码")
+        src = inspect.getsource(t._a_restart)
+        self.assertIn("HTTPError", src, "重启动作要单独处理 HTTP 拒绝")
+
+
 if __name__ == "__main__":
     unittest.main()

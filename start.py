@@ -90,42 +90,92 @@ def _t(lang: str, key: str, **kw: Any) -> str:
         return template
 
 
+def _write_token_file(path: Path, token: str) -> None:
+    """写 data/api_token（原子：先写 .tmp 再 replace，避免读到写一半的内容）。"""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(path.name + ".tmp")
+    tmp.write_text(token + "\n", encoding="utf-8")
+    tmp.replace(path)
+    try:
+        os.chmod(path, 0o600)
+    except OSError:
+        pass
+
+
+def _config_token_effective(raw) -> str:
+    """config.json `api_token` 的生效实值；配了但解析不出实值时返回 ""。
+
+    字面量直接用；${VAR} 占位符只有**全部**能解析出非空实值才算"已配置"
+    （AUD-P0-03：未解析占位符等于公开常量，必须走生成）。"""
+    raw = str(raw or "").strip()
+    if not raw:
+        return ""
+    if "${" not in raw:
+        return raw
+    names = re.findall(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}", raw)
+    if not names or not all(os.environ.get(n, "").strip() for n in names):
+        return ""
+    from gantry import envfile as _envfile
+    return str(_envfile.resolve_placeholders(raw)).strip()
+
+
 def ensure_api_token() -> None:
     """回环服务也默认生成 token：本机其它进程/用户不能裸调 /v1/*。
 
-    配置里显式写了 api_token 时尊重配置；否则从 data/api_token 读取/生成，
-    并通过环境变量传给 api.py。WebUI 在 401 时会提示输入；CLI 会自动读该文件。
+    优先级：config.json 的 api_token 实值（字面量或 ${VAR} 能解析）> data/api_token
+    （缺失则生成）。**无论哪条路径**，最终生效的 token 都写进 GANTRY_API_TOKEN
+    环境变量，并且 data/api_token 始终与它一致——托盘、CLI、WebUI 都以这两处为
+    凭据来源，缺一就会有人拿错 token（实测：托盘「停止服务并退出」被 401 拒绝后
+    静默退出，服务还活着）。
     """
     if str(SERVER.get("host", "127.0.0.1")) not in ("127.0.0.1", "localhost", "::1"):
         return
-    # AUD-P0-03：api_token 可能是 ${VAR} 占位符。先按 bridge 相同语义加载 .env
-    # （已存在的环境变量优先，重复加载幂等），只有占位符能解析出**非空实值**才算
-    # "已配置"；未解析占位符（等于公开常量）或解析后为空（鉴权停用）都走生成。
+    # 先按 bridge 相同语义加载 .env（已存在的环境变量优先，重复加载幂等），
+    # 占位符解析与 api.py 的 b.CFG 保持一致。
     from gantry import envfile as _envfile
     _envfile.load_env_file(BASE / ".env")
-    raw = str(CFG.get("api_token") or "").strip()
-    if raw and "${" not in raw:
-        return
-    if raw:
-        names = re.findall(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}", raw)
-        if names and all(os.environ.get(n, "").strip() for n in names):
-            return
+    effective = _config_token_effective(CFG.get("api_token"))
     token_file = BASE / "data" / "api_token"
-    token = ""
     try:
-        if token_file.exists():
-            token = token_file.read_text(encoding="utf-8").strip()
+        existing = token_file.read_text(encoding="utf-8").strip() if token_file.is_file() else ""
     except OSError:
-        token = ""
-    if not token:
-        token = secrets.token_urlsafe(32)
-        token_file.parent.mkdir(parents=True, exist_ok=True)
-        token_file.write_text(token + "\n", encoding="utf-8")
-        try:
-            os.chmod(token_file, 0o600)
-        except OSError:
-            pass
-        lang = _detect_lang()
+        existing = ""
+    lang = _detect_lang()
+    if effective:
+        # 配置给了实值：尊重配置，但要把文件同步过去。托盘/CLI 只认环境变量和
+        # data/api_token，文件缺失或过期会让它们拿错凭据（401）。
+        if existing != effective:
+            try:
+                _write_token_file(token_file, effective)
+            except OSError as exc:
+                import logging
+                logging.getLogger("gantry.start").warning(
+                    "写入 %s 失败（本次用内存中的 token）：%s", token_file, exc)
+            else:
+                if existing:
+                    import logging
+                    logging.getLogger("gantry.start").info(
+                        "api_token 与 config.json 不一致，已按配置同步 %s", token_file)
+                else:
+                    msg = {
+                        "zh": f"[gantry] 已按 config.json 写入 API token：{token_file}",
+                        "tw": f"[gantry] 已按 config.json 寫入 API token：{token_file}",
+                        "en": f"[gantry] API token written from config.json: {token_file}",
+                    }
+                    print(msg.get(lang, msg["zh"]))
+        os.environ["GANTRY_API_TOKEN"] = effective
+        return
+    if existing:
+        os.environ["GANTRY_API_TOKEN"] = existing
+        return
+    token = secrets.token_urlsafe(32)
+    try:
+        _write_token_file(token_file, token)
+    except OSError as exc:
+        import logging
+        logging.getLogger("gantry.start").error(
+            "生成 API token 写入失败（本次仅内存生效）：%s", exc)
+    else:
         msg = {
             "zh": f"[gantry] 已生成 API token：{token_file}（WebUI 会提示输入，CLI 自动读取）",
             "tw": f"[gantry] 已產生 API token：{token_file}（WebUI 會提示輸入，CLI 自動讀取）",

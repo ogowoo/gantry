@@ -240,6 +240,9 @@ TEXT = {
         "restarting": "正在重启服务…",
         "restarted": "服务已重启",
         "restart_timeout": "60 秒内没起来，看 data/logs/crash.log",
+        "restart_rejected": "重启请求被拒绝（HTTP {code}），服务未重启",
+        "shutdown_rejected": "停机请求被拒绝（HTTP {code}），服务仍在运行",
+        "shutdown_failed": "停机请求失败：{err}（服务仍在运行）",
         "failed": "操作失败",
         "no_service": "服务未响应：{err}",
         "language": "语言",
@@ -278,6 +281,9 @@ TEXT = {
         "restarting": "正在重新啟動服務…",
         "restarted": "服務已重新啟動",
         "restart_timeout": "60 秒內沒起來，看 data/logs/crash.log",
+        "restart_rejected": "重新啟動請求被拒絕（HTTP {code}），服務未重新啟動",
+        "shutdown_rejected": "停止請求被拒絕（HTTP {code}），服務仍在執行",
+        "shutdown_failed": "停止請求失敗：{err}（服務仍在執行）",
         "failed": "操作失敗",
         "no_service": "服務無回應：{err}",
         "language": "語言",
@@ -316,6 +322,9 @@ TEXT = {
         "restarting": "Restarting the service…",
         "restarted": "Service restarted",
         "restart_timeout": "not up within 60s — see data/logs/crash.log",
+        "restart_rejected": "Restart request rejected (HTTP {code}); service not restarted",
+        "shutdown_rejected": "Shutdown request rejected (HTTP {code}); service still running",
+        "shutdown_failed": "Shutdown request failed: {err} (service still running)",
         "failed": "Action failed",
         "no_service": "Service not responding: {err}",
         "language": "Language",
@@ -652,15 +661,48 @@ class Tray:
             log.warning("写 config.json 失败（本次会话内仍生效）：%s", exc)
 
     def _api_token(self) -> str:
-        """托盘动作也要过 api_token：优先环境变量，其次 data/api_token。"""
+        """托盘动作也要过 api_token：环境变量 > data/api_token > config.json。
+
+        最后一档兜底必须有：config.json 里配了实值 token 时，data/api_token 可能
+        缺失或过期，只有 config 知道答案。拿不到正确 token，托盘所有写操作
+        （停止服务/重启/更新）都会被 401 拒绝——「停止服务并退出」就是因此
+        静默失败、只退掉图标而服务还活着。
+        """
         tok = str(os.environ.get("GANTRY_API_TOKEN") or "").strip()
         if tok:
             return tok
         try:
-            return (self.root / "data" / "api_token").read_text(
+            tok = (self.root / "data" / "api_token").read_text(
                 encoding="utf-8").strip()
         except OSError:
+            tok = ""
+        if tok:
+            return tok
+        try:
+            cfg = json.loads((self.root / "config.json").read_text(encoding="utf-8"))
+        except Exception:                       # noqa: BLE001
             return ""
+        raw = str(cfg.get("api_token") or "").strip()
+        if not raw:
+            return ""
+        try:
+            # 与 bridge/api.py 相同的占位符语义：先补 .env，再解析 ${VAR}。
+            # 预检占位符是否可解析——未解析时直接返回，避免 resolve_placeholders
+            # 打 warning（托盘每 8 秒刷 tooltip 会调用这里，会刷屏）。
+            import re as _re
+
+            from .envfile import load_env_file, resolve_placeholders
+
+            load_env_file(self.root / ".env")
+            names = _re.findall(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}", raw)
+            if names and not all(os.environ.get(n, "").strip() for n in names):
+                return ""
+            resolved = str(resolve_placeholders(raw)).strip()
+        except Exception:                       # noqa: BLE001
+            return ""
+        if resolved and "${" not in resolved:
+            return resolved
+        return ""
 
     def _http(self, path: str, payload=None, timeout: float = 8.0) -> dict:
         return http_json(self.base_url() + path, payload, timeout,
@@ -819,6 +861,13 @@ class Tray:
         self.balloon(self.title, self.text["restarting"])
         try:
             self._http("/v1/restart", {}, timeout=20)
+        except urllib.error.HTTPError as exc:
+            # 401/403/5xx：重启根本没发生，别装模作样等 60 秒再报"超时"
+            log.warning("重启请求被拒绝（HTTP %s）", exc.code)
+            self.balloon(self.text["failed"],
+                         self.text["restart_rejected"].format(code=exc.code),
+                         error=True)
+            return
         except Exception as exc:                        # noqa: BLE001
             # 重启时连接被主动断开是正常的，继续等 /health
             log.info("重启请求返回异常（可能是连接先断）：%s", exc)
@@ -901,9 +950,34 @@ class Tray:
     def _a_shutdown(self) -> None:
         log.info("托盘：停止服务并退出")
         try:
-            self._http("/v1/shutdown", {}, timeout=20)
+            r = self._http("/v1/shutdown", {}, timeout=20)
+            if not (r or {}).get("stopping"):
+                # 服务回了 200 却没确认停机（理论上不会）——按失败处理，别默默退托盘
+                self.balloon(self.text["failed"],
+                             self.text["shutdown_rejected"].format(code="200"),
+                             error=True)
+                return
+        except urllib.error.HTTPError as exc:
+            # 401/403/5xx：停机请求根本没被接受，服务还在跑。托盘不能退——
+            # 否则就是"图标没了、服务还在"（用户实测的 bug）。
+            log.warning("停机请求被拒绝（HTTP %s），托盘保持运行", exc.code)
+            self.balloon(self.text["failed"],
+                         self.text["shutdown_rejected"].format(code=exc.code),
+                         error=True)
+            return
         except Exception as exc:                        # noqa: BLE001
-            log.warning("停止服务请求失败（可能已经停了）：%s", exc)
+            # 连接类错误：既可能是服务已经停了，也可能只是瞬时失败。
+            # 用 /health 区分——连健康检查都打不通才算"已经停了"。
+            try:
+                self._http("/health", timeout=2.0)
+            except Exception:                           # noqa: BLE001
+                log.info("服务已不可达（%s），按已停止处理", exc)
+            else:
+                log.warning("停机请求失败但服务仍在：%s", exc)
+                self.balloon(self.text["failed"],
+                             self.text["shutdown_failed"].format(err=str(exc)[:120]),
+                             error=True)
+                return
         self.stop()
 
 
