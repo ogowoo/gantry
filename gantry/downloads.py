@@ -5,14 +5,15 @@
 """
 from __future__ import annotations
 
-import asyncio, base64, collections, contextlib, json, os, re, shutil, time, uuid
+import asyncio, base64, collections, contextlib, json, os, re, shutil, tempfile, time, uuid, zipfile
 from datetime import datetime
 from pathlib import Path
 from typing import Literal
 
 from fastapi import HTTPException
 
-from . import bridge as b
+# bridge 在文件尾导入（bridge.py 尾部反向导入本模块的符号；顶部导入会在
+# 直接 import gantry.downloads 时触发循环导入）。所有 b.xxx 均为运行时访问。
 
 
 DOWNLOAD_HINT_RE = re.compile(r"download|下载|保存文件|save file", re.I)
@@ -248,6 +249,101 @@ async def _copilot_file_timeout_seconds() -> float:
     return max(60.0, sec)
 
 
+async def _download_chosen(chosen: dict, dest: Path) -> int:
+    """把选中的下载入口落到 dest，返回字节数。
+
+    href 可 fetch（blob:/data:/http(s)）直接取；否则是按钮型入口
+    （或 href 为 #/相对路径），点击并把浏览器下载事件接住。
+    """
+    _href = _resolve_href(chosen.get("href") or "")
+    if _href:
+        return await _save_from_href(_href, dest)
+    try:
+        async with b.page.expect_download(timeout=120000) as dl_info:
+            await chosen["el"].click(timeout=8000)
+        download = await dl_info.value
+        await download.save_as(str(dest))
+        size = dest.stat().st_size
+        _max = await _copilot_file_max_bytes()
+        if size > _max:
+            try:
+                dest.unlink(missing_ok=True)   # 超限不留半截文件
+            except OSError:
+                pass
+            raise b.ToolError(f"下载内容 {size / 1048576:.0f}MB 超过单次上限 "
+                              f"{_max // 1048576}MB（agent.copilot_file_max_mb 可调）")
+        return size
+    except b.ToolError:
+        raise
+    except Exception as exc:
+        raise b.ToolError(f"点击下载入口失败: {exc}") from exc
+
+
+def _extract_copilot_zip(zip_path: Path, target: Path, *, max_bytes: int) -> dict:
+    """把 Copilot 打包的 zip 安全解到目标路径（扁平解压 + zip-slip 防护）。
+
+    - 条目按 basename 平铺进临时目录再搬移；绝对路径 / .. / 盘符一律拒绝；
+    - 目标文件名必须在包内；包内只有一个文件时直接采用它（Copilot 可能改名）；
+    - 多余文件放到目标旁；与工作区已有文件重名时移入 <stem>_extras/，绝不覆盖旧文件。
+    返回 {path, bytes, extracted, extras}。任何失败都不在工作区留下半成品。
+    """
+    try:
+        zf = zipfile.ZipFile(zip_path)
+    except (zipfile.BadZipFile, OSError) as exc:
+        raise b.ToolError(f"Copilot 返回的不是有效 zip 包（{exc}）；请重试或改用分块写入") from exc
+    entries = [i for i in zf.infolist() if not i.filename.endswith("/")]
+    if not entries:
+        raise b.ToolError("Copilot 返回的 zip 是空的；请让它重新打包")
+    total = sum(int(i.file_size) for i in entries)
+    if total > max_bytes:
+        raise b.ToolError(f"zip 解压后 {total / 1048576:.0f}MB 超过单次上限 "
+                          f"{max_bytes // 1048576}MB（agent.copilot_file_max_mb 可调）")
+    tmp = Path(tempfile.mkdtemp(prefix="cbfile_"))
+    try:
+        names: list[str] = []
+        seen: set[str] = set()
+        for info in entries:
+            n = info.filename.replace("\\", "/")
+            segs = n.split("/")
+            if n.startswith("/") or ".." in segs or any(":" in s for s in segs):
+                raise b.ToolError(f"zip 内含可疑路径 {info.filename!r}，已拒绝（防路径穿越）")
+            base = os.path.basename(n)
+            if not base:
+                continue
+            if base in seen:                     # 同名条目：加序号防互相覆盖
+                stem, ext = os.path.splitext(base)
+                base = f"{stem}_{len(seen)}{ext}"
+            seen.add(base)
+            try:
+                (tmp / base).write_bytes(zf.read(info))
+            except (RuntimeError, OSError, zipfile.BadZipFile) as exc:
+                raise b.ToolError(f"zip 条目 {info.filename!r} 读取失败（{exc}）；请让 Copilot 重新打包") from exc
+            names.append(base)
+        if target.name in names:
+            picked = target.name
+        elif len(names) == 1:
+            picked = names[0]                    # Copilot 改名：唯一文件直接采用
+        else:
+            raise b.ToolError(f"zip 里没有 {target.name}（实际包含：{', '.join(names)}）；"
+                              f"请让 Copilot 用准确的文件名重新打包")
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.move(str(tmp / picked), str(target))
+        extras: list[str] = []
+        for n in names:
+            if n == picked:
+                continue
+            dest = target.parent / n
+            if dest.exists():                    # 不覆盖工作区已有文件
+                dest = target.parent / f"{target.stem}_extras" / n
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            shutil.move(str(tmp / n), str(dest))
+            extras.append(str(dest))
+        size = target.stat().st_size
+        return {"path": str(target), "bytes": size, "extracted": names, "extras": extras}
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
 async def _copilot_file(path: str, instruction: str) -> dict:
     """Agent 工具 copilot_file：让 Copilot 生成文件并下载到工作区。
 
@@ -255,6 +351,11 @@ async def _copilot_file(path: str, instruction: str) -> dict:
     Copilot 单条输出上限约束——一个大文件一个回合就能拿到，不再截断。
     代价是内容由 Copilot 侧生成，本地无法逐块校验；写完后仍按普通写入
     走验证闭环（.py/.json/.html 需要 validate_python + run_unittest）。
+
+    zip 传输（2026-11-26 用户实测）：Office/PDF/HTML 这类 Copilot 会渲染
+    预览卡片的文件，下载入口常被预览组件劫持——点击只会落下一串无后缀、
+    SID 风格命名的内部资源，真正的文件拿不到；zip 不触发预览、下载稳定。
+    因此非 zip 目标统一让 Copilot 打包成 zip，本地安全解压落盘。
     """
     if not b.AGENT_CFG.get("allow_copilot_file", True):
         raise b.ToolError("copilot_file 已在 config.json 中禁用（allow_copilot_file=false）")
@@ -267,6 +368,8 @@ async def _copilot_file(path: str, instruction: str) -> dict:
     except ValueError as exc:
         raise b.ToolError("copilot_file 只能写入当前工作区") from exc
     filename = target.name
+    is_zip_target = filename.lower().endswith(".zip")
+    zipname = filename if is_zip_target else (target.stem + ".zip")
     model = b.DEFAULT_MODEL
     if b.current_session():
         st = b.AGENT_SESSIONS.get(b.current_session())
@@ -279,9 +382,18 @@ async def _copilot_file(path: str, instruction: str) -> dict:
     _auto_models = ("copilot-auto", "copilot-chat-basic-web")
     if _file_model and model in _auto_models:
         model = _file_model
-    prompt = (f"请把结果生成为一个可下载的文件，文件名：{filename}\n"
-              f"要求：只生成文件并提供下载入口，不要在回答里粘贴文件正文或大段内容。\n"
-              f"内容要求：{instruction}")
+    if is_zip_target:
+        prompt = (f"请把结果生成为一个可下载的文件，文件名：{filename}\n"
+                  f"要求：只生成文件并提供下载入口，不要在回答里粘贴文件正文或大段内容。\n"
+                  f"内容要求：{instruction}")
+    else:
+        # 预览卡片会劫持直接下载（Office/PDF/HTML 实测拿不到真文件），
+        # 统一让 Copilot 打包 zip——zip 不触发预览，下载稳定（用户验证）。
+        prompt = (f"请把结果打包为一个 zip 压缩包并提供下载入口：zip 文件名 {zipname}，"
+                  f"里面包含文件 {filename}\n"
+                  f"要求：只生成 zip 并提供下载入口，不要在回答里粘贴文件正文或大段内容；"
+                  f"zip 里只放最终成品文件，不要附带说明或草稿。\n"
+                  f"内容要求：{instruction}")
     # 生成阶段安静期长（检索+渲染），用本工具专属的更长无进度超时，
     # 不要用普通问答的 reply_timeout_seconds（实测 180s 会误杀还在生成的文件）。
     await b.agent_chat_once(prompt, model, False,
@@ -311,7 +423,7 @@ async def _copilot_file(path: str, instruction: str) -> dict:
                         + "可改用 write_text_b64/append_text_b64 分块写入")
 
     chosen = None
-    stem = Path(filename).stem.lower()
+    stem = Path(zipname).stem.lower()
     # 优先级：① href 是 blob:/data: 且文案含文件名 → ② blob:/data: →
     #         ③ 文案含文件名 → ④ 第一个候选
     _dl = [c for c in candidates if (c.get("href") or "").startswith(("blob:", "data:"))]
@@ -338,33 +450,32 @@ async def _copilot_file(path: str, instruction: str) -> dict:
         pass
     b.AGENT_TOOLS._snap("copilot_file", path, target)   # 覆盖前存原像，可回滚
     before = b.AGENT_TOOLS._hash(target)
-    size = 0
-    _href = _resolve_href(chosen.get("href") or "")
-    if _href:
-        size = await _save_from_href(_href, target)
-    else:
-        # 按钮型入口，或 href 无效（#/相对路径等）：点它并把浏览器下载事件接住
-        try:
-            async with b.page.expect_download(timeout=120000) as dl_info:
-                await chosen["el"].click(timeout=8000)
-            download = await dl_info.value
-            await download.save_as(str(target))
-            size = target.stat().st_size
-            _max = await _copilot_file_max_bytes()
-            if size > _max:
-                try:
-                    target.unlink(missing_ok=True)   # 超限不留半截文件
-                except OSError:
-                    pass
-                raise b.ToolError(f"下载内容 {size / 1048576:.0f}MB 超过单次上限 "
-                                  f"{_max // 1048576}MB（agent.copilot_file_max_mb 可调）")
-        except b.ToolError:
-            raise
-        except Exception as exc:
-            raise b.ToolError(f"点击下载入口失败: {exc}") from exc
-    if size <= 0:
-        raise b.ToolError("下载到 0 字节，可能不是有效文件；请让 Copilot 重新生成或改用分块写入")
-    return {"path": path, "bytes": size, "filename": filename,
-            "source": "copilot-download",
+    if is_zip_target:
+        # 目标本身就是 zip：直接落盘，不做解压（zip 下载稳定，无需中转）。
+        size = await _download_chosen(chosen, target)
+        if size <= 0:
+            raise b.ToolError("下载到 0 字节，可能不是有效文件；请让 Copilot 重新生成或改用分块写入")
+        return {"path": path, "bytes": size, "filename": filename,
+                "source": "copilot-download",
+                "file_event": {"tool": "copilot_file", "path": path, "before_hash": before,
+                               "after_hash": b.AGENT_TOOLS._hash(target), "result": "ok"}}
+    # 非 zip 目标：先拿 zip 再解压。临时目录放系统临时区（不在工作区内），
+    # 失败/中断不留任何半成品。
+    tmpdir = Path(tempfile.mkdtemp(prefix="cbfile_"))
+    tmpzip = tmpdir / zipname
+    try:
+        zsize = await _download_chosen(chosen, tmpzip)
+        if zsize <= 0:
+            raise b.ToolError("下载到 0 字节，可能不是有效文件；请让 Copilot 重新生成或改用分块写入")
+        out = _extract_copilot_zip(tmpzip, target, max_bytes=await _copilot_file_max_bytes())
+    finally:
+        shutil.rmtree(tmpdir, ignore_errors=True)
+    return {"path": path, "bytes": out["bytes"], "filename": filename,
+            "source": "copilot-download-zip",
+            "extracted": out["extracted"],
+            "extras": [str(x) for x in out["extras"]],
             "file_event": {"tool": "copilot_file", "path": path, "before_hash": before,
                            "after_hash": b.AGENT_TOOLS._hash(target), "result": "ok"}}
+
+
+from . import bridge as b  # noqa: E402,F401  （晚导入：见文件头注释）
