@@ -12,7 +12,10 @@
 - 
 
 ### Fixed
-- 
+- **单实例锁挡住 `--print-menu` / `--tray-selftest` / `--help`**：服务已运行时执行这些
+  查询/自检命令会报「已有另一个 Gantry 实例在运行」并退出 3。锁只该挡真正要起服务的
+  入口（serve/detach），现在移到这些命令之后；测试 `test_print_menu_runs_without_service`
+  恢复通过。
 
 ## [0.12.0-beta.43] - 2026-11-27
 

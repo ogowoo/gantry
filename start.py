@@ -652,7 +652,6 @@ def main(argv: list[str]) -> int:
     _utf8_stdio()
     _install_crash_log()
     _install_hang_dump()
-    _acquire_instance_lock()
     from gantry.logcfg import setup_logging
 
     tray_child = ("--tray-child" in argv) or (os.environ.get("GANTRY_TRAY_CHILD") == "1")
@@ -668,6 +667,10 @@ def main(argv: list[str]) -> int:
     if "--help" in argv or "-h" in argv:
         print(__doc__)
         return 0
+
+    # 单实例锁只挡"真正要起服务"的入口；--print-menu / --tray-selftest / --help
+    # 只是查询/自检，不占用端口也不动会话，不该被已运行的服务拒绝。
+    _acquire_instance_lock()
 
     # 后台子进程（或前台）：先把日志配好，再干别的
     setup_logging(BASE, console=foreground and not tray_child)
