@@ -181,6 +181,27 @@ async function loadMemory(){
   catch(e){toast(tr('操作失败: ')+e,'err')}});
 }
 try{memBtn()}catch(e){}
+/* ── 图标行溢出均分 ──────────────────────────────────────────────
+   .listacts 里的图标一行放不下时，flex-wrap 贪心换行会出现"8+1"的独苗。
+   这里探测是否换行：是则切到 grid（.split），按 ⌈n/2⌉ 列均分两行。 */
+function balanceListActs(){
+ const bar=document.querySelector('.listacts');
+ if(!bar)return;
+ bar.classList.remove('split');
+ const kids=[...bar.children];
+ if(kids.length<2)return;
+ const wrapped=kids.some(k=>k.offsetTop!==kids[0].offsetTop);
+ if(wrapped){
+  bar.style.setProperty('--cols',Math.ceil(kids.length/2));
+  bar.classList.add('split')}
+}
+try{
+ const _acts=document.querySelector('.listacts');
+ if(_acts&&typeof ResizeObserver!=='undefined'){
+  new ResizeObserver(()=>balanceListActs()).observe(_acts)}
+ window.addEventListener('resize',balanceListActs);
+ balanceListActs();
+}catch(e){}
 /* ── Copilot 未就绪提示条（按需启动后：没有 Copilot 也能用提供商模型）── */
 let bootStateSeen=null;
 function bootBanner(){

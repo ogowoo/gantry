@@ -26,6 +26,11 @@
    （右对齐时 7 个图标挤在右侧、左边留一大片空白）。 */
 .listacts{flex:1 1 100%;display:flex;justify-content:flex-start;align-items:center;
   gap:5px;row-gap:6px;flex-wrap:wrap;min-width:0}
+/* 图标一行放不下时均分两行（JS 探测到换行后加 .split，--cols = ⌈n/2⌉）：
+   flex-wrap 贪心换行会留下"8+1"的独苗；grid 固定列数让两行数量差 ≤1，
+   且按行主序排（第一行是前一半），图标位置不跳。 */
+.listacts.split{display:grid;grid-template-columns:repeat(var(--cols,5),1fr);
+  justify-items:center}
 .sesslist{flex:1;overflow:auto;padding:0 8px 12px}
 .sess{display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:10px;
   cursor:pointer;border:1px solid transparent}
