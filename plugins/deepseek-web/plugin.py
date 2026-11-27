@@ -27,6 +27,7 @@ DeepSeek 网页端要 PoW（`DeepSeekHashV1`，官方 WASM 求解）+ 浏览器 
 
 from __future__ import annotations
 
+import asyncio
 import time
 from typing import Any
 
@@ -180,13 +181,57 @@ def _cfg(ctx: Any) -> dict[str, Any]:
 
 
 async def _status(ctx: Any) -> dict[str, Any]:
-    """面板/接口共用：反代连通性 + 模型清单（模型归属插件前缀，便于直接选）。"""
+    """面板/接口共用：反代连通性 + 模型清单（模型归属插件前缀，便于直接选）。
+
+    反代挂掉时每次探测 ≈2.3s（httpx 全地址重试），面板每开一次就卡一次。
+    所以**有缓存先回缓存**（后台异步再探测一次，完成即覆盖缓存），只有
+    首次（无缓存）才同步探测——面板打开不被一个挂掉的反代拖住。
+    """
     cfg = _cfg(ctx)
-    res = await probe(str(cfg["base_url"]), str(cfg["api_key"]))
+
+    def _payload(cached: bool) -> dict[str, Any]:
+        prefix = str(cfg["provider"])
+        ok = bool(_LAST.get("ok"))
+        live = list(_LAST.get("models") or [])
+        return {
+            "provider": prefix,
+            "base_url": cfg["base_url"],
+            "reachable": ok,
+            "ready": bool(ok and live),
+            "latency_ms": _LAST.get("latency_ms") or 0,
+            "error": _LAST.get("error") or "",
+            "models_in_proxy": live,
+            "model_ids": [f"{prefix}/{m}" for m in live],
+            "suggested_models": list(cfg["models"]),
+            "cached": cached,
+            "hint": (f"选模型时用 {prefix}/<模型名>" if (ok and live) else
+                     ("反代在线但没有可用模型：打开它的管理面板登录 DeepSeek 账号后刷新"
+                      if ok else
+                      f"反代连不上（{cfg['base_url']}）：先把 docker/python 那个反代跑起来")),
+        }
+
+    if _LAST.get("at"):
+        asyncio.get_running_loop().create_task(_refresh_status(ctx, cfg))
+        return _payload(cached=True)
+
+    res = await probe(str(cfg["base_url"]), str(cfg["api_key"]), timeout=2.0)
+    _apply_probe(ctx, cfg, res)
+    return _payload(cached=False)
+
+
+async def _refresh_status(ctx: Any, cfg: dict[str, Any]) -> None:
+    """后台刷新 _LAST（不阻塞面板）；失败保留旧缓存。"""
+    try:
+        res = await probe(str(cfg["base_url"]), str(cfg["api_key"]), timeout=2.0)
+        _apply_probe(ctx, cfg, res)
+    except Exception:
+        pass
+
+
+def _apply_probe(ctx: Any, cfg: dict[str, Any], res: dict[str, Any]) -> None:
+    """把一次探测结果落进 _LAST，并按实际清单重新注册提供商。"""
     # 反代**实际**给出的模型；配置里的清单只是"建议值"，不能当成已就绪
     live_models = list(res["models"])
-    candidates = list(cfg["models"])
-    # 反代刚起 / 新增了模型：按实际清单重新注册提供商，界面刷新即可选到
     if res["ok"] and live_models:
         try:
             ctx.register_provider(str(cfg["provider"]), {
@@ -201,22 +246,6 @@ async def _status(ctx: Any) -> dict[str, Any]:
             pass
     _LAST.update({"at": time.time(), "ok": res["ok"], "models": live_models,
                   "error": res["error"], "latency_ms": res["latency_ms"]})
-    prefix = str(cfg["provider"])
-    return {
-        "provider": prefix,
-        "base_url": cfg["base_url"],
-        "reachable": res["ok"],
-        "ready": bool(res["ok"] and live_models),
-        "latency_ms": res["latency_ms"],
-        "error": res["error"],
-        "models_in_proxy": live_models,
-        "model_ids": [f"{prefix}/{m}" for m in live_models],
-        "suggested_models": candidates,
-        "hint": (f"选模型时用 {prefix}/<模型名>" if (res["ok"] and live_models) else
-                 ("反代在线但没有可用模型：打开它的管理面板登录 DeepSeek 账号后刷新"
-                  if res["ok"] else
-                  f"反代连不上（{cfg['base_url']}）：先把 docker/python 那个反代跑起来")),
-    }
 
 
 def setup(ctx: Any) -> None:
