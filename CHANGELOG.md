@@ -12,6 +12,20 @@
 - 
 
 ### Fixed
+- 
+
+## [0.12.0-beta.44] - 2026-11-27
+
+### Added
+- 
+
+### Changed
+- 
+
+### Fixed
+- **会话列表图标行溢出时出现"8+1"独苗**：`.listacts` 靠 flex-wrap 贪心换行，一行
+  放不下时第二行只剩一个图标。现在 JS 探测换行，溢出即切 grid、按 ⌈n/2⌉ 列均分
+  两行（保持行主序），ResizeObserver + resize 事件双触发。
 - **单实例锁挡住 `--print-menu` / `--tray-selftest` / `--help`**：服务已运行时执行这些
   查询/自检命令会报「已有另一个 Gantry 实例在运行」并退出 3。锁只该挡真正要起服务的
   入口（serve/detach），现在移到这些命令之后；测试 `test_print_menu_runs_without_service`
